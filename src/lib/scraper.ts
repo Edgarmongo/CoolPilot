@@ -1,7 +1,18 @@
 import * as cheerio from "cheerio";
 import { XMLParser } from "fast-xml-parser";
-import { generateStructured, MissingAIKeyError, postDraftSchema } from "./ai";
+import { aiRuntime } from "@/features/ai-runtime";
+import { AppError } from "@/lib/app-errors";
+import { postDraftSchema } from "@/lib/ai/schemas";
 import { normalizePostText } from "./post-format";
+
+/**
+ * Article reading and the two social-draft generators.
+ *
+ * Both generators run on `aiRuntime` directly (P3-A1 of `docs/generate-migration-p3.md`): provider
+ * order, model choice, key rotation, failover and usage are the runtime's business, and all this file
+ * still owns is the prompt, the draft normalisation and the error meaning its callers see. The legacy
+ * `generateStructured` facade is no longer imported here, so nothing in this path depends on it.
+ */
 
 export async function fetchArticleText(url: string) {
   const response = await fetch(url, {
@@ -35,6 +46,16 @@ function toPostDraft(draft: { title: string; body: string }, fallbackTitle: stri
   };
 }
 
+/**
+ * `MODEL_CREDENTIAL_*` is the runtime's way of saying "a key belongs to this call and is not
+ * usable" (missing, unusable, rejected). The whole family means the same thing to a consumer -
+ * fix the credential, do not retry the request - so it passes through unwrapped (D-P3-3) instead of
+ * being flattened into a message-only `Error` that nothing can branch on.
+ */
+function isCredentialFailure(error: unknown): error is AppError {
+  return error instanceof AppError && error.code.startsWith("MODEL_CREDENTIAL_");
+}
+
 export async function rewriteArticle(input: {
   title: string;
   text: string;
@@ -57,10 +78,19 @@ export async function rewriteArticle(input: {
     .join("\n");
 
   try {
-    const result = await generateStructured({ prompt, schema: postDraftSchema });
-    return { ...toPostDraft(result.data, input.title), provider: result.provider, model: result.model, usage: result.usage };
+    const response = await aiRuntime.chatStructured({
+      messages: [{ role: "user", content: prompt }],
+      schema: postDraftSchema,
+    });
+    return {
+      ...toPostDraft(response.data, input.title),
+      provider: response.providerId,
+      model: response.model,
+      usage: response.usage,
+    };
   } catch (error) {
-    if (error instanceof MissingAIKeyError) {
+    // The credential cases are the caller's to report; everything else keeps the legacy message.
+    if (isCredentialFailure(error)) {
       throw error;
     }
     throw new Error(`AI rewrite failed: ${(error as Error).message}`);
@@ -85,8 +115,17 @@ export async function generateTopicPost(input: {
   ]
     .filter(Boolean)
     .join("\n");
-  const result = await generateStructured({ prompt, schema: postDraftSchema, systemPrompt: input.systemPrompt });
-  return { ...toPostDraft(result.data, input.topic), provider: result.provider, model: result.model, usage: result.usage };
+  const response = await aiRuntime.chatStructured({
+    messages: [{ role: "user", content: prompt }],
+    systemPrompt: input.systemPrompt,
+    schema: postDraftSchema,
+  });
+  return {
+    ...toPostDraft(response.data, input.topic),
+    provider: response.providerId,
+    model: response.model,
+    usage: response.usage,
+  };
 }
 
 export async function searchGoogleNews(topic: string, maxItems = 5) {

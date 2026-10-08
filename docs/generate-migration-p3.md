@@ -168,3 +168,17 @@ Required cases (`src/lib/scraper.test.ts`), all through a stubbed transport:
 4. A 400 is not the key's fault: exactly one call, no rotation, the failure surfaces (L4).
 5. Credential failure is passed through unwrapped, so consumers see `MODEL_CREDENTIAL_MISSING`
    instead of a message-only `Error` (D-P3-3).
+
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` clean, `node_modules\.bin\eslint.cmd .`
+  0 errors (the single warning is the pre-existing `react-hooks/exhaustive-deps` one in
+  `components/agent-chat/chat-conversation.tsx`), `node_modules\.bin\vitest.cmd run` =
+  **59 files / 335 tests, all pass** - A0's 58 / 330 plus exactly this batch's 1 file / 5 tests.
+* One thing the cases deliberately do not pin is *which* of two keys is tried first.
+  `planCredentialKeys()` orders by use count, and the key that ran the catalog sync (`prepareModel()`
+  in the test) has already been counted once, so the position of the rejected key is an accounting
+  artefact rather than a contract. Case 2 therefore asserts the rotation itself - two different
+  `Authorization` values, the second attempt succeeding - while case 4 asserts the other half of L4:
+  a 400 produces exactly one call, so neither the second key nor a second model is burned.
+* The two generators keep their different error contracts, and the cases show it: `generateTopicPost()`
+  surfaces whatever the runtime threw while `rewriteArticle()` wraps everything except the
+  `MODEL_CREDENTIAL_*` family, which the last case pins with `instanceof AppError` plus the code.
