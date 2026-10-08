@@ -33,16 +33,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * runtime, the registry, the router, the key pool, the provider adapter - and only the *transport* is
  * stubbed. Nothing here asserts that a mock was called.
  *
- * `@/lib/ai` and `@/lib/ai/generate` are mocked with throwing factories: this is the article *image*
- * path, so a surviving legacy-facade import anywhere under it fails the whole file instead of a packaged
- * build. `@/lib/ai/compat` is deliberately *not* mocked here either: the domain service is its only
- * production importer and that edge is legal until P3-B-3, the batch that adds the third factory.
+ * `@/lib/ai`, `@/lib/ai/generate` and `@/lib/ai/compat` are mocked with throwing factories: this is the
+ * article *image* path, so a surviving legacy-facade import anywhere under it fails the whole file instead
+ * of a packaged build. The compat factory is the one P3-B-3 added - the shim is no longer reachable from
+ * this path at all, so the factory costs nothing and turns the cut into an assertion.
  */
 vi.mock("@/lib/ai", () => {
   throw new Error("lib/article-images must not import the legacy facade (@/lib/ai)");
 });
 vi.mock("@/lib/ai/generate", () => {
   throw new Error("lib/article-images must not import the legacy facade (@/lib/ai/generate)");
+});
+vi.mock("@/lib/ai/compat", () => {
+  throw new Error("lib/article-images must not reach the compat shim (@/lib/ai/compat)");
 });
 
 /**

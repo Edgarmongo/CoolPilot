@@ -12,15 +12,18 @@ import type { PositionRecord, ProductRecord } from "@/lib/types";
  * The two text facades are mocked with throwing factories, because this is the file that used to import
  * `generateStructured` from `@/lib/ai/generate`: if the route - or anything it imports - still reached
  * for a facade, the whole file fails instead of one case quietly keeping the old behaviour alive.
- * `@/lib/ai/compat` is deliberately **not** mocked: this route reaches `lib/agent/image-generation.ts`
- * through `lib/article-images.ts`, and that module imports compat on purpose until batch P3-B migrates
- * it, so a throwing factory there would fail on a legitimate import.
+ * `@/lib/ai/compat` is mocked the same way since P3-B-3: this route reaches
+ * `lib/agent/image-generation.ts` through `lib/article-images.ts`, and that module was the shim's only
+ * production importer until the batch cut the edge - so the factory is now the proof that it is gone.
  */
 vi.mock("@/lib/ai", () => {
   throw new Error("api/ai-writing/generate must not import the legacy facade (@/lib/ai)");
 });
 vi.mock("@/lib/ai/generate", () => {
   throw new Error("api/ai-writing/generate must not import the legacy facade (@/lib/ai/generate)");
+});
+vi.mock("@/lib/ai/compat", () => {
+  throw new Error("api/ai-writing/generate must not reach the compat shim (@/lib/ai/compat)");
 });
 
 /**

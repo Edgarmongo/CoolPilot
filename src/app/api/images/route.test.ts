@@ -21,25 +21,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *     is the route-level counterpart of G3.
  *  2. **Every AI failure leaves as the same flat 500.** `fail(error.message, 500)` drops the runtime's
  *     status *and* its code (`MODEL_CREDENTIAL_MISSING`'s 400, `MODEL_UPSTREAM_NO_CONTENT`'s 502 and
- *     `MODEL_NOT_CONFIGURED`'s 503 all arrive as `UNKNOWN_ERROR`), and the compat shim's
- *     `Missing openai API key` is still what a keyless install reads - until P3-B-3 cuts
- *     `image-generation.ts -> compat.ts`. D-P3-3 is P3-C's commit, not this one.
+ *     `MODEL_NOT_CONFIGURED`'s 503 all arrive as `UNKNOWN_ERROR`); what survives is the runtime's own
+ *     sentence, because P3-B-3 cut `image-generation.ts -> compat.ts` and took the shim's
+ *     `Missing openai API key` with it. D-P3-3 is P3-C's commit, not this one.
  *
  * The chain under test is the real one - route handler, domain service, runtime, registry, router, key
  * pool, provider adapter - and only the *transport* is stubbed. Nothing here asserts that a mock was
  * called.
  *
- * `@/lib/ai` and `@/lib/ai/generate` are mocked with throwing factories: this route is on the image
- * side of the app, so a surviving `generateText` import anywhere under the handler fails the whole file
- * instead of a packaged build. `@/lib/ai/compat` is deliberately *not* mocked here: the domain service
- * is its only production importer and that edge is legal until P3-B-3 - the batch that adds the third
- * throwing factory to this file.
+ * `@/lib/ai`, `@/lib/ai/generate` and `@/lib/ai/compat` are mocked with throwing factories: this route is
+ * on the image side of the app, so a surviving facade import anywhere under the handler fails the whole
+ * file instead of a packaged build. The compat factory is P3-B-3's own guard - it was impossible before
+ * this batch (the domain service was the shim's only production importer, which is exactly the edge the
+ * batch cut), so it now proves the cut instead of documenting it.
  */
 vi.mock("@/lib/ai", () => {
   throw new Error("api/images must not import the legacy facade (@/lib/ai)");
 });
 vi.mock("@/lib/ai/generate", () => {
   throw new Error("api/images must not import the legacy facade (@/lib/ai/generate)");
+});
+vi.mock("@/lib/ai/compat", () => {
+  throw new Error("api/images must not import the compat shim (@/lib/ai/compat)");
 });
 
 /**
@@ -244,20 +247,26 @@ describe("POST /api/images on aiRuntime", () => {
     ]);
     // Gemini is configured and callable; the settings still name OpenAI as the image provider.
     await prepareImageModel("gemini", "gemini-2.5-flash-image", "sk-stub-gemini");
+    // Preparation syncs gemini's catalog; what this case measures is the request that follows.
+    const prepared = calls.length;
 
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
 
     expect(response.status).toBe(500);
     expect(payload.code).toBe("UNKNOWN_ERROR");
-    // The compat shim's wording, kept verbatim until P3-B-3 cuts `image-generation.ts -> compat.ts`.
-    // The pin is why the callable gemini model was not used instead, and why no other provider was
-    // asked: the candidate chain is one provider wide.
-    expect(payload.message).toBe("Missing openai API key");
+    // The runtime's routing sentence, not the shim's `Missing openai API key` (P3-B-3). The pin is why the
+    // callable gemini model was not used instead, and why no other provider was asked: the candidate chain
+    // is one provider wide.
+    expect(payload.message).toBe("No model is configured for this request");
+    expect(payload.message).not.toContain("Missing");
     expect(payload.error).toBe(payload.message);
     expect(payload.details).toBeUndefined();
     expect(generateContentCalls(calls)).toHaveLength(0);
     expect(imageCalls(calls)).toHaveLength(0);
+    // ...and why nothing was sent at all: routing never makes a request of its own, and the shim's one
+    // exception to that - an on-demand discovery pass for the pinned provider - is what B-3 removed.
+    expect(calls).toHaveLength(prepared);
     expect(await artifacts()).toEqual([]);
   });
 
@@ -332,10 +341,36 @@ describe("POST /api/images on aiRuntime", () => {
 
     expect(response.status).toBe(500);
     expect(payload.code).toBe("UNKNOWN_ERROR");
-    expect(payload.message).toBe("Missing openai API key");
+    // The runtime's 503 reason is what a keyless install reads now (P3-B-3 cut the shim that used to word
+    // this as `Missing openai API key`); the route still flattens its status and code away.
+    expect(payload.message).toBe("No model is configured for this request");
     expect(payload.message).not.toContain("sk-");
     expect(payload.details).toBeUndefined();
+    // Nothing on the wire either - no model call and no catalog read: an empty registry is not discovered
+    // on demand any more.
+    expect(calls).toHaveLength(0);
     expect(imageCalls(calls)).toHaveLength(0);
+    expect(await artifacts()).toEqual([]);
+  });
+
+  it("no longer syncs the pinned provider's catalog on demand (P3-B-3)", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.endsWith("/models"), respond: openAIImageCatalog },
+      { match: (target) => target.includes("/images/generations"), respond: () => openAIImageReply() },
+    ]);
+    // A key was pasted and nothing else: the provider has an endpoint and a credential but no catalog row.
+    // That is the exact state the shim's discovery pass used to rescue inside a failed request - it would
+    // read `/models`, enable what it found and answer 201. The pinned provider is still not routable, so
+    // the request is not made at all.
+    await credentials.writeCredential(credentials.credentialRefFor("openai"), "sk-stub-openai-unsynced");
+
+    const response = await postImage({ prompt: "a cat on a keyboard" });
+    const payload = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(payload.code).toBe("UNKNOWN_ERROR");
+    expect(payload.message).toBe("No model is configured for this request");
+    expect(calls).toHaveLength(0);
     expect(await artifacts()).toEqual([]);
   });
 
@@ -350,11 +385,12 @@ describe("POST /api/images on aiRuntime", () => {
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
 
-    // A configured model with no usable key is `MODEL_CREDENTIAL_MISSING` (a 400 in the runtime) and
-    // the shim's `MissingAIKeyError` again - both flattened into this route's one failure shape.
+    // A configured model with no usable key is `MODEL_CREDENTIAL_MISSING` (a 400 in the runtime), and the
+    // runtime's sentence for it is all that survives this route's one failure shape - the shim's
+    // `MissingAIKeyError` is gone from this path (P3-B-3).
     expect(response.status).toBe(500);
     expect(payload.code).toBe("UNKNOWN_ERROR");
-    expect(payload.message).toBe("Missing openai API key");
+    expect(payload.message).toBe("No configured model has a usable credential for this request");
     expect(imageCalls(calls)).toHaveLength(0);
     expect(await artifacts()).toEqual([]);
   });

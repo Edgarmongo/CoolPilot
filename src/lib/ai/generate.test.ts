@@ -13,6 +13,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * The transport is always stubbed, so no test touches a real endpoint and no key from
  * `.env.local` can reach one either. Rotation / failover / pinning are asserted in
  * `src/features/ai-runtime/runtime.test.ts`; here the facade contract is what matters.
+ *
+ * The two facades are not equally legacy any more: P3-B-3 cut `image-generation.ts` off the compat shim, so
+ * `generateImageFile` surfaces the runtime's own routing errors and triggers no discovery, while
+ * `generateText` / `generateStructured` still run through `lib/ai/compat.ts` - deleting that shim is P4's,
+ * not this batch's.
  */
 const dataDir = mkdtempSync(path.join(tmpdir(), "coolpilot-legacy-facade-"));
 process.env.SOCIAL_AUTO_POST_DB_URL = `file:${path.join(dataDir, "facade.db").replace(/\\/g, "/")}`;
@@ -24,6 +29,7 @@ const registry = await import("@/features/ai-runtime/registry");
 const runtimeSync = await import("@/features/ai-runtime/sync");
 const repository = await import("@/db/repositories/ai-runtime");
 const credentials = await import("@/lib/credentials");
+const { AppError } = await import("@/lib/app-errors");
 const { aiProviderOrder, aiProviderRegistry } = await import("@/features/ai-settings/provider-registry");
 const { postDraftSchema } = await import("./schemas");
 const { keylessAppEnvValue } = await import("@/test/app-env");
@@ -318,13 +324,21 @@ describe("legacy AI facade on aiRuntime", () => {
     ]);
     // Gemini is configured and callable; the settings still name OpenAI as the image provider.
     await prepareModel("gemini", "gemini-2.5-flash-image", "sk-stub-gemini");
+    // `prepareModel` syncs gemini's catalog; the facade call below is what this case measures.
+    const prepared = calls.length;
 
     const error: unknown = await imageFacade
       .generateImageFile({ prompt: "a cat on a keyboard" })
       .catch((thrown: unknown) => thrown);
 
-    expect(error).toBeInstanceOf(facade.MissingAIKeyError);
-    expect((error as Error).message).toBe("Missing openai API key");
+    // P3-B-3 cut `image-generation.ts -> compat.ts`, so the facade now surfaces the runtime's own routing
+    // error (`MissingAIKeyError` survives only on the text facade until P4) - and with the shim went the
+    // on-demand discovery pass, which is why the pinned provider's catalog was never read here.
+    expect(error).toBeInstanceOf(AppError);
+    const failure = error as InstanceType<typeof AppError>;
+    expect(failure.code).toBe("MODEL_NOT_CONFIGURED");
+    expect(failure.message).toBe("No model is configured for this request");
     expect(calls.some((call) => call.url.includes(":generateContent"))).toBe(false);
+    expect(calls).toHaveLength(prepared);
   });
 });

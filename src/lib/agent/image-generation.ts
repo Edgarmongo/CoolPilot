@@ -4,15 +4,30 @@ import { nanoid } from "nanoid";
 import { getLocalAgentSettings } from "@/db/repositories/settings";
 import { aiRuntime } from "@/features/ai-runtime";
 import { AppError } from "@/lib/app-errors";
-import { preferredImageProvider, withLegacyCompatibility } from "@/lib/ai/compat";
 import { artifactsRoot } from "@/lib/paths";
 
 /**
- * Image generation facade over `aiRuntime` (phase P2 of `docs/generate-migration.md`, G3).
+ * Image generation facade over `aiRuntime` (phase P2 of `docs/generate-migration.md`, G3; cut off the
+ * legacy compat shim in P3-B-3).
  *
  * The split is deliberate: the runtime owns *how* the image is produced (provider, endpoint,
  * model, key rotation, failover), this module owns *where it lands* (artifacts directory,
  * file naming) - exactly the boundary a model layer must not cross.
+ *
+ * P3-B-3 removed the last legacy edge on this path (`image-generation.ts -> lib/ai/compat.ts`), so two
+ * compensations the shim used to apply here are gone by design, not by regression:
+ *
+ *  - A keyless (or key-revoked) install reads the runtime's own routing sentence - `No model is
+ *    configured for this request`, `No configured model has a usable credential for this request` -
+ *    where the shim used to answer `Missing openai API key` / `MissingAIKeyError`.
+ *  - A pinned provider whose catalog was never synced is simply not routable. The shim ran one bounded
+ *    discovery pass inside the failed request (read `/models`, enable what it found, route again); that
+ *    cold-start job belongs to the seed (`ensureModelRuntimeSeeded`, D-P3-1), which runs it for every
+ *    provider that already holds a key - so a request never syncs anything.
+ *
+ * What the cut did *not* change is the product decision underneath: the provider (`input.provider`, else
+ * `settings.imageProvider`, else `openai`) is a hard pin, passed to the runtime as `providerId`, so the
+ * candidate chain is one provider wide (D-P3-2, G3).
  */
 
 const imageExtensions: Record<string, string> = {
@@ -38,16 +53,11 @@ export async function generateImageFile(input: { prompt: string; provider?: "gem
   const settings = await getLocalAgentSettings().catch(() => null);
   // The legacy `provider` argument (or `settings.imageProvider`) was a hard choice: the old
   // code never fell over to the other image provider, so this stays a pin, not a preference.
-  const providerId = await preferredImageProvider(input.provider);
-  const response = await withLegacyCompatibility({
-    providerIds: async () => [providerId],
-    namedProvider: async () => providerId,
-    run: () =>
-      aiRuntime.generateImage({
-        prompt: input.prompt,
-        providerId,
-        size: settings?.openAIImageSize,
-      }),
+  const providerId = input.provider ?? settings?.imageProvider ?? "openai";
+  const response = await aiRuntime.generateImage({
+    prompt: input.prompt,
+    providerId,
+    size: settings?.openAIImageSize,
   });
 
   const [image] = response.images;

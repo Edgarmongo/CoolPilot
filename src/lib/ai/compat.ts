@@ -8,17 +8,23 @@ import type { LocalAIProvider } from "@/lib/types";
 /**
  * Legacy <-> runtime compatibility shims (phase P2 of `docs/generate-migration.md`).
  *
- * Both legacy facades (`lib/ai/generate.ts`, `lib/agent/image-generation.ts`) run on
- * `aiRuntime` now, but the code that calls them was written against the pre-runtime
- * behaviour. Two of those behaviours have no equivalent in the runtime, so they are
- * reproduced here - and nowhere else - until the callers are migrated (P3) and the shims
- * can be deleted (P4):
+ * The legacy text facade (`lib/ai/generate.ts`) runs on `aiRuntime` now, but the code that calls
+ * it was written against the pre-runtime behaviour. Two of those behaviours have no equivalent in
+ * the runtime, so they are reproduced here - and nowhere else - until the callers are migrated
+ * (P3) and the shim can be deleted (P4):
  *
  *   1. `MissingAIKeyError` - the old "not one key to try" error. `scraper.ts` and
  *      `api/metrics/insights` branch on `instanceof`, and they must keep working (G4).
  *   2. On-demand model discovery - the old path asked the provider for its model list when
  *      nothing was configured (`resolveFirstAvailableModel`), so an install with only an API
  *      key answered out of the box. Routing needs a callable registry row instead (G3).
+ *
+ * The image facade (`lib/agent/image-generation.ts`) was the second caller until P3-B-3 cut
+ * `image-generation.ts -> compat.ts`: it now calls `aiRuntime.generateImage()` directly, inlining the pin
+ * (`input.provider ?? settings?.imageProvider ?? "openai"`), so `withLegacyCompatibility()` below is
+ * text-path-only and `preferredImageProvider()` has no caller left at all. `@/lib/ai/compat` therefore has
+ * no production importer either; only `./compat` from `generate.ts` remains, and `generate.ts` has none
+ * too. Both files (and `preferredImageProvider`) are kept for P4 to delete, not to use.
  */
 
 /** The legacy provider vocabulary (D4). Only these four ever produced a "missing key". */

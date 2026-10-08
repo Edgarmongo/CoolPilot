@@ -1198,3 +1198,73 @@ with throwing factories while leaving `@/lib/ai/compat` alone, exactly like B-1.
   `src/components/agent-chat/chat-conversation.tsx` is unchanged), `node_modules\.bin\vitest.cmd run` =
   **69 files / 439 tests, all pass** - B-1's 68 / 419 plus exactly this batch's 1 file / 20 tests.
 
+### P3-B-3 - `lib/agent/image-generation.ts` (the compat cut)
+
+The third surface of batch B, and the first one that actually moves code. `generateImageFile()` has been a
+facade over `aiRuntime.generateImage()` since P2 - but it reached the runtime *through* the legacy shim:
+
+```
+before                                        after
+generateImageFile()                           generateImageFile()
+  -> compat.preferredImageProvider(arg)         -> aiRuntime.generateImage({
+       (a second settings read)                       providerId, size, prompt })
+  -> compat.withLegacyCompatibility({ ... })
+       run:   -> aiRuntime.generateImage(...)
+       catch: MissingAIKeyError("Missing
+              openai API key"), or one
+              on-demand discovery pass
+```
+
+Two `compat.ts` exports leave this path (`preferredImageProvider`, `withLegacyCompatibility`), the pin is
+inlined where it was, and the facade now calls the runtime the way every other domain service does. Neither
+shim file is deleted: `lib/ai/generate.ts` (the text facade) still needs compat, and deleting it is P4's job.
+
+Both removals are deliberate, and both follow from one principle the batches have applied throughout: **the
+runtime owns routing, and a request never starts a sync.** The facts this cut pins, with the caller audit
+behind them:
+
+| Behaviour | Before (shim) | After (runtime, P3-B-3) | Who consumed it |
+| --- | --- | --- | --- |
+| A keyless install | `MissingAIKeyError` -> `Missing openai API key` | `No model is configured for this request` (`MODEL_NOT_CONFIGURED`; the route still flattens its 503) | Nobody that branches. `api/images` only words the envelope, `lib/article-images.ts` treats generation as best effort. The two `instanceof MissingAIKeyError` consumers (`lib/scraper.ts`, `api/metrics/insights`) are on the **text** path and keep the shim. |
+| A configured model whose key was revoked | the same `MissingAIKeyError` | `No configured model has a usable credential for this request` (`MODEL_CREDENTIAL_MISSING`) | as above |
+| A key pasted with no catalog row behind it | one bounded discovery pass inside the failed request (read `/models`, enable what it found, route again) -> 201 | still not routable: the request is **not made at all** | Nobody: that cold start is what `ensureModelRuntimeSeeded` (D-P3-1) owns, at seed time, for every provider that already holds a key |
+
+What the cut does **not** change is the product decision underneath: the provider is still a hard pin, never
+a preference. `input.provider ?? settings?.imageProvider ?? "openai"` is what `preferredImageProvider()`
+computed character for character - same settings field, same `openai` default - so the value handed to the
+runtime as `providerId` is unchanged and the candidate chain stays one provider wide (D-P3-2, G3). The one
+mechanical side effect is one fewer `getLocalAgentSettings()` read per generated image.
+
+Test-side changes - five files, all of them guards this cut makes possible:
+
+1. `src/lib/ai/generate.test.ts` (7 tests; the G3 case rewritten): `generateImageFile` now rejects with an
+   `AppError` carrying `MODEL_NOT_CONFIGURED` and the runtime's sentence instead of `MissingAIKeyError` /
+   `Missing openai API key`, and the case pins `calls.length` to the count `prepareModel` left behind - which
+   is how it proves the pinned provider's catalog was never read a second time. The header now says the two
+   facades are "not equally legacy any more", so the file cannot be misread as P4's inventory.
+2. `src/app/api/images/route.test.ts` (17 tests, was 16): the pinned-provider case asserts the runtime's
+   routing sentence plus `not.toContain("Missing")` and `calls.length === prepared` (no post-routing fetch),
+   the keyless case asserts the same sentence with `calls.length` 0 (no catalog read either), and the
+   revoked-key case asserts `MODEL_CREDENTIAL_MISSING`'s sentence - all three still arriving as the same flat
+   500 with `UNKNOWN_ERROR`, because flattening is a route decision D-P3-3 has not touched.
+3. `src/app/api/images/route.test.ts`, the new case: a credential is written and nothing else, so the
+   provider has an endpoint and a key but no catalog row. The route answers 500 with `calls.length` 0 - the
+   exact state the shim's discovery pass used to rescue, and the case that turns "discovery is gone" from a
+   comment into an assertion.
+4. `@/lib/ai/compat` gains the third throwing factory in the four files that reach the image path:
+   `api/images`, `lib/article-images.test.ts`, `api/content/generate` and `api/ai-writing/generate`. That
+   factory was impossible before this batch - the domain service *was* the shim's only production importer,
+   which is precisely the edge being cut - so in each file it is the cut's own proof and costs nothing.
+5. `src/lib/ai/compat.ts` is **comment-only**: the header now records that the image facade is no longer a
+   caller, that `withLegacyCompatibility()` is text-path-only, and that `preferredImageProvider()` has no
+   caller left anywhere in the repo (a P4 deletion candidate, not a live behaviour).
+
+* Importer status after this batch (`git grep`, production code only): `@/lib/ai/compat` **0** importers,
+  `from "./compat"` -> `lib/ai/generate.ts` only, `@/lib/ai/generate` **0**, the barrel `@/lib/ai` **0**.
+  Both shim files stay on disk on purpose: P4 deletes them, this batch only makes them unreachable from the
+  image path.
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .`
+  exit 0 (the same one pre-existing `react-hooks/exhaustive-deps` warning in
+  `src/components/agent-chat/chat-conversation.tsx` is unchanged), `node_modules\.bin\vitest.cmd run` =
+  **69 files / 440 tests, all pass** - B-2's 439 plus exactly this batch's 1 new case.
+
