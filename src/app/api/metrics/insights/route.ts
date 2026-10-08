@@ -1,12 +1,22 @@
 import { getPublishRecord, listPublishRecords } from "@/db/repository";
-import { generateStructured, metricInsightSchema, MissingAIKeyError } from "@/lib/ai";
-import { fail, ok, parseJson } from "@/lib/api";
+import { aiRuntime } from "@/features/ai-runtime";
+import { metricInsightSchema } from "@/lib/ai/schemas";
+import { fail, failFromError, ok, parseJson } from "@/lib/api";
 import { computeBaseline, interactionCount } from "@/lib/metrics";
 import { metricInsightRequestSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
-/** AI attribution for a single piece of content. Runs with the user's own AI key. */
+/**
+ * AI attribution for a single piece of content. Runs with the user's own AI key.
+ *
+ * The model call goes straight to `aiRuntime` (batch P3-A3 of `docs/generate-migration-p3.md`):
+ * provider order, model choice, key rotation, failover and usage are the runtime's business, and the
+ * prompt plus the schema are all this route still owns. A failure keeps the runtime's own vocabulary
+ * *and* its HTTP status (D-P3-3) - a missing credential is a 400, a cooled down key pool a 429, an
+ * upstream error a 502 - so there is nothing to branch on here, and the legacy `MissingAIKeyError`
+ * is no longer part of this route's contract.
+ */
 export async function POST(request: Request) {
   const parsed = await parseJson(request, metricInsightRequestSchema);
   if (parsed.error) {
@@ -35,18 +45,20 @@ export async function POST(request: Request) {
   ].join("\n");
 
   try {
-    const result = await generateStructured({ prompt, schema: metricInsightSchema });
+    const response = await aiRuntime.chatStructured({
+      messages: [{ role: "user", content: prompt }],
+      schema: metricInsightSchema,
+    });
     return ok({
       publishRecordId: record.id,
-      ...result.data,
-      provider: result.provider,
-      model: result.model,
+      ...response.data,
+      provider: response.providerId,
+      model: response.model,
       createdAt: Date.now(),
     });
   } catch (error) {
-    if (error instanceof MissingAIKeyError) {
-      return fail(error.message, 400);
-    }
-    return fail(error instanceof Error ? error.message : "Failed to generate insight", 500);
+    // No local error taxonomy: `failFromError` keeps an `AppError`'s own code and status (the runtime
+    // sets both) and falls back to 500 for anything else, which is what this route answered before.
+    return failFromError(error, "AI_PROVIDER_FAILED", 500);
   }
 }

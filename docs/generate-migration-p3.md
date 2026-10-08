@@ -218,3 +218,92 @@ Tests - the mocks move with the import, so no case changed its subject:
   `node_modules\.bin\vitest.cmd run` = **59 files / 339 tests, all pass** - A1's 335 plus exactly this
   batch's 4 cases (3 in `chat-thread-title.test.ts`, 1 in `local-tools.test.ts`). No case was deleted
   and no suite changed its subject, which is the check that the mock swap really was a mock swap.
+
+### P3-A3-0 - the route layer's test plumbing (`src/test/route-harness.ts`)
+
+Section 1 recorded the fact that shapes this batch: `src/app` had **no test file**, so the route layer
+gets tests before it is migrated. A test that watches a route talk to a provider needs four things that
+no file in `src/app` had yet - a database that is not the user's, a transport that is not the network, a
+credential pool that is not the machine's key file, and a `Request`. `src/test/route-harness.ts` is
+exactly those four, and nothing else: the `lib/scraper.test.ts` preamble from A1 lifted into a module and
+made generic.
+
+| Piece | What it hands a route test |
+| --- | --- |
+| temp SQLite + `SOCIAL_AUTO_POST_DATA_DIR` | the route runs against a throwaway database, pinned *before* `@/db` is imported (the imports below it are `await`s for that reason) |
+| `runtime`, `runtimeRepository`, `credentials` | the runtime barrel, the runtime's own tables (providers/endpoints/models/keys) and the credential store |
+| `resetRuntime()` | keyless `env`, no vault entry, no callable model, no capability default left over from an earlier case (D-P3-7: key variables are *neutralised*, model variables deleted) |
+| `prepareModel()` / `prepareChatModel()` | "this provider and this model really answer"; the second also sets the capability default |
+| `stubFetch()` + `jsonResponse` / `qwenCatalog` / `jsonReply` / `unavailable` / ... | a transport that records every call and answers an unplanned one with a loud 404 |
+| `jsonRequest()` | the `Request` the app itself would send |
+| `chatCalls` / `bodyOf` / `authorizationsOf` | the wire assertions (which model was asked, in which shape) |
+
+It asserts nothing on purpose: a route test keeps its own `await POST(request)` and
+`expect(response.status)`, so its HTTP contract stays readable in the file that owns it. `scraper.test.ts`
+was left byte-identical - it is A1's evidence and its verification line stays true - so those helpers
+exist twice on purpose; the harness is the route layer's copy, and the two move together if this plumbing
+ever changes.
+
+### P3-A3-1 - `api/metrics/insights` (the D-P3-3 sample)
+
+The first route, and a deliberate one: section 1 lists this file as one of the two places that branched on
+`instanceof MissingAIKeyError`, so it is where D-P3-3 can be shown end to end - runtime code, runtime
+status, HTTP answer, no legacy error class anywhere on the path.
+
+| Field | Before | After |
+| --- | --- | --- |
+| Call | `generateStructured({ prompt, schema: metricInsightSchema })` | `aiRuntime.chatStructured({ messages: [{ role: "user", content: prompt }], schema: metricInsightSchema })` |
+| Data | `result.data` | `response.data` - unchanged |
+| Provider / model | `result.provider`, `result.model` | `response.providerId`, `response.model` |
+| Schema import | `@/lib/ai` re-export | `@/lib/ai/schemas` |
+| Credential failure | `instanceof MissingAIKeyError` -> `fail(message, 400)` | `failFromError(error, "AI_PROVIDER_FAILED", 500)` -> 400, code `MODEL_CREDENTIAL_MISSING` |
+| Any other failure | `fail(message, 500)`, code `UNKNOWN_ERROR` | `failFromError(...)`: an `AppError` keeps its own code *and* status, a plain `Error` stays a 500 |
+| Legacy import | `generateStructured` + `MissingAIKeyError` from `@/lib/ai` | none - the facade is not imported on this path at all |
+
+Kept: the prompt builder (platform, account, title, content type, published-at, views, interactions, both
+baselines), `computeBaseline(await listPublishRecords(1000), record)`, the `INVALID_PAYLOAD` 400 and
+`Publish record not found` 404 guards, and the response envelope
+(`{ publishRecordId, ...insight, provider, model, createdAt }` inside `{ ok: true, data }`).
+
+Nothing here re-implements the runtime: no key reading, no status sniffing, no per-provider branch. The
+codes and the statuses are the runtime's (D-P3-3), and they reach HTTP unchanged - which is why this route
+has no error taxonomy of its own:
+
+| Runtime outcome | HTTP | Decided in |
+| --- | --- | --- |
+| `MODEL_CREDENTIAL_MISSING` | 400 | `runtime.ts` / `key-pool.ts` / `adapters.ts` |
+| `MODEL_CREDENTIAL_UNAVAILABLE`, every key cooling down | 429 | `key-pool.ts` (`unavailableError`) |
+| `MODEL_CREDENTIAL_UNAVAILABLE`, every key rejected / disabled | 400 | same |
+| `MODEL_UPSTREAM_FAILED` | 502 | `adapters.ts` |
+| `MODEL_RATE_LIMITED` | 429 | `adapters.ts` |
+| `MODEL_NOT_CONFIGURED` / `MODEL_CAPABILITY_UNAVAILABLE` | 503 / 409 | `runtime.ts` |
+| anything else | 500, code `AI_PROVIDER_FAILED` | this route's fallback |
+
+Tests (`src/app/api/metrics/insights/route.test.ts`, 6 cases - the runtime is *not* mocked, the route
+handler is called for real):
+
+1. Success: HTTP 200, `ok: true`, the insight plus the `provider`/`model` the runtime really used, one
+   structured call with JSON mode on the wire, and a prompt carrying this record's numbers *and* the
+   baseline the route computed from a second row (1200 views against an 800 average over 2 posts).
+2. A removed credential: HTTP **400**, code `MODEL_CREDENTIAL_MISSING`, a message that is no longer
+   `Missing qwen API key`, and **no** provider call. This is the case the batch exists for - the old route
+   answered 400 by recognising a class, the new one by passing a code on.
+3. A pool with nothing usable left (one key cooling down, one rejected): HTTP **429**, code
+   `MODEL_CREDENTIAL_UNAVAILABLE`, `details.reasons` carrying both reasons, and no provider call: the pool
+   refuses before a request exists.
+4. A provider 5xx: HTTP **502**, code `MODEL_UPSTREAM_FAILED`, `details.status` = 503 - the upstream status
+   is preserved in the details instead of being flattened into this route's own 500.
+5. The two guards are untouched: an unknown record is still a 404 `Publish record not found`, and a
+   payload without a usable id is still a 400 `INVALID_PAYLOAD`.
+6. Neither guard asks a model: the record lookup and the payload validation both come first.
+
+The file's first lines are the other half of the migration evidence: `@/lib/ai`, `@/lib/ai/generate` and
+`@/lib/ai/compat` are mocked with factories that **throw**, so the whole suite fails if this route - or
+anything it imports - still asked for the legacy facade. After A3-1 the facade's remaining importers are
+the seven routes of A3-2/A3-3 and `lib/agent/image-generation.ts` (B); nothing else.
+
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .`
+  exit 0 with 0 errors (the single warning is the pre-existing `react-hooks/exhaustive-deps` one in
+  `components/agent-chat/chat-conversation.tsx`, unchanged), `node_modules\.bin\vitest.cmd run` =
+  **60 files / 345 tests, all pass** - A2's 59 / 339 plus exactly this batch's 1 file / 6 tests. No case
+  was deleted anywhere, which is also the check that the harnesses did not disturb the A1 suite.
