@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createSchedule, getAgentToolCall, getContentItem, getSite, updateAgentToolCall } from "@/db/repository";
+import { createSchedule, getAgentToolCall, getContentItem, getAccount, updateAgentToolCall } from "@/db/repository";
 import { fail, ok, parseJson } from "@/lib/api";
 
 export const runtime = "nodejs";
@@ -19,16 +19,16 @@ export async function POST(request: Request) {
   }
 
   const scheduledAt = Number(tool.input.scheduledAt);
-  const siteId = typeof tool.input.siteId === "string" ? tool.input.siteId : "";
+  const accountId = typeof tool.input.accountId === "string" ? tool.input.accountId : "";
   const contentItemId = typeof tool.input.contentItemId === "string" ? tool.input.contentItemId : "";
-  const [site, content] = await Promise.all([getSite(siteId), getContentItem(contentItemId)]);
+  const [site, content] = await Promise.all([getAccount(accountId), getContentItem(contentItemId)]);
   if (!Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) return fail("Scheduled time is no longer in the future", 409);
   if (!site || site.platform !== "Threads" || !site.profilePath) return fail("Valid Threads profile not found", 409);
   if (!content) return fail("Scheduled content no longer exists", 409);
 
   const schedule = await createSchedule({
     playbookId: "threads_auto_post",
-    siteId,
+    accountId,
     enabled: true,
     scheduleTimes: [{ type: "once", at: new Date(scheduledAt).toISOString() }],
     params: { contentItemId, scheduledPublishAuthorized: true },

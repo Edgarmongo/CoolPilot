@@ -1,6 +1,9 @@
 import type { BrowserContext, Page } from "playwright-core";
 
-export const PREVIEW_SIZE = { width: 960, height: 720 };
+// Frame captures are downscaled to this size. Keep it equal to the browser
+// viewport (see DEFAULT_VIEWPORT in ./browser) so there is no rescale: a size
+// mismatch blurs the JPEG and makes it shimmer/flicker while scrolling.
+export const PREVIEW_SIZE = { width: 1280, height: 900 };
 export const DEFAULT_SITE_URL = "https://www.threads.net/";
 const BLANK_URL_PREFIXES = ["about:blank", "chrome://newtab", "chrome://", "devtools://"];
 
@@ -8,11 +11,12 @@ export type PreviewStatus = "starting" | "ready" | "error" | "closed";
 
 export type StartBrowserPreviewOptions = {
   bringToFront?: boolean;
+  headless?: boolean;
 };
 
 export type BrowserPreviewSession = {
-  siteId: string;
-  siteName: string;
+  accountId: string;
+  accountName: string;
   profilePath: string;
   status: PreviewStatus;
   error?: string;
@@ -29,8 +33,8 @@ export type BrowserPreviewSession = {
 };
 
 export type BrowserPreviewSnapshot = {
-  siteId: string;
-  siteName: string;
+  accountId: string;
+  accountName: string;
   profilePath: string;
   status: PreviewStatus | "idle";
   error?: string;
@@ -97,8 +101,8 @@ export function applySessionError(session: BrowserPreviewSession, error: unknown
 export function toSnapshot(session?: BrowserPreviewSession): BrowserPreviewSnapshot {
   if (!session) {
     return {
-      siteId: "",
-      siteName: "",
+      accountId: "",
+      accountName: "",
       profilePath: "",
       status: "idle",
       hasFrame: false,
@@ -106,8 +110,8 @@ export function toSnapshot(session?: BrowserPreviewSession): BrowserPreviewSnaps
   }
 
   return {
-    siteId: session.siteId,
-    siteName: session.siteName,
+    accountId: session.accountId,
+    accountName: session.accountName,
     profilePath: session.profilePath,
     status: session.status,
     error: session.error,

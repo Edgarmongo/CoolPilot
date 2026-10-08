@@ -1,12 +1,12 @@
-# Meowus by SMEPost
+# CoolPilot by SMEPost
 
-**Meowus** 是一個開源 AI 社群媒體代理。完整名稱：**Meowus by SMEPost**。
+**CoolPilot** 是一個開源 AI 社群媒體代理。完整名稱：**CoolPilot by SMEPost**。
 
 你的開源社群媒體代理 — 在自己的電腦上規劃、核准、排程與發布社群活動，並可選擇串接 SMEPost 的活動與品牌整合。
 
-Meow + Us — 一隻陪你一起管理社群媒體的 AI 貓咪隊友。
+CoolPilot — 陪你一起管理社群媒體的 AI 副駕駛。
 
-Meowus 是本機／開源的社群媒體代理；SMEPost 仍是雲端活動、品牌與內容平台。請使用 SMEPost 登入、從 SMEPost 同步活動，並以 Meowus 發布。
+CoolPilot 是本機／開源的社群媒體代理；SMEPost 仍是雲端活動、品牌與內容平台。請使用 SMEPost 登入、從 SMEPost 同步活動，並以 CoolPilot 發布。
 
 它整合 Electron 桌面 app、Next.js 控制台、持久化瀏覽器 profile、排程發文，以及可以協助建立與執行社群任務的 AI social media agent。
 
@@ -14,29 +14,29 @@ Meowus 是本機／開源的社群媒體代理；SMEPost 仍是雲端活動、�
 
 [English README](README.md)
 
-## 下載及執行 Meowus
+## 下載及執行 CoolPilot
 
-請從 [GitHub Releases](https://github.com/MeowAI-HK/meowus/releases) 下載最新版本。正式發佈使用版本標籤，例如 `v0.1.0`。
+請從 [GitHub Releases](https://github.com/Edgarmongo/CoolPilot/releases) 下載最新版本。正式發佈使用版本標籤，例如 `v0.1.0`。
 
 ### Windows
 
-- **安裝程式（`Meowus Setup <版本>.exe`）**：下載並執行安裝程式，然後從開始功能表開啟 Meowus。
-- **可攜式 ZIP（`Meowus-Windows-x64.zip`）**：將整個 ZIP 解壓縮到固定資料夾，再開啟 `win-unpacked` 內的 `Meowus.exe`。請勿單獨移動該 EXE，因為它需要旁邊的 `resources` 檔案。
+- **安裝程式（`CoolPilot Setup <版本>.exe`）**：下載並執行安裝程式，然後從開始功能表開啟 CoolPilot。
+- **可攜式 ZIP（`CoolPilot-Windows-x64.zip`）**：將整個 ZIP 解壓縮到固定資料夾，再開啟 `win-unpacked` 內的 `CoolPilot.exe`。請勿單獨移動該 EXE，因為它需要旁邊的 `resources` 檔案。
 - GitHub Windows 下載檔是刻意維持**未簽署**。Microsoft SmartScreen 可能顯示警告；只有在確認檔案來自此 repository 的官方 GitHub Release 時，才選擇「更多資訊」→「仍要執行」。
 
 ### macOS
 
 1. 下載適合你 Mac 的 `.dmg`。
-2. 開啟 DMG，將 **Meowus** 拖到 **Applications**。
-3. 從 Applications 開啟 Meowus。
+2. 開啟 DMG，將 **CoolPilot** 拖到 **Applications**。
+3. 從 Applications 開啟 CoolPilot。
 
 正式 macOS 發佈會以 Apple Developer ID 簽署並完成 Apple 公證。更新 app 不會刪除保留在你電腦上的本機資料庫、瀏覽器 profile、上傳檔案或生成的 artifacts。
 
 ## 原始碼倉庫
 
 ```bash
-git clone https://github.com/MeowAI-HK/meowus.git
-cd meowus
+git clone https://github.com/Edgarmongo/CoolPilot.git
+cd CoolPilot
 ```
 
 ## 這套軟體可以做什麼
@@ -49,14 +49,18 @@ cd meowus
 - 建立 scheduled social posting runs，並在本機 SQLite 中追蹤執行紀錄。
 - 使用 AI agent workflow 建立貼文、生成圖片、開啟頁面、點擊、輸入、截圖，以及在 Threads 草擬或發布貼文。
 - 使用自己的 LLM/image API key 執行 local mode，或連接 SMEPost 使用雲端 agent 與 managed credits。
+- 在「系統 → 模型管理」瀏覽主流廠商的模型版本清單，並集中管理所有 model provider。
+- 在「Publishing → Accounts」執行靜默帳號風控巡檢，確認每個已儲存的 profile 仍能開啟發佈頁而不是卡在登入牆；巡檢判定未登入的帳號不會再浪費時間啟動瀏覽器。
+- 在「系統設定 → 備份」把整個工作區匯出成單一 JSON 檔案並隨時還原，本機資料可攜、也保有自己的副本。
+- 在「自動化 → 內容日曆」用同一個月曆檢視規劃、執行紀錄與發佈紀錄，還能把成效最好的時段一鍵變成每週排程。
 
 目前瀏覽器自動化的核心是每個帳號各自獨立的持久化 Chromium profile。專案包含 CloakBrowser 作為 stealth Chromium dependency，但目前 app 的啟動路徑仍直接使用 Playwright persistent contexts。請把 stealth tooling 視為有用的依賴，而不是能保證避開平台偵測的承諾。
 
 ## 介面預覽
 
-下方截圖來自真實 Meowus app UI，發布前已替換成 demo 帳號名稱，避免顯示真實站點資料。
+下方截圖來自真實 CoolPilot app UI，發布前已替換成 demo 帳號名稱，避免顯示真實站點資料。
 
-![Meowus chat workspace with browser panel](public/screenshots/chat-workspace-browser.png)
+![CoolPilot chat workspace with browser panel](public/screenshots/chat-workspace-browser.png)
 
 ## 套件與功能標籤
 
@@ -105,7 +109,7 @@ Permission controls 可讓你選擇動作自動執行，或先要求人工確認
 Turn one focused study session into a small win today.
 
 Clip a useful lesson, write down one takeaway, and share the insight
-while it is still fresh. Meowus helps your agent prepare
+while it is still fresh. CoolPilot helps your agent prepare
 the draft, pair it with an image concept, and schedule the post for
 the right account without mixing browser profiles.
 
@@ -129,7 +133,7 @@ Chat layer 也能在已有站點、貼文 context 與發布授權時，將自然
 
 ## Local Mode、SMEPost Mode 與訂閱
 
-Meowus 可以使用你自己的 API keys 在本機執行。若你重視模型 provider、本機資料、瀏覽器 session 的控制權，這是最直接的使用方式。
+CoolPilot 可以使用你自己的 API keys 在本機執行。若你重視模型 provider、本機資料、瀏覽器 session 的控制權，這是最直接的使用方式。
 
 你也可以連接 SMEPost 帳號使用雲端 agent。SMEPost 可提供更簡單的設定流程、managed model credits、image credits，以及不想自行維護所有 provider key 的 cloud agent workflows。使用者可透過 SMEPost 註冊取得免費使用額度；付費訂閱則可解鎖更多 managed usage，而且不會改變你的本機瀏覽器 profiles。
 
@@ -150,6 +154,35 @@ Meowus 可以使用你自己的 API keys 在本機執行。若你重視模型 pr
 - OpenAI-compatible image generation endpoints
 
 設定 key 後，app 可從 provider API 載入 model list。你也可以透過環境變數或 settings UI 指定 model ID。
+
+**系統 → 模型管理**是集中處理模型的地方。「可用模型」分頁列出模型網關提供的所有 model id（由 `quanzil.com/api/user/models` 匯入，匯入時為 420 個），按廠商與能力分類，並附上各廠商的 OpenAI-compatible endpoint；「模型配置」分頁則集中設定本機 provider 的 key、endpoint、模型，以及雲端（SMEPost）provider 狀態。
+
+### 同步自己的網關帳號
+
+「可用模型」分頁提供 **模型網關同步** 開關。開關保持關閉時，頁面使用 app 內建的快照；要改用自己的帳號清單：
+
+1. 開啟開關。
+2. 把已登入網關工作階段的 `Cookie` 標頭內容貼到 **帳號 Session Cookie**，按 **儲存設定**。
+3. 按 **同步模型**。
+
+同步會呼叫卡片中的端點（預設 `https://quanzil.com/api/user/models`），把回傳的 model id 存進本機資料庫，目錄立即改用該清單——不需要重新建置，也不會寫回原始碼（打包後的 Electron 版本為唯讀）。按 **清除憑證並還原內建清單** 會同時刪除同步清單與 cookie。端點需回傳 `{"data":["model-a","model-b"]}` 或單純的 model id 陣列。
+
+Cookie 只會送到該端點，並保存在本機 `.env.local`（與 provider key 同層，也可改用 `MODEL_GATEWAY_COOKIE` 環境變數），不會進入資料庫、日誌或版本庫。同步失敗時卡片會顯示原因，目錄仍使用上一次成功的清單。
+
+重新匯入內建快照（開關關閉時使用）：
+
+```bash
+# 先把網關模型請求的原始 JSON body（{"data":["model-a", ...]}）存成檔案
+tsx scripts/import-gateway-models.ts ./gateway-models.json --source=quanzil.com/api/user/models
+```
+
+匯入工具只讀取公開的 model id，請勿傳入含 cookie、token 或帳號資料的 payload（需要帶憑證的請求請改用上面提到的 app 內同步）。
+
+用真實瀏覽器驗證頁面渲染（需要已啟動的 dev server）：
+
+```bash
+tsx scripts/model-management-smoke.ts http://127.0.0.1:3000 zh-cn
+```
 
 ## 系統需求
 
@@ -211,6 +244,11 @@ OPENROUTER_MODEL=
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
 
+每個 `*_API_KEYS` 變數都接受多把 key（用逗號或換行分隔）。AI runtime 會自動輪換，遇到
+`429` 時先把該把 key 冷卻，因此單一 key 被限流不會讓整個 provider 離線。同樣的 key 也可以
+在 **系統 / 模型管理 → 供应商与密钥** 逐個 provider 管理，存在本機加密保險庫而不是 `.env`
+檔（詳見 `docs/model-runtime.md` §5）。
+
 ## 常用指令
 
 ```powershell
@@ -247,7 +285,38 @@ node_modules\.bin\eslint.cmd .
 
 可透過 `SOCIAL_AUTO_POST_DATA_DIR` 或 `APP_DATA_DIR` 覆寫資料目錄。
 
+### 備份與還原
+
+「系統設定 → 備份」會把 `web-data/social-auto-post.db` 內所有資料表匯出成單一 `coolpilot-backup-<日期>-<時間>.json`（`GET /api/backup/export`），之後可再寫回本機（`POST /api/backup/restore`）：
+
+- `replace`：先清空備份檔涉及的資料表再匯入，還原後與備份完全一致。
+- `merge`：保留現有資料，略過主鍵已存在的記錄。
+
+寫入前會先驗證檔案；遇到目前版本不存在的資料表或欄位會略過並回報，而不是讓整次還原失敗。瀏覽器 profiles、uploads、videos 與 artifacts **不會**包含在 JSON 內，搬遷到其他電腦時請一併複製這些目錄；若 profile 路徑改變，重新登入一次即可。
+
 請不要 commit `.env.local`、`web-data/`、browser profiles、database files、uploaded assets、generated artifacts 或 logs。
+
+## 內容日曆
+
+「自動化 → 內容日曆」（`/schedules/calendar`，資料來自 `GET /api/calendar`）是月度規劃檢視，會把三層資料疊在同一個月曆上，並可逐層開關：
+
+- **計劃**：排程規則展開後的每一次執行時間（已暫停的排程也會顯示，並以刪除線標示）。
+- **執行紀錄**：`runs` 的排隊／執行中／成功／警告／失敗結果。
+- **發佈紀錄**：`publish_records` 中真正發佈出去的內容。
+
+排程支援五種重複規則，下一次執行時間會取所有規則中最早的一次（`src/lib/schedule.ts`）：
+
+| 類型 | 內容 | 行為 |
+| --- | --- | --- |
+| `once` | `{ type: "once", at }` | 單次絕對時間（ISO） |
+| `daily` | `{ type: "daily", time }` | 每天的本機時間 `HH:MM` |
+| `weekly` | `{ type: "weekly", time, weekdays }` | 指定的每個星期（0 = 週日 … 6 = 週六） |
+| `monthly` | `{ type: "monthly", time, days }` | 指定的每月日期（1–31）；當月沒有該日時改用當月最後一天 |
+| `interval` | `{ type: "interval", everyMinutes, anchor? }` | 每 N 分鐘一次；有 `anchor` 時對齊該時間點 |
+
+右側欄會依真實互動成效排出**最佳發佈時段**（`bestTimeSlots`）。勾選一到多個「星期 × 時段」後按「用所選時段建立排程」，就會把它們合併成單一排程中的多條每週規則，讓日曆與成效資料互相對應。
+
+月曆以週一為一週起始，當日面板會列出每個項目的時間、來源層、狀態、帳號與 playbook。
 
 ## Project Structure
 
@@ -260,6 +329,7 @@ src/worker/       Queue and schedule worker
 electron/         Electron entrypoints
 scripts/          Build and packaging helpers
 public/           Public assets
+docs/             Model layer docs (model-gateway.md · model-gateway-plan.md · model-layer-spec.md · model-runtime.md · generate-migration.md) + tech stack (tech-stack.md)
 ```
 
 ## 安全與平台風險聲明
@@ -268,7 +338,7 @@ public/           Public assets
 
 你的帳號可能被要求驗證、被 rate-limit、限制功能、停權或封鎖。CloakBrowser 或任何 stealth Chromium tooling 都不能保證自動化能避開 bot detection、CAPTCHA、device checks、人工審查或平台執法。
 
-請只在你擁有或被授權管理的帳號上使用 Meowus。不要將它用於 spam、冒充、欺騙性互動、憑證濫用、平台操縱或任何非法行為。你有責任在執行自動化 workflow 前確認平台規則與當地法律。
+請只在你擁有或被授權管理的帳號上使用 CoolPilot。不要將它用於 spam、冒充、欺騙性互動、憑證濫用、平台操縱或任何非法行為。你有責任在執行自動化 workflow 前確認平台規則與當地法律。
 
 ## License
 

@@ -2,6 +2,10 @@ export type ContentFilter = {
   query?: string;
   from?: number;
   to?: number;
+  /** Content kind stored in the item metadata, e.g. `article` / `post` / `video`. */
+  type?: string;
+  /** Lifecycle status: `draft` | `ready` | `posted` | `failed`. */
+  status?: string;
   page: number;
   pageSize: number;
 };
@@ -27,6 +31,8 @@ export function parseContentFilter(url: string): ContentFilter {
   const query = params.get("q")?.trim() || undefined;
   const from = parseTimestamp(params.get("from"));
   const to = parseTimestamp(params.get("to"));
+  const type = params.get("type")?.trim() || undefined;
+  const status = params.get("status")?.trim() || undefined;
   const page = parsePositiveInteger(params.get("page"), 1);
   const pageSize = Math.min(
     parsePositiveInteger(params.get("pageSize"), MAX_CONTENT_PAGE_SIZE),
@@ -36,6 +42,8 @@ export function parseContentFilter(url: string): ContentFilter {
     query,
     from,
     to,
+    type,
+    status,
     page,
     pageSize,
   };

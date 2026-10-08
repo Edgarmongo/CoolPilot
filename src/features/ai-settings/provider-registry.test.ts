@@ -1,7 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { aiProviderRegistry, orderedProviders, resolveProviderBaseUrl, resolveProviderModel } from "./provider-registry";
 
 describe("ai provider registry", () => {
+  // `resolveProviderModel()` reads `<PROVIDER>_MODEL` from the environment when settings are absent,
+  // so a developer who exported GEMINI_MODEL would otherwise fail the "no fallbacks" case below.
+  beforeEach(() => {
+    vi.stubEnv("GEMINI_MODEL", "");
+    vi.stubEnv("GROQ_MODEL", "");
+    vi.stubEnv("OPENAI_MODEL", "");
+    vi.stubEnv("OPENROUTER_MODEL", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("keeps provider metadata centralized", () => {
     expect(aiProviderRegistry.openrouter.supportsCustomBaseUrl).toBe(true);
     expect(aiProviderRegistry.gemini.modelEnv).toBe("GEMINI_MODEL");

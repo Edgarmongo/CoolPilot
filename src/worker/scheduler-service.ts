@@ -1,5 +1,6 @@
 import { createRun, getRun, listRuns, listSchedules, updateSchedule } from "@/db/repository";
 import { computeNextRunAt, isDue } from "@/lib/schedule";
+import type { ScheduleTime } from "@/lib/types";
 import { processRun } from "./runner";
 
 export const missedOneTimeGraceMs = 5 * 60_000;
@@ -8,12 +9,20 @@ export function isMissedOneTimeSchedule(input: { dueAt: number; now: number; isO
   return input.isOnce && input.now - input.dueAt > missedOneTimeGraceMs;
 }
 
+/**
+ * A schedule only retires after its run when *every* rule fires exactly once.
+ * Mixing a one-time rule with a recurring one keeps the schedule alive.
+ */
+export function isOnceOnlySchedule(scheduleTimes: ScheduleTime[]) {
+  return scheduleTimes.length > 0 && scheduleTimes.every((entry) => entry.type === "once");
+}
+
 export async function schedulerTick(now = Date.now()) {
   const schedules = await listSchedules();
   for (const schedule of schedules) {
     if (!schedule.enabled || schedule.status !== "scheduled" || !isDue(schedule.nextRunAt, now)) continue;
     const dueAt = schedule.nextRunAt!;
-    const isOnce = schedule.scheduleTimes.some((entry) => entry.type === "once");
+    const isOnce = isOnceOnlySchedule(schedule.scheduleTimes);
     if (isMissedOneTimeSchedule({ dueAt, now, isOnce })) {
       await updateSchedule(schedule.id, { enabled: false, status: "missed", lastRunAt: now });
       continue;
@@ -22,7 +31,7 @@ export async function schedulerTick(now = Date.now()) {
     if (duplicate) continue;
     const run = await createRun({
       playbookId: schedule.playbookId,
-      siteId: schedule.siteId,
+      accountId: schedule.accountId,
       scheduleId: schedule.id,
       scheduledFor: dueAt,
       params: { ...schedule.params, _scheduledRun: true, _scheduleId: schedule.id, _scheduledFor: dueAt },

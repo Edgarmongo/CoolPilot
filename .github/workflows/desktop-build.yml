@@ -38,17 +38,17 @@ jobs:
         run: pnpm electron:build:win
       - name: Create GitHub download archive
         shell: pwsh
-        run: Compress-Archive -Path dist-electron/win-unpacked -DestinationPath Meowus-Windows-x64.zip
+        run: Compress-Archive -Path dist-electron/win-unpacked -DestinationPath CoolPilot-Windows-x64.zip
       - name: Upload GitHub artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Meowus-GitHub-Windows-x64-portable
-          path: Meowus-Windows-x64.zip
+          name: CoolPilot-GitHub-Windows-x64-portable
+          path: CoolPilot-Windows-x64.zip
           retention-days: 90
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Meowus-GitHub-Windows-x64-installer
+          name: CoolPilot-GitHub-Windows-x64-installer
           path: dist-electron/*.exe
           if-no-files-found: error
           retention-days: 90
@@ -104,7 +104,7 @@ jobs:
       - name: Upload GitHub artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Meowus-GitHub-macOS-arm64
+          name: CoolPilot-GitHub-macOS-arm64
           path: dist-electron/*.dmg
           if-no-files-found: error
           retention-days: 90
@@ -116,6 +116,8 @@ jobs:
     env:
       MS_STORE_IDENTITY_NAME: ${{ vars.MS_STORE_IDENTITY_NAME }}
       MS_STORE_PUBLISHER: ${{ vars.MS_STORE_PUBLISHER }}
+      # Optional. Defaults to Edgarmongo in scripts/build-store-package.ts.
+      MS_STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.MS_STORE_PUBLISHER_DISPLAY_NAME }}
       CSC_IDENTITY_AUTO_DISCOVERY: false
 
     steps:
@@ -136,7 +138,7 @@ jobs:
       - name: Upload Store artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Meowus-Microsoft-Store-AppX
+          name: CoolPilot-Microsoft-Store-AppX
           path: dist-electron/*.appx
           if-no-files-found: error
           retention-days: 90
@@ -162,13 +164,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
-          pattern: Meowus-GitHub-*
+          pattern: CoolPilot-GitHub-*
           merge-multiple: true
       - name: Create pre-release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Meowus ${{ github.ref_name }}
+          name: CoolPilot ${{ github.ref_name }}
           prerelease: false
           generate_release_notes: true
           files: release-assets/*

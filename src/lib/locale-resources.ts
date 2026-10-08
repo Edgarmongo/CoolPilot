@@ -1,10 +1,12 @@
 import en from "../locales/en.json";
 import zhHk from "../locales/zh-hk.json";
+import zhCn from "../locales/zh-cn.json";
 import { defaultLocale, isLocale, type Locale } from "./i18n-config";
 
 export const localeResources = {
   en,
   "zh-hk": zhHk,
+  "zh-cn": zhCn,
 } satisfies Record<Locale, typeof en>;
 
 export type LocaleDictionary = typeof en;

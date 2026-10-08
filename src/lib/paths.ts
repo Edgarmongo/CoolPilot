@@ -30,6 +30,12 @@ export function artifactsRoot() {
   return root;
 }
 
+export function videosRoot() {
+  const root = path.join(dataRoot(), "videos");
+  mkdirSync(root, { recursive: true });
+  return root;
+}
+
 export function normalizeFileUrl(fileUrl: string) {
   if (!fileUrl.startsWith("file:")) {
     return fileUrl;

@@ -1,33 +1,55 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import useSWR from "swr";
 import {
+  BarChart3,
+  BookOpen,
+  Boxes,
+  Brush,
   CalendarClock,
+  CalendarDays,
+  ChevronDown,
   ChevronUp,
-  FileText,
+  Cloud,
+  Database,
   Globe2,
-  Grid2X2,
+  History,
   House,
+  Library,
+  ListChecks,
   LogIn,
   LogOut,
   MessageCircle,
+  Network,
+  Newspaper,
+  Package,
   PanelLeftClose,
   PanelLeftOpen,
+  PenSquare,
+  PenTool,
   Play,
-  Plus,
+  Rocket,
+  ScrollText,
+  Send,
   Settings,
+  Settings2,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Store,
+  Target,
+  Users,
+  Video,
+  WalletCards,
+  Workflow,
   Image as ImageIcon,
   UserCircle,
-  WalletCards,
 } from "lucide-react";
-import { SitesBrowserSheetProvider, useSitesBrowserSheet } from "@/components/sites/browser-sheet-context";
+import type { LucideIcon } from "lucide-react";
 import { ConsoleHeaderActionsProvider, ConsoleHeaderActionsSlot } from "@/components/ui/console-header-actions";
 import { LogoButton } from "@/components/ui/logo-button";
 import { NavButton } from "@/components/ui/nav-button";
@@ -35,7 +57,6 @@ import { useI18n } from "@/lib/i18n";
 import { localizedPath, stripLocale, type Locale } from "@/lib/i18n-config";
 import { cn } from "@/lib/utils";
 import { apiPost, swrFetcher } from "@/lib/api-client";
-import type { AgentChatThreadRecord, SiteRecord } from "@/lib/types";
 
 type AccountState = {
   connected: boolean;
@@ -60,7 +81,14 @@ type AccountState = {
   };
 };
 
-const ACTIVE_THREAD_STORAGE_KEY = "agent-chat-active-thread-id";
+type NavEntry = {
+  id: string;
+  name: string;
+  icon: LucideIcon;
+  href: string;
+  segment: string;
+  children?: NavEntry[];
+};
 
 function formatCreditAmount(value: number) {
   return new Intl.NumberFormat("en-US", {
@@ -101,55 +129,177 @@ function AccountDropdownLink({
 
 export default function ConsoleLayout({ children }: { children: React.ReactNode }) {
   return (
-    <SitesBrowserSheetProvider>
-      <ConsoleHeaderActionsProvider>
-        <ConsoleLayoutShell>{children}</ConsoleLayoutShell>
-      </ConsoleHeaderActionsProvider>
-    </SitesBrowserSheetProvider>
+    <ConsoleHeaderActionsProvider>
+      <ConsoleLayoutShell>{children}</ConsoleLayoutShell>
+    </ConsoleHeaderActionsProvider>
   );
 }
 
 function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
-  const router = useRouter();
   const routePath = stripLocale(pathname);
   const { t, locale } = useI18n();
-  const isSitesCanvas = routePath === "/sites/list" || routePath === "/sites/all";
-  const { closeSheet } = useSitesBrowserSheet();
+  const isFullBleed = routePath === "/chatroom";
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
-  const [threadLimit, setThreadLimit] = useState(20);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
-  const { data: sites = [] } = useSWR<SiteRecord[]>("/api/sites", swrFetcher, { refreshInterval: 5000 });
-  const { data: threads = [] } = useSWR<AgentChatThreadRecord[]>(`/api/agent/chat/threads?limit=${threadLimit}`, swrFetcher, { refreshInterval: 5000 });
   const { data: account, mutate: reloadAccount } = useSWR<AccountState>("/api/smepost/account", swrFetcher, { refreshInterval: 40_000 });
-  const visibleSites = sites.slice(0, 5);
 
-  const primaryMenuItems = useMemo(
+  const navItems = useMemo<NavEntry[]>(
     () => [
       { id: "dashboard", name: t("navDashboard"), icon: House, href: "/dashboard", segment: "/dashboard" },
-      { id: "sites", name: t("navSites"), icon: Globe2, href: "/sites/list", segment: "/sites" },
-      { id: "content", name: t("navContent"), icon: FileText, href: "/content/library", segment: "/content" },
-      { id: "runs", name: t("navRuns"), icon: Play, href: "/runs/queue", segment: "/runs" },
-      { id: "schedules", name: t("navSchedules"), icon: CalendarClock, href: "/schedules/list", segment: "/schedules" },
       { id: "chatroom", name: t("agentChatShortTitle"), icon: MessageCircle, href: "/chatroom", segment: "/chatroom" },
+      { id: "data-center", name: t("navDataCenter"), icon: Database, href: "/data-center", segment: "/data-center" },
+      {
+        id: "creation",
+        name: t("navCreation"),
+        icon: PenSquare,
+        href: "/creation/ai-writing",
+        segment: "/creation",
+        children: [
+          { id: "ai-writing", name: t("navAiWriting"), icon: Sparkles, href: "/creation/ai-writing", segment: "/creation/ai-writing" },
+          { id: "products", name: t("navProductManagement"), icon: Package, href: "/creation/products", segment: "/creation/products" },
+          { id: "articles", name: t("navArticleCreation"), icon: Newspaper, href: "/creation/articles", segment: "/creation/articles" },
+          { id: "posts", name: t("navDynamicPublishing"), icon: Send, href: "/creation/posts", segment: "/creation/posts" },
+          { id: "videos", name: t("navVideoPublishing"), icon: Video, href: "/creation/videos", segment: "/creation/videos" },
+          { id: "images", name: t("navImageManagement"), icon: ImageIcon, href: "/creation/images", segment: "/creation/images" },
+          { id: "content-center", name: t("navContentCenter"), icon: Library, href: "/content/library", segment: "/content" },
+          {
+            id: "drawing",
+            name: t("navDrawing"),
+            icon: Brush,
+            href: "/whiteboard",
+            segment: "/whiteboard",
+            children: [
+              { id: "whiteboard", name: t("navWhiteboard"), icon: PenTool, href: "/whiteboard", segment: "/whiteboard" },
+              { id: "mindmap", name: t("navMindMap"), icon: Network, href: "/mindmap", segment: "/mindmap" },
+            ],
+          },
+        ],
+      },
+      { id: "app-store", name: t("navAppStore"), icon: Store, href: "/app-store", segment: "/app-store" },
+      {
+        id: "smart-config",
+        name: t("navSmartConfig"),
+        icon: Settings2,
+        href: "/smart-config/positioning",
+        segment: "/smart-config",
+        children: [
+          { id: "positioning", name: t("navAccountPositioning"), icon: Target, href: "/smart-config/positioning", segment: "/smart-config/positioning" },
+          { id: "knowledge-base", name: t("navKnowledgeBase"), icon: BookOpen, href: "/smart-config/knowledge-base", segment: "/smart-config/knowledge-base" },
+        ],
+      },
+      {
+        id: "automation",
+        name: t("navAutomation"),
+        icon: Workflow,
+        href: "/schedules/list",
+        segment: "/automation",
+        children: [
+          { id: "schedules", name: t("navSchedules"), icon: CalendarClock, href: "/schedules/list", segment: "/schedules/list" },
+          { id: "calendar", name: t("navContentCalendar"), icon: CalendarDays, href: "/schedules/calendar", segment: "/schedules/calendar" },
+          { id: "generations", name: t("navGenerationRecords"), icon: History, href: "/automation/generations", segment: "/automation/generations" },
+          { id: "operation-logs", name: t("navOperationLogs"), icon: ScrollText, href: "/automation/logs", segment: "/automation/logs" },
+          { id: "cloud-nodes", name: t("navCloudNodes"), icon: Cloud, href: "/automation/nodes", segment: "/automation/nodes" },
+          { id: "runs", name: t("navRuns"), icon: Play, href: "/runs/queue", segment: "/runs" },
+        ],
+      },
+      {
+        id: "publishing",
+        name: t("navPublishing"),
+        icon: Rocket,
+        href: "/publishing/accounts",
+        segment: "/publishing",
+        children: [
+          { id: "accounts", name: t("navAccountManagement"), icon: Users, href: "/publishing/accounts", segment: "/publishing/accounts" },
+          { id: "publish-records", name: t("navPublishRecords"), icon: ListChecks, href: "/publishing/records", segment: "/publishing/records" },
+        ],
+      },
+      {
+        id: "system",
+        name: t("navSystem"),
+        icon: Settings,
+        href: "/settings",
+        segment: "/settings",
+        children: [
+          { id: "models", name: t("navModelManagement"), icon: Boxes, href: "/system/models", segment: "/system/models" },
+          { id: "usage", name: t("navUsage"), icon: BarChart3, href: "/system/usage", segment: "/system/usage" },
+          { id: "settings", name: t("navSettings"), icon: SlidersHorizontal, href: "/settings", segment: "/settings" },
+        ],
+      },
     ],
     [t],
   );
-  const settingsItem = useMemo(
-    () => ({ id: "settings", name: t("navSettings"), icon: Settings, href: "/settings", segment: "/settings" }),
-    [t],
-  );
-  const accountItem = useMemo(
+
+  const accountItem = useMemo<NavEntry>(
     () => ({ id: "account", name: t("navAccount"), icon: UserCircle, href: "/account/smepost", segment: "/account" }),
     [t],
   );
-  const mobileMenuItems = useMemo(() => [...primaryMenuItems, accountItem], [accountItem, primaryMenuItems]);
-  const activeItem = [...mobileMenuItems, settingsItem].find((item) => routePath.startsWith(item.segment)) ?? primaryMenuItems[0];
+
+  function segmentMatches(segment: string) {
+    return routePath.startsWith(segment) || (segment === "/dashboard" && routePath === "/");
+  }
+
+  function entryIsActive(entry: NavEntry): boolean {
+    if (entry.children?.length) return entry.children.some(entryIsActive);
+    return segmentMatches(entry.segment);
+  }
+
+  function leafHref(entry: NavEntry): string {
+    return entry.children?.[0]?.href ?? entry.href;
+  }
+
+  const navLeaves = useMemo(() => {
+    const flatten = (items: NavEntry[]): NavEntry[] =>
+      items.flatMap((item) => (item.children?.length ? flatten(item.children) : [item]));
+    return flatten(navItems);
+  }, [navItems]);
+  const activeItem = navLeaves.find((item) => segmentMatches(item.segment)) ?? navItems[0];
+
+  const mobileMenuItems = useMemo(() => {
+    const ids = ["dashboard", "creation", "smart-config", "publishing", "system"];
+    const selected = ids
+      .map((id) => navItems.find((item) => item.id === id))
+      .filter((item): item is NavEntry => Boolean(item));
+    return [...selected, accountItem];
+  }, [navItems, accountItem]);
 
   useEffect(() => {
-    if (!isSitesCanvas) closeSheet();
-  }, [closeSheet, isSitesCanvas]);
+    const groupContainsActive = (group: NavEntry): boolean =>
+      Boolean(group.children?.length) &&
+      group.children!.some(
+        (child) =>
+          routePath.startsWith(child.segment) ||
+          (child.segment === "/dashboard" && routePath === "/") ||
+          groupContainsActive(child),
+      );
+    const groupIdsToExpand: string[] = [];
+    const collectActiveGroups = (items: NavEntry[]) => {
+      items.forEach((item) => {
+        if (groupContainsActive(item)) {
+          groupIdsToExpand.push(item.id);
+          collectActiveGroups(item.children!);
+        }
+      });
+    };
+    collectActiveGroups(navItems);
+    if (groupIdsToExpand.length) {
+      window.queueMicrotask(() =>
+        setCollapsedGroups((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const id of groupIdsToExpand) {
+            if (next[id]) {
+              next[id] = false;
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        }),
+      );
+    }
+  }, [routePath, navItems]);
 
   useEffect(() => {
     if (!isAccountMenuOpen) return;
@@ -171,41 +321,77 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
     };
   }, [isAccountMenuOpen]);
 
-  const renderNavigation = (items: typeof mobileMenuItems, size: "sm" | "default" = "default") =>
-    items.map(({ name, icon: Icon, href, segment }) => (
-      <Link key={href} href={localizedPath(locale, href)} className="flex flex-1 justify-center md:w-full md:flex-none">
+  const renderNavigation = (items: NavEntry[], size: "sm" | "default" = "default") =>
+    items.map((item) => (
+      <Link key={item.id} href={localizedPath(locale, leafHref(item))} className="flex flex-1 justify-center md:w-full md:flex-none">
         <NavButton
-          icon={<Icon className="h-5 w-5" />}
-          label={name}
+          icon={<item.icon className="h-5 w-5" />}
+          label={item.name}
           size={size}
-          isActive={routePath.startsWith(segment) || (segment === "/dashboard" && routePath === "/")}
+          isActive={entryIsActive(item)}
         />
       </Link>
     ));
+
+  const renderDesktopLink = (item: NavEntry) => {
+    const isActive = entryIsActive(item);
+    const link = (
+      <Link
+        href={localizedPath(locale, item.href)}
+        title={isSidebarCollapsed ? item.name : undefined}
+        className={cn(
+          "flex items-center gap-3 rounded-lg text-sm font-medium transition",
+          isSidebarCollapsed ? "size-9 justify-center" : "h-9 px-2",
+          isActive ? "bg-white text-sky-700 shadow-sm ring-1 ring-sky-100" : "text-slate-600 hover:bg-white/80 hover:text-slate-950",
+        )}
+      >
+        <item.icon className="size-4 shrink-0" />
+        {!isSidebarCollapsed ? <span className="truncate">{item.name}</span> : null}
+      </Link>
+    );
+
+    return link;
+  };
+
+  const renderNavEntry = (item: NavEntry): React.ReactNode => {
+    if (!item.children?.length) {
+      return <Fragment key={item.id}>{renderDesktopLink(item)}</Fragment>;
+    }
+    const isOpen = !collapsedGroups[item.id];
+    const groupActive = entryIsActive(item);
+    return (
+      <div key={item.id}>
+        <button
+          type="button"
+          onClick={() => setCollapsedGroups((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+          title={isSidebarCollapsed ? item.name : undefined}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-lg text-sm font-medium transition",
+            isSidebarCollapsed ? "size-9 justify-center" : "h-9 px-2",
+            groupActive ? "text-sky-700" : "text-slate-600 hover:bg-white/80 hover:text-slate-950",
+          )}
+        >
+          <item.icon className="size-4 shrink-0" />
+          {!isSidebarCollapsed ? (
+            <>
+              <span className="min-w-0 flex-1 truncate text-left">{item.name}</span>
+              <ChevronDown className={cn("size-4 shrink-0 text-slate-400 transition-transform", isOpen && "rotate-180")} />
+            </>
+          ) : null}
+        </button>
+        {isOpen && !isSidebarCollapsed ? (
+          <div className="ml-3 mt-1 space-y-1 border-l border-slate-200 pl-2">
+            {item.children.map((child) => renderNavEntry(child))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   async function logoutSMEPost() {
     await apiPost("/api/smepost/logout", {});
     setIsAccountMenuOpen(false);
     await reloadAccount();
-  }
-
-  function siteHref(site: SiteRecord) {
-    const params = new URLSearchParams({ siteId: site.id, browserTab: site.id });
-    return localizedPath(locale, `/sites/list?${params.toString()}`);
-  }
-
-  function threadHref(thread: AgentChatThreadRecord) {
-    const params = new URLSearchParams({ threadId: thread.id });
-    if (thread.activeSiteId) {
-      params.set("siteId", thread.activeSiteId);
-      params.set("browserTab", thread.activeSiteId);
-    }
-    return localizedPath(locale, `/sites/list?${params.toString()}`);
-  }
-
-  function startSidebarDraftChat() {
-    window.localStorage.removeItem(ACTIVE_THREAD_STORAGE_KEY);
-    router.push(localizedPath(locale, `/sites/list?newChat=${Date.now()}`));
   }
 
   const accountName = account?.connected && account.auth ? account.auth.org.name : "SMEPost";
@@ -214,13 +400,6 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
   const imageCredits = account?.auth?.org.imageCredit ?? 0;
   const llmLimit = account?.auth?.org.planLimits?.llmCredits ?? 0;
   const imageLimit = account?.auth?.org.planLimits?.imageCredits ?? 0;
-
-  function handleSidebarContentScroll(event: React.UIEvent<HTMLDivElement>) {
-    const target = event.currentTarget;
-    if (target.scrollHeight - target.scrollTop - target.clientHeight > 96) return;
-    if (threads.length < threadLimit) return;
-    setThreadLimit((current) => current + 20);
-  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white md:bg-gradient-to-b md:from-sky-50 md:via-sky-50 md:to-slate-100">
@@ -274,125 +453,10 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <nav className={cn("mt-4 flex flex-col", isSidebarCollapsed ? "items-center gap-2" : "gap-1")} aria-label={t("consoleNavigation")}>
-            {primaryMenuItems.map(({ name, icon: Icon, href, segment }) => {
-              const isActive = routePath.startsWith(segment) || (segment === "/dashboard" && routePath === "/");
-              const navLink = (
-                <Link
-                  key={href}
-                  href={localizedPath(locale, href)}
-                  title={isSidebarCollapsed ? name : undefined}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg text-sm font-medium transition",
-                    isSidebarCollapsed ? "size-9 justify-center" : "h-9 px-2",
-                    isActive ? "bg-white text-sky-700 shadow-sm ring-1 ring-sky-100" : "text-slate-600 hover:bg-white/80 hover:text-slate-950",
-                  )}
-                >
-                  <Icon className="size-4 shrink-0" />
-                  {!isSidebarCollapsed ? <span className="truncate">{name}</span> : null}
-                </Link>
-              );
-
-              if (segment === "/sites" && !isSidebarCollapsed) {
-                return (
-                  <div key={href} className="flex items-center gap-1">
-                    <div className="min-w-0 flex-1">{navLink}</div>
-                    <Link
-                      href={localizedPath(locale, "/sites/all")}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white/80 hover:text-slate-950"
-                      aria-label={t("siteGridMenu")}
-                      title={t("siteGridMenu")}
-                    >
-                      <Grid2X2 className="size-4" />
-                    </Link>
-                  </div>
-                );
-              }
-
-              return (
-                navLink
-              );
-            })}
+            {navItems.map((item) => renderNavEntry(item))}
           </nav>
 
-          {!isSidebarCollapsed ? (
-            <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1" onScroll={handleSidebarContentScroll}>
-              <section>
-                <div className="mb-2 flex items-center justify-between gap-2 px-2">
-                  <Link
-                    href={localizedPath(locale, "/sites")}
-                    className="text-xs font-semibold uppercase text-slate-500 transition hover:text-slate-900"
-                  >
-                    {t("sitesSidebarTitle")}
-                  </Link>
-                  <Link
-                    href={localizedPath(locale, "/sites/list?addSite=1")}
-                    className="flex size-7 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white/80 hover:text-slate-950"
-                    aria-label={t("addSite")}
-                    title={t("addSite")}
-                  >
-                    <Plus className="size-4" />
-                  </Link>
-                </div>
-                <div className="max-h-[26vh] space-y-1 overflow-y-auto pr-1">
-                  {sites.length === 0 ? (
-                    <p className="px-2 py-2 text-xs text-slate-500">{t("emptySites")}</p>
-                  ) : (
-                    visibleSites.map((site) => (
-                      <Link
-                        key={site.id}
-                        href={siteHref(site)}
-                        className={cn(
-                          "flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-700 transition hover:bg-white/80 hover:text-slate-950",
-                          routePath.startsWith("/sites") && "hover:bg-white",
-                        )}
-                      >
-                        <Globe2 className="size-4 shrink-0 text-slate-400" />
-                        <span className="truncate">{site.name}</span>
-                      </Link>
-                    ))
-                  )}
-                </div>
-              </section>
-
-              <section className="mt-5">
-                <div className="mb-2 flex items-center justify-between gap-2 px-2">
-                  <Link
-                    href={localizedPath(locale, "/chatroom")}
-                    className="text-xs font-semibold uppercase text-slate-500 transition hover:text-slate-900"
-                  >
-                    {t("sidebarRecent")}
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={startSidebarDraftChat}
-                    className="flex size-7 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white/80 hover:text-slate-950"
-                    aria-label={t("agentNewChat")}
-                    title={t("agentNewChat")}
-                  >
-                    <MessageCircle className="size-4" />
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {threads.length === 0 ? (
-                    <p className="px-2 py-2 text-xs text-slate-500">{t("agentLoadingHistory")}</p>
-                  ) : (
-                    threads.map((thread) => (
-                      <Link
-                        key={thread.id}
-                        href={threadHref(thread)}
-                        onClick={() => window.localStorage.setItem(ACTIVE_THREAD_STORAGE_KEY, thread.id)}
-                        className="block min-w-0 rounded-lg px-2 py-2 text-sm text-slate-700 transition hover:bg-white/80 hover:text-slate-950"
-                      >
-                        <span className="block truncate">{thread.title || t("agentChatShortTitle")}</span>
-                      </Link>
-                    ))
-                  )}
-                </div>
-              </section>
-            </div>
-          ) : (
-            <div className="min-h-0 flex-1" />
-          )}
+          <div className="min-h-0 flex-1" />
 
           <div ref={accountMenuRef} className={cn("relative mt-3 w-full border-t border-slate-200 pt-3", isSidebarCollapsed && "flex justify-center")}>
             {isAccountMenuOpen ? (
@@ -437,11 +501,12 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
                     </div>
                   </div>
                 ) : null}
-                <AccountDropdownLink href="/settings" icon={<SlidersHorizontal className="size-4" />} label={t("sidebarRuntimeConfig")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
+                <AccountDropdownLink href="/system/models" icon={<Boxes className="size-4" />} label={t("navModelManagement")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/permissions" icon={<ShieldCheck className="size-4" />} label={t("settingsTabPermissions")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/language" icon={<Globe2 className="size-4" />} label={t("settingsTabLanguage")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/brand" icon={<WalletCards className="size-4" />} label={t("settingsTabBrand")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/prompt" icon={<MessageCircle className="size-4" />} label={t("settingsTabPrompt")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
+                <AccountDropdownLink href="/settings/backup" icon={<Database className="size-4" />} label={t("settingsTabBackup")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <Link
                   href={localizedPath(locale, "/account/smepost")}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 transition hover:bg-sky-50 hover:text-slate-950"
@@ -490,8 +555,8 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <div className={cn("flex min-w-0 flex-1 flex-col bg-white pb-20 md:bg-transparent md:pb-0", !isSitesCanvas && "lg:m-3")}>
-        {isSitesCanvas ? (
+      <div className={cn("flex min-w-0 flex-1 flex-col bg-white pb-20 md:bg-transparent md:pb-0", !isFullBleed && "lg:m-3")}>
+        {isFullBleed ? (
           children
         ) : (
           <main className="flex min-w-0 flex-1 flex-col bg-card md:overflow-hidden md:rounded-lg md:border md:border-border md:shadow-sm">

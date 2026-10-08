@@ -6,12 +6,12 @@ import {
   appendAgentRuntimeEvent,
   createAgentRuntimeRun,
   getAgentRuntimeRun,
-  getSite,
+  getAccount,
   listAgentRuntimeEvents,
   updateAgentRuntimeRun,
 } from "@/db/repository";
 import { getBrandSettings, getLocalAgentSettings, getPromptSettings } from "@/db/repositories/settings";
-import { defaultLocale, type Locale } from "@/lib/i18n-config";
+import { defaultLocale, localeLanguageName, type Locale } from "@/lib/i18n-config";
 import { localeResources, type TranslationKey } from "@/lib/locale-resources";
 import { browserProfilesRoot } from "@/lib/paths";
 import type { AgentRuntimeEventRecord } from "@/lib/types";
@@ -59,7 +59,7 @@ function contextualImageTopic(input: AgentRunInput) {
 }
 
 const PLANNER_SYSTEM_PROMPT = [
-  "You are the planner for Meowus's local social media agent.",
+  "You are the planner for CoolPilot's local social media agent.",
   "Decide the minimal ordered list of tool calls needed to satisfy the user request.",
   "Only use tools from the provided catalog. Return an empty step list when no tool is needed.",
 ].join("\n");
@@ -103,7 +103,7 @@ function buildPlannedCall(step: ToolPlanStep, input: AgentRunInput, present: Set
         input: {
           topic: typeof stepInput.topic === "string" && stepInput.topic.trim() ? stepInput.topic : input.message,
           prompt: [input.params?.prompt, contextualPostPrompt(input)].filter(Boolean).join("\n\n"),
-          language: input.params?.language ?? "Traditional Chinese",
+          language: typeof input.params?.language === "string" ? input.params.language : localeLanguageName(input.locale),
           maxWords: input.params?.maxWords ?? 260,
         },
       };
@@ -343,7 +343,7 @@ export class LangGraphAgentEngine implements AgentEngine {
     });
     const run = await createAgentRuntimeRun({
       threadId: input.threadId,
-      siteId: input.site?.id,
+      accountId: input.site?.id,
       mode: "local",
       status: "running",
       input: {
@@ -426,7 +426,7 @@ export class LangGraphAgentEngine implements AgentEngine {
       throw new Error("No pending tool approval found for this run");
     }
 
-    const site = run.siteId ? await getSite(run.siteId) : undefined;
+    const site = run.accountId ? await getAccount(run.accountId) : undefined;
     const [settings, brand, promptSettings] = await Promise.all([
       getLocalAgentSettings(),
       getBrandSettings(),

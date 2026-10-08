@@ -1,14 +1,14 @@
-import { getSite } from "@/db/repository";
+import { getAccount } from "@/db/repository";
 import { firstPage, launchSiteProfileContext } from "@/lib/browser";
 
 async function main() {
-  const siteId = process.argv[2];
-  if (!siteId) {
-    throw new Error("Missing siteId");
+  const accountId = process.argv[2];
+  if (!accountId) {
+    throw new Error("Missing accountId");
   }
-  const site = await getSite(siteId);
+  const site = await getAccount(accountId);
   if (!site) {
-    throw new Error(`Site not found: ${siteId}`);
+    throw new Error(`Site not found: ${accountId}`);
   }
 
   const context = await launchSiteProfileContext(site.profilePath);

@@ -1,74 +1,72 @@
 import { z } from "zod";
-import { getLocalAgentSettings } from "@/db/repositories/settings";
-import { resolveFirstAvailableModel } from "@/features/ai-settings/model-catalog";
 import {
-  orderedProviders,
-  resolveProviderBaseUrl,
-  resolveProviderModel,
-  type AIProviderAttempt,
-} from "@/features/ai-settings/provider-registry";
-import { AppError } from "@/lib/app-errors";
-import { maskKey, readProviderKeys } from "@/lib/secrets";
-import type { LocalAIProvider } from "@/lib/types";
-import { callProvider } from "./providers";
+  aiRuntime,
+  type ChatRequest,
+  type ChatResponse,
+  type StructuredChatRequest,
+  type TokenUsage,
+} from "@/features/ai-runtime";
+import {
+  legacyProviderOrder,
+  MissingAIKeyError,
+  preferredTextProvider,
+  withLegacyCompatibility,
+  type LegacyProvider,
+} from "./compat";
 
-type Provider = LocalAIProvider;
+/**
+ * Compatibility facade over `aiRuntime` (phase P2 of `docs/generate-migration.md`).
+ *
+ * The public API is unchanged on purpose: the 19 call sites still import `generateText` /
+ * `generateStructured` and must not notice that provider ordering, key rotation, model
+ * resolution, failover and usage collection now live in the runtime. Everything
+ * provider-facing was deleted from this file - what is left is request shaping (legacy
+ * arguments -> `ChatRequest`) and the compatibility shims in `compat.ts`.
+ */
 
-export class MissingAIKeyError extends Error {
-  constructor(provider: Provider) {
-    super(`Missing ${provider} API key`);
-    this.name = "MissingAIKeyError";
-  }
-}
+export { MissingAIKeyError };
+export type { TokenUsage };
+
+type Provider = LegacyProvider;
 
 export type GenerateMeta = {
-  provider: Provider;
+  /**
+   * `providerId` of the model that actually answered - after key rotation and after model
+   * failover (`qwen`, `gemini`, ...). Callers persist this as `usage_records.provider` (D2).
+   */
+  provider: string;
   model: string;
+  /** Masked credential label (`****1234`). Never the key, and never persisted (D6). */
   keyLabel: string;
+  usage?: TokenUsage;
 };
 
-function shuffle<T>(items: T[]) {
-  return [...items].sort(() => Math.random() - 0.5);
+/** @deprecated Legacy alias kept so existing imports keep compiling; retire in P4. */
+export type ProviderResult = { text: string; usage?: TokenUsage };
+
+type RuntimeMeta = Pick<ChatResponse, "providerId" | "model" | "credentialLabel" | "usage">;
+
+function toMeta(response: RuntimeMeta): GenerateMeta {
+  return {
+    provider: response.providerId,
+    model: response.model,
+    keyLabel: response.credentialLabel,
+    usage: response.usage,
+  };
 }
 
-async function providerAttempts(preferred: Provider | undefined, settings: Awaited<ReturnType<typeof getLocalAgentSettings>> | null) {
-  const attempts: AIProviderAttempt[] = [];
-  for (const provider of orderedProviders(preferred, settings)) {
-    const keys = shuffle(await readProviderKeys(provider));
-    const configuredModel = resolveProviderModel(provider, settings);
-    const baseUrl = resolveProviderBaseUrl(provider, settings);
-    attempts.push(...keys.map((key) => ({ provider, key, model: configuredModel, baseUrl })));
-  }
-  return attempts;
+/** The legacy per-call `provider` argument never pinned anything - it asked for it first (G1). */
+function preferredProvider(preferred?: Provider): Pick<ChatRequest, "preferProviderId"> {
+  return preferred ? { preferProviderId: preferred } : {};
 }
 
-async function runWithProviders<T>(
-  preferred: Provider | undefined,
-  run: (attempt: AIProviderAttempt, meta: GenerateMeta) => Promise<T>,
-): Promise<T> {
-  const settings = await getLocalAgentSettings().catch(() => null);
-  const attempts = await providerAttempts(preferred, settings);
-  if (attempts.length === 0) {
-    throw new MissingAIKeyError(preferred ?? "gemini");
-  }
-
-  const errors: string[] = [];
-  for (const rawAttempt of attempts) {
-    try {
-      const model = await resolveFirstAvailableModel({
-        provider: rawAttempt.provider,
-        capability: "text",
-        configuredModel: rawAttempt.model,
-        settings,
-      });
-      const attempt = { ...rawAttempt, model };
-      return await run(attempt, { provider: attempt.provider, model, keyLabel: maskKey(attempt.key) });
-    } catch (error) {
-      errors.push(`${rawAttempt.provider}[${maskKey(rawAttempt.key)}]: ${(error as Error).message}`);
-    }
-  }
-
-  throw new Error(errors.join(" | "));
+/** Every legacy text call shares the same compatibility envelope. */
+function runOnRuntime<T>(preferred: Provider | undefined, run: () => Promise<T>) {
+  return withLegacyCompatibility({
+    providerIds: () => legacyProviderOrder(preferred),
+    namedProvider: () => preferredTextProvider(preferred),
+    run,
+  });
 }
 
 export async function generateText(input: {
@@ -76,29 +74,13 @@ export async function generateText(input: {
   systemPrompt?: string;
   provider?: Provider;
 }) {
-  return runWithProviders(input.provider, async (attempt, meta) => {
-    const text = await callProvider(attempt, { prompt: input.prompt, systemPrompt: input.systemPrompt });
-    return { text, ...meta };
-  });
-}
-
-type ParseResult<T> = { ok: true; data: T } | { ok: false; error: string };
-
-function parseStructured<T extends z.ZodType>(schema: T, raw: string): ParseResult<z.infer<T>> {
-  let json: unknown;
-  try {
-    json = JSON.parse(raw);
-  } catch (error) {
-    return { ok: false, error: `invalid JSON: ${(error as Error).message}` };
-  }
-  const result = schema.safeParse(json);
-  if (!result.success) {
-    const message = result.error.issues
-      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
-      .join("; ");
-    return { ok: false, error: message };
-  }
-  return { ok: true, data: result.data };
+  const request: ChatRequest = {
+    messages: [{ role: "user", content: input.prompt }],
+    systemPrompt: input.systemPrompt,
+    ...preferredProvider(input.provider),
+  };
+  const response = await runOnRuntime(input.provider, () => aiRuntime.chat(request));
+  return { text: response.text, ...toMeta(response) };
 }
 
 export async function generateStructured<T extends z.ZodType>(input: {
@@ -107,43 +89,14 @@ export async function generateStructured<T extends z.ZodType>(input: {
   schema: T;
   provider?: Provider;
 }): Promise<{ data: z.infer<T> } & GenerateMeta> {
-  const jsonSchema = JSON.stringify(z.toJSONSchema(input.schema));
-  const instruction = [
-    "Return ONLY a single valid JSON object that conforms to the JSON schema below.",
-    "Do not include markdown code fences, comments, or any text outside the JSON object.",
-    `JSON schema: ${jsonSchema}`,
-  ].join("\n");
-  const basePrompt = `${input.prompt}\n\n${instruction}`;
-
-  return runWithProviders(input.provider, async (attempt, meta) => {
-    const first = await callProvider(attempt, {
-      prompt: basePrompt,
-      systemPrompt: input.systemPrompt,
-      json: true,
-    });
-    const firstParse = parseStructured(input.schema, first);
-    if (firstParse.ok) {
-      return { data: firstParse.data, ...meta };
-    }
-
-    const retryPrompt = [
-      basePrompt,
-      "",
-      `Your previous reply could not be used (${firstParse.error}).`,
-      "Reply again with ONLY the corrected JSON object and nothing else.",
-    ].join("\n");
-    const second = await callProvider(attempt, {
-      prompt: retryPrompt,
-      systemPrompt: input.systemPrompt,
-      json: true,
-    });
-    const secondParse = parseStructured(input.schema, second);
-    if (secondParse.ok) {
-      return { data: secondParse.data, ...meta };
-    }
-
-    throw new AppError("AI_STRUCTURED_OUTPUT_INVALID", {
-      message: `Structured output validation failed: ${secondParse.error}`,
-    });
-  });
+  // The instruction → parse → corrective-retry loop is the runtime's job now (G5);
+  // this facade only hands over the prompt and the schema.
+  const request: StructuredChatRequest<T> = {
+    messages: [{ role: "user", content: input.prompt }],
+    systemPrompt: input.systemPrompt,
+    schema: input.schema,
+    ...preferredProvider(input.provider),
+  };
+  const response = await runOnRuntime(input.provider, () => aiRuntime.chatStructured(request));
+  return { data: response.data, ...toMeta(response) };
 }

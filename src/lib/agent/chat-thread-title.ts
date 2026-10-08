@@ -7,7 +7,7 @@ const genericTitles = new Set(["", "chat", "new chat", "\u804a\u5929", "\u65b0\u
 const maxTitleLength = 64;
 
 export function defaultChatThreadTitle(locale: Locale) {
-  return locale === "zh-hk" ? "\u804a\u5929" : "Chat";
+  return locale === "en" ? "Chat" : "\u804a\u5929";
 }
 
 export function normalizeChatThreadTitle(title: string) {
@@ -63,7 +63,7 @@ export async function generateChatThreadTitle(input: {
   if (messages.length === 0) return "";
 
   try {
-    const language = input.locale === "zh-hk" ? "Traditional Chinese for Hong Kong" : "English";
+    const language = input.locale === "zh-hk" ? "Traditional Chinese for Hong Kong" : input.locale === "en" ? "English" : "Simplified Chinese";
     const result = await generateStructured({
       prompt: [
         "Create one concise title for this chat history.",

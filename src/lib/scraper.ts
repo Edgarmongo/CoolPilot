@@ -42,7 +42,7 @@ export async function rewriteArticle(input: {
   language?: string;
   prompt?: string;
 }) {
-  const language = input.language ?? "Traditional Chinese";
+  const language = input.language ?? "Simplified Chinese";
   const maxWords = input.maxWords ?? 300;
   const prompt = [
     `Rewrite the article into a ready-to-post social media draft in ${language}.`,
@@ -58,7 +58,7 @@ export async function rewriteArticle(input: {
 
   try {
     const result = await generateStructured({ prompt, schema: postDraftSchema });
-    return { ...toPostDraft(result.data, input.title), provider: result.provider, model: result.model };
+    return { ...toPostDraft(result.data, input.title), provider: result.provider, model: result.model, usage: result.usage };
   } catch (error) {
     if (error instanceof MissingAIKeyError) {
       throw error;
@@ -76,7 +76,7 @@ export async function generateTopicPost(input: {
   systemPrompt?: string;
 }) {
   const prompt = [
-    `Write a ready-to-post Threads social media draft in ${input.language ?? "Traditional Chinese"}.`,
+    `Write a ready-to-post Threads social media draft in ${input.language ?? "Simplified Chinese"}.`,
     `Topic: ${input.topic}`,
     `Keep the body to roughly ${input.maxWords ?? 300} words.`,
     "title: a short, catchy headline. body: the post copy a reader can publish as-is.",
@@ -86,7 +86,7 @@ export async function generateTopicPost(input: {
     .filter(Boolean)
     .join("\n");
   const result = await generateStructured({ prompt, schema: postDraftSchema, systemPrompt: input.systemPrompt });
-  return { ...toPostDraft(result.data, input.topic), provider: result.provider, model: result.model };
+  return { ...toPostDraft(result.data, input.topic), provider: result.provider, model: result.model, usage: result.usage };
 }
 
 export async function searchGoogleNews(topic: string, maxItems = 5) {

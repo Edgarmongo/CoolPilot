@@ -20,7 +20,7 @@ async function tick() {
 }
 
 async function main() {
-  console.log(`[worker] Meowus worker started. Poll=${pollMs}ms`);
+  console.log(`[worker] CoolPilot worker started. Poll=${pollMs}ms`);
   while (true) {
     try {
       const hadWork = await tick();

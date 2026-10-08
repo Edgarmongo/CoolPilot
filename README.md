@@ -1,12 +1,12 @@
-# Meowus by SMEPost
+# CoolPilot by SMEPost
 
-**Meowus** is an open-source social media agent. Full name: **Meowus by SMEPost**.
+**CoolPilot** is an open-source social media agent. Full name: **CoolPilot by SMEPost**.
 
 Your open-source social media agent — plan, approve, schedule, and publish social campaigns from your own computer, with optional SMEPost campaign and brand integration.
 
-Meow + Us — an AI cat teammate that helps manage social media with you.
+CoolPilot — an AI copilot that helps you manage social media.
 
-Meowus is the local/open-source social media agent. SMEPost remains the connected cloud campaign, brand, and content platform. Sign in with SMEPost, sync campaigns from SMEPost, and publish with Meowus.
+CoolPilot is the local/open-source social media agent. SMEPost remains the connected cloud campaign, brand, and content platform. Sign in with SMEPost, sync campaigns from SMEPost, and publish with CoolPilot.
 
 It combines a desktop Electron app, a Next.js control panel, persistent browser profiles, scheduled social posting, and an AI social media agent that can help create, manage, and run repeatable content workflows.
 
@@ -14,29 +14,29 @@ Use it as a local Agent OS for social media operations: connect multiple logged-
 
 [Traditional Chinese Taiwan README](README.zh-TW.md)
 
-## Download and Run Meowus
+## Download and Run CoolPilot
 
-Download the latest version from [GitHub Releases](https://github.com/MeowAI-HK/meowus/releases). Official releases use version tags such as `v0.1.0`.
+Download the latest version from [GitHub Releases](https://github.com/Edgarmongo/CoolPilot/releases). Official releases use version tags such as `v0.1.0`.
 
 ### Windows
 
-- **Installer (`Meowus Setup <version>.exe`)**: Download and run the installer, then open Meowus from the Start menu.
-- **Portable ZIP (`Meowus-Windows-x64.zip`)**: Extract the entire ZIP to a permanent folder, then open `Meowus.exe` inside `win-unpacked`. Do not move the executable out of that folder because it needs the adjacent `resources` files.
+- **Installer (`CoolPilot Setup <version>.exe`)**: Download and run the installer, then open CoolPilot from the Start menu.
+- **Portable ZIP (`CoolPilot-Windows-x64.zip`)**: Extract the entire ZIP to a permanent folder, then open `CoolPilot.exe` inside `win-unpacked`. Do not move the executable out of that folder because it needs the adjacent `resources` files.
 - GitHub Windows downloads are intentionally **unsigned**. Microsoft SmartScreen may display a warning; choose **More info** then **Run anyway** only if you downloaded the file from this repository's official GitHub Release.
 
 ### macOS
 
 1. Download the `.dmg` for your Mac.
-2. Open it and drag **Meowus** to **Applications**.
-3. Open Meowus from Applications.
+2. Open it and drag **CoolPilot** to **Applications**.
+3. Open CoolPilot from Applications.
 
 Official macOS releases are signed with Developer ID and notarized by Apple. Your local database, browser profiles, uploaded assets, and generated artifacts remain on your computer when you update the app.
 
 ## Repository
 
 ```bash
-git clone https://github.com/MeowAI-HK/meowus.git
-cd meowus
+git clone https://github.com/Edgarmongo/CoolPilot.git
+cd CoolPilot
 ```
 
 ## What It Can Do
@@ -49,14 +49,18 @@ cd meowus
 - Schedule social posting runs and track run history in local SQLite storage.
 - Use an AI agent workflow to create posts, generate images, open pages, click, type, capture screenshots, and draft or publish Threads posts.
 - Choose local mode with your own LLM/image API keys, or connect SMEPost for cloud-backed agent usage and managed credits.
+- Browse mainstream vendor model catalogs and manage every model provider in one place under **System → Model Management**.
+- Run a headless account risk check (**Publishing → Accounts**) that verifies each saved profile can still reach its publishing page instead of hitting a login wall, and refuses to launch a browser for an account the check found signed out.
+- Export the whole workspace into one JSON file and restore it later under **System Settings → Backup**, so local data stays portable and owns its own copy.
+- Plan and review everything on one monthly **Content Calendar** (**Automation → Content Calendar**) that shows planned occurrences, run history, and publish logs side by side, and can turn your best-performing time slots into a weekly schedule in one click.
 
 Current browser automation is centered on persistent per-account Chromium profiles. CloakBrowser is included as a stealth Chromium dependency, but the current app launch paths still use Playwright persistent contexts directly. Treat stealth tooling as a useful dependency, not a guarantee against platform detection.
 
 ## Interface Preview
 
-The screenshot below is captured from the real Meowus app UI and sanitized with demo account names before publishing.
+The screenshot below is captured from the real CoolPilot app UI and sanitized with demo account names before publishing.
 
-![Meowus chat workspace with browser panel](public/screenshots/chat-workspace-browser.png)
+![CoolPilot chat workspace with browser panel](public/screenshots/chat-workspace-browser.png)
 
 ## Feature Labels
 
@@ -105,7 +109,7 @@ Permission controls let you choose whether actions run automatically or ask for 
 Turn one focused study session into a small win today.
 
 Clip a useful lesson, write down one takeaway, and share the insight
-while it is still fresh. Meowus helps your agent prepare
+while it is still fresh. CoolPilot helps your agent prepare
 the draft, pair it with an image concept, and schedule the post for
 the right account without mixing browser profiles.
 
@@ -129,7 +133,7 @@ The chat layer can also turn natural-language timing requests into scheduled Thr
 
 ## Local Mode, SMEPost Mode, and Subscriptions
 
-Meowus can run locally with your own API keys. This is the best path if you want full control over model providers, local data, and browser sessions.
+CoolPilot can run locally with your own API keys. This is the best path if you want full control over model providers, local data, and browser sessions.
 
 You can also connect an SMEPost account for cloud-backed agent usage. SMEPost can provide easier setup, managed model credits, image credits, and cloud agent workflows for users who do not want to manage every provider key themselves. Free usage may be available through SMEPost registration, and paid subscription plans can unlock more managed usage without changing your local browser profiles.
 
@@ -150,6 +154,35 @@ Image generation:
 - OpenAI-compatible image generation endpoints
 
 Model lists can be loaded from provider APIs when keys are configured. You can also pin model IDs through environment variables or the settings UI.
+
+**System → Model Management** is the single place for model work. The *Available Models* tab lists every model id your model gateway serves (imported from `quanzil.com/api/user/models`, 420 ids at import time) grouped by vendor and capability, with the OpenAI-compatible endpoint for each documented vendor; the *Model Configuration* tab holds the local provider keys, endpoints and model choices plus the cloud (SMEPost) provider status.
+
+### Syncing your own gateway account
+
+The *Available Models* tab ships a **Gateway model sync** switch. While it stays off, the page serves the snapshot bundled with the app. To track your own account instead:
+
+1. Turn the switch on.
+2. Paste the `Cookie` header value of your logged-in gateway session into **Account session cookie** and press **Save settings**.
+3. Press **Sync models**.
+
+The sync calls the endpoint shown in the card (default `https://quanzil.com/api/user/models`), stores the returned ids in the local database and switches the catalog to that list straight away - no rebuild, and nothing is written back into the source tree (packaged Electron builds are read-only). **Clear credential and restore bundled list** drops both the synced list and the cookie. The endpoint must answer with `{"data":["model-a","model-b"]}` or a bare array of model ids.
+
+The cookie is sent to that endpoint only and is kept on this machine in `.env.local` next to your provider keys (override it with the `MODEL_GATEWAY_COOKIE` environment variable if you prefer) - never in the database, the logs or the repository. A failed attempt is reported in the card and the catalog keeps serving the last good list.
+
+To refresh the snapshot bundled with the app (used while the switch is off):
+
+```bash
+# Save the raw JSON body of the gateway model request ({"data":["model-a", ...]}) to a file first.
+tsx scripts/import-gateway-models.ts ./gateway-models.json --source=quanzil.com/api/user/models
+```
+
+The importer only reads public model ids; never pass a payload that contains cookies, tokens or account data (use the in-app sync above for credentialed requests).
+
+To verify the page renders in a real browser (needs a running dev server):
+
+```bash
+tsx scripts/model-management-smoke.ts http://127.0.0.1:3000 zh-cn
+```
 
 ## Requirements
 
@@ -211,6 +244,12 @@ OPENROUTER_MODEL=
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
 
+Every `*_API_KEYS` variable accepts several keys separated by commas or newlines. The AI
+runtime rotates through them and cools a key down when a provider answers `429`, so one
+rate-limited key does not take the provider offline. The same keys can be managed per
+provider under **系统 / 模型管理 → 供应商与密钥**, where they are stored in the local
+encrypted vault instead of the environment file (see `docs/model-runtime.md` §5).
+
 ## Common Commands
 
 ```powershell
@@ -247,7 +286,38 @@ Local runtime files are stored under `web-data/` by default:
 
 Override the data directory with `SOCIAL_AUTO_POST_DATA_DIR` or `APP_DATA_DIR`.
 
+### Backup and restore
+
+**System Settings → Backup** exports every table in `web-data/social-auto-post.db` into a single `coolpilot-backup-<date>-<time>.json` file (`GET /api/backup/export`) and writes it back later (`POST /api/backup/restore`):
+
+- `replace` clears the tables contained in the file and imports them, so the workspace becomes an exact copy of the backup.
+- `merge` keeps existing rows and skips records whose primary key is already present.
+
+Files are validated before anything is written, and an unknown table or column is skipped with a warning instead of failing the whole restore. Browser profiles, uploads, videos, and artifacts are **not** part of the JSON file — copy those folders as well when moving to another machine, then sign in again if a profile path changed.
+
 Do not commit `.env.local`, `web-data/`, browser profiles, database files, uploaded assets, generated artifacts, or logs.
+
+## Content Calendar
+
+**Automation → Content Calendar** (`/schedules/calendar`, backed by `GET /api/calendar`) is the monthly planning view. It merges three layers for any date range and lets you hide each one:
+
+- **Scheduled** — every occurrence the schedule rules produce (including paused schedules, drawn struck through).
+- **Run history** — queue/running/success/warning/failed runs from `runs`.
+- **Publish logs** — what actually went out, from `publish_records`.
+
+Schedules support five recurrence rules, and the next run is the earliest occurrence across all of them (`src/lib/schedule.ts`):
+
+| Type | Payload | Behaviour |
+| --- | --- | --- |
+| `once` | `{ type: "once", at }` | One absolute ISO moment |
+| `daily` | `{ type: "daily", time }` | Every day at `HH:MM` local time |
+| `weekly` | `{ type: "weekly", time, weekdays }` | Every listed weekday (0 = Sunday … 6 = Saturday) |
+| `monthly` | `{ type: "monthly", time, days }` | Every listed day (1–31); a day past a short month's length uses that month's last day |
+| `interval` | `{ type: "interval", everyMinutes, anchor? }` | Every N minutes, aligned to `anchor` when given |
+
+The right-hand column ranks your **best publishing times** from real engagement (`bestTimeSlots`). Select one or more weekday/hour slots and **Create schedule from selected slots** turns them into weekly rules in a single schedule, so the calendar and the performance data stay connected.
+
+Week grids start on Monday, and the day panel lists each entry with its time, layer, status, account, and playbook.
 
 ## Project Structure
 
@@ -260,6 +330,7 @@ src/worker/       Queue and schedule worker
 electron/         Electron entrypoints
 scripts/          Build and packaging helpers
 public/           Public assets
+docs/             Model layer docs (model-gateway.md · model-gateway-plan.md · model-layer-spec.md · model-runtime.md · generate-migration.md) + tech stack (tech-stack.md)
 ```
 
 ## Safety and Platform Disclaimer
@@ -268,7 +339,7 @@ This software controls browsers and can interact with third-party social media p
 
 Your accounts may be challenged, rate-limited, restricted, suspended, or banned by social media providers. CloakBrowser or any stealth Chromium tooling cannot guarantee that automation will avoid bot detection, CAPTCHA, device checks, review systems, or enforcement actions.
 
-Use Meowus only on accounts you own or are authorized to manage. Do not use it for spam, impersonation, deceptive engagement, credential abuse, platform manipulation, or any illegal activity. You are responsible for reviewing platform rules and local laws before running automated workflows.
+Use CoolPilot only on accounts you own or are authorized to manage. Do not use it for spam, impersonation, deceptive engagement, credential abuse, platform manipulation, or any illegal activity. You are responsible for reviewing platform rules and local laws before running automated workflows.
 
 ## License
 

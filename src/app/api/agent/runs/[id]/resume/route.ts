@@ -54,7 +54,7 @@ async function syncResumeResultToChat(agentRunId: string, result: AgentRunResult
     threadId,
     role: "assistant",
     content: result.assistant,
-    siteId: result.run.siteId,
+    accountId: result.run.accountId,
     mode: "local",
     metadata: {
       localAgentRunId: agentRunId,
@@ -70,7 +70,7 @@ async function syncResumeResultToChat(agentRunId: string, result: AgentRunResult
       messageId: assistant.id,
       name: tool.name,
       status: tool.status,
-      siteId: result.run.siteId,
+      accountId: result.run.accountId,
       input: tool.input,
       output: tool.output,
       creditType: tool.name.includes("image") ? "image" : undefined,

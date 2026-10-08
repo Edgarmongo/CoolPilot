@@ -1,7 +1,8 @@
-import { createContentItem } from "@/db/repository";
+import { createContentItem, createUsageRecord } from "@/db/repository";
 import { fail, ok, parseJson } from "@/lib/api";
 import { fetchArticleText, rewriteArticle } from "@/lib/scraper";
 import { importUrlSchema } from "@/lib/validation";
+import { countTextCharacters } from "@/lib/usage";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
         postReadyText: article.text.slice(0, parsed.data.maxWords * 2),
         provider: "local",
         model: "none",
+        usage: undefined,
       };
 
   const item = await createContentItem({
@@ -40,5 +42,18 @@ export async function POST(request: Request) {
     },
     status: "ready",
   });
+  if (parsed.data.rewrite) {
+    await createUsageRecord({
+      provider: content.provider,
+      model: content.model,
+      kind: "article",
+      status: "success",
+      inputTokens: content.usage?.inputTokens,
+      outputTokens: content.usage?.outputTokens,
+      totalTokens: content.usage?.totalTokens,
+      wordCount: countTextCharacters(content.postReadyText || content.body),
+      contentItemId: item?.id,
+    });
+  }
   return ok({ item }, { status: 201 });
 }

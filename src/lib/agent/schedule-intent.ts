@@ -1,4 +1,4 @@
-import type { SiteRecord } from "@/lib/types";
+import type { AccountRecord } from "@/lib/types";
 
 const scheduleWords = /\b(schedule|tomorrow|tmr|post.+(?:at|on))\b|聽日|明天|排程|定時/i;
 const tomorrowWords = /\b(?:tomorrow|tmr)\b|聽日|明天/i;
@@ -7,7 +7,7 @@ const timePattern = /\b(1[0-2]|0?\d)(?::([0-5]\d))?\s*(am|pm)\b|(?:下午|晚上
 export type ScheduleIntent = {
   scheduledAt: number;
   timeZone: string;
-  site: SiteRecord;
+  site: AccountRecord;
 };
 
 export function looksLikeScheduleRequest(message: string) {
@@ -16,8 +16,8 @@ export function looksLikeScheduleRequest(message: string) {
 
 export function resolveScheduleIntent(input: {
   message: string;
-  sites: SiteRecord[];
-  selectedSite?: SiteRecord;
+  accounts: AccountRecord[];
+  selectedSite?: AccountRecord;
   now?: Date;
 }): ScheduleIntent {
   const now = input.now ?? new Date();
@@ -44,7 +44,7 @@ export function resolveScheduleIntent(input: {
   scheduled.setHours(hours, minutes, 0, 0);
   if (scheduled.getTime() <= now.getTime()) throw new Error("The scheduled time must be in the future.");
 
-  const threadsSites = input.sites.filter((site) => site.platform === "Threads");
+  const threadsSites = input.accounts.filter((site) => site.platform === "Threads");
   let site = input.selectedSite?.platform === "Threads" ? input.selectedSite : undefined;
   if (!site) {
     const message = input.message.toLocaleLowerCase();

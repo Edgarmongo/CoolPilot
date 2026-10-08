@@ -9,13 +9,25 @@ type DialogProps = {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  maxWidth?: "sm" | "md" | "lg";
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "responsive";
+  /** Extra controls rendered in the header, immediately left of the close button. */
+  headerActions?: React.ReactNode;
+  /**
+   * Expand the panel to (almost) the whole viewport. The body turns into a
+   * full-height flex column so callers can stretch content (e.g. a live
+   * preview) to fill the space.
+   */
+  fullscreen?: boolean;
 };
 
 const widthClasses = {
   sm: "max-w-sm",
   md: "max-w-md",
   lg: "max-w-lg",
+  xl: "max-w-2xl",
+  "2xl": "max-w-4xl",
+  /** Scales with the viewport (≈85vw) and stops at a comfortable reading cap. */
+  responsive: "max-w-[min(85vw,80rem)]",
 };
 
 export function Dialog({
@@ -24,6 +36,8 @@ export function Dialog({
   title,
   children,
   maxWidth = "md",
+  headerActions,
+  fullscreen = false,
 }: DialogProps) {
   // Close on Escape key
   useEffect(() => {
@@ -52,25 +66,32 @@ export function Dialog({
       {/* Panel */}
       <div
         className={cn(
-          "relative z-10 grid w-full gap-4 rounded-2xl border border-border bg-background shadow-[0_24px_80px_-32px_rgba(15,23,42,0.45)]",
-          widthClasses[maxWidth],
+          "relative z-10 grid gap-4 rounded-2xl border border-border bg-background shadow-[0_24px_80px_-32px_rgba(15,23,42,0.45)]",
+          fullscreen
+            ? "h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] grid-rows-[auto_minmax(0,1fr)]"
+            : cn("w-full", widthClasses[maxWidth]),
         )}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border/70 px-6 py-4">
           <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
-            aria-label="Close dialog"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            {headerActions}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md p-1 text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+              aria-label="Close dialog"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
-        <div className="px-6 pb-6">{children}</div>
+        <div className={cn("min-w-0 px-6 pb-6", fullscreen && "flex min-h-0 flex-col overflow-y-auto")}>
+          {children}
+        </div>
       </div>
     </div>
   );

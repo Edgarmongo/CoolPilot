@@ -3,6 +3,11 @@ import { spawnSync } from "node:child_process";
 const required = ["MS_STORE_IDENTITY_NAME", "MS_STORE_PUBLISHER"] as const;
 const missing = required.filter((name) => !process.env[name]?.trim());
 
+// Partner Center shows this name next to the published app. Override it with
+// MS_STORE_PUBLISHER_DISPLAY_NAME when the reserved identity uses another name.
+const publisherDisplayName =
+  process.env.MS_STORE_PUBLISHER_DISPLAY_NAME?.trim() || "Edgarmongo";
+
 if (process.platform !== "win32") {
   throw new Error("Microsoft Store AppX packages must be built on Windows.");
 }
@@ -27,7 +32,7 @@ const result = spawnSync(
     "never",
     `--config.appx.identityName=${process.env.MS_STORE_IDENTITY_NAME}`,
     `--config.appx.publisher=${process.env.MS_STORE_PUBLISHER}`,
-    "--config.appx.publisherDisplayName=Meow AI Limited",
+    `--config.appx.publisherDisplayName=${publisherDisplayName}`,
   ],
   { stdio: "inherit", env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: "false" } },
 );

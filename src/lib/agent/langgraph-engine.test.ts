@@ -9,7 +9,7 @@ import { generateStructured } from "@/lib/ai";
 import { planToolCalls } from "./langgraph-engine";
 import { createDefaultToolRegistry } from "./local-tools";
 import type { ToolPlanStep } from "@/lib/ai";
-import type { SiteRecord } from "@/lib/types";
+import type { AccountRecord } from "@/lib/types";
 
 const registry = createDefaultToolRegistry();
 const mockedGenerateStructured = vi.mocked(generateStructured);
@@ -23,7 +23,7 @@ function planSteps(steps: ToolPlanStep[]) {
   } as Awaited<ReturnType<typeof generateStructured>>);
 }
 
-const threadsSite: SiteRecord = {
+const threadsSite: AccountRecord = {
   id: "site-1",
   name: "clipversity.study",
   platform: "Threads",
@@ -32,6 +32,7 @@ const threadsSite: SiteRecord = {
   profilePath: "C:/profiles/site-1",
   memo: "",
   status: "active",
+  preset: {},
   createdAt: 1,
   updatedAt: 1,
 };

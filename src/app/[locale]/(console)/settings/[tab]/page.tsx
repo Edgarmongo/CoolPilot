@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import SettingsPageClient from "@/components/settings/settings-page-client";
 import BrandPromptSettingsClient from "@/components/settings/brand-prompt-settings-client";
+import BackupSettingsClient from "@/components/settings/backup-settings-client";
 import { localizedPath, type Locale } from "@/lib/i18n-config";
 
-const settingsTabs = ["runtime", "permissions", "language", "brand", "prompt"] as const;
+const settingsTabs = ["runtime", "permissions", "language", "brand", "prompt", "backup"] as const;
 type SettingsTab = (typeof settingsTabs)[number];
 
 function isSettingsTab(value: string): value is SettingsTab {
@@ -27,6 +28,10 @@ export default async function SettingsTabPage({
 
   if (tab === "brand" || tab === "prompt") {
     return <BrandPromptSettingsClient tab={tab} />;
+  }
+
+  if (tab === "backup") {
+    return <BackupSettingsClient />;
   }
 
   return <SettingsPageClient initialTab={tab} />;

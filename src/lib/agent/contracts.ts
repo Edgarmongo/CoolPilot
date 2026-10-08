@@ -4,7 +4,7 @@ import type {
   AgentRuntimeRecord,
   AgentRunStatus,
   AgentRuntimeMode,
-  SiteRecord,
+  AccountRecord,
 } from "@/lib/types";
 import type { Locale } from "@/lib/i18n-config";
 import type { AgentChatContext } from "./chat-context";
@@ -24,7 +24,7 @@ export type AgentToolDefinition<
 export type AgentExecutionContext = {
   agentRunId: string;
   threadId?: string;
-  site?: SiteRecord;
+  site?: AccountRecord;
   approvedToolCallId?: string;
   profilePath: string;
   settings: {
@@ -52,7 +52,7 @@ export type PlannedToolCall = {
 
 export type AgentRunInput = {
   threadId?: string;
-  site?: SiteRecord;
+  site?: AccountRecord;
   message: string;
   params?: Record<string, unknown>;
   locale?: Locale;

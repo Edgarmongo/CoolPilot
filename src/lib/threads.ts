@@ -3,7 +3,7 @@ import type { Page } from "playwright-core";
 import { findNextReadyContentItem, getContentItem, markContentItemPosted } from "@/db/repository";
 import { artifactsRoot } from "./paths";
 import { truncateThreadsPost } from "./post-format";
-import type { AutomationContext, ContentItem, SiteRecord } from "./types";
+import type { AutomationContext, ContentItem, AccountRecord } from "./types";
 import { firstPage, launchSiteProfileContext, sleep } from "./browser";
 
 export type ThreadsPostMode = "title" | "body" | "title_body";
@@ -38,7 +38,7 @@ function selectSourceText(item: ContentItem, mode: ThreadsPostMode) {
 }
 
 export async function postNextThreadsContent(input: {
-  site: SiteRecord;
+  site: AccountRecord;
   ctx: AutomationContext;
   allowNoImage?: boolean;
   appendText?: string;

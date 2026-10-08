@@ -31,9 +31,9 @@ async function closeAllBrowserPreviewSessions() {
   store.starting.clear();
 
   await Promise.all(
-    sessions.map(async ([siteId, session]) => {
+    sessions.map(async ([accountId, session]) => {
       await closeBrowserPreviewSessionContext(session);
-      store.sessions.delete(siteId);
+      store.sessions.delete(accountId);
     }),
   );
 }

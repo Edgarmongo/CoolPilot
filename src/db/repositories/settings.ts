@@ -1,12 +1,34 @@
 import { eq } from "drizzle-orm";
 import { db, ensureDatabase } from "@/db/client";
 import { appSettings } from "@/db/schema";
-import type { AgentPermissions, BrandSettings, LocalAgentSettings, PromptSettings } from "@/lib/types";
-import { brandSettingsSchema, localAgentSettingsSchema, promptSettingsSchema } from "@/lib/validation";
+import {
+  defaultModelGatewayEndpoint,
+  type AgentPermissions,
+  type BrandSettings,
+  type LocalAgentSettings,
+  type MetricsSettings,
+  type ModelGatewaySettings,
+  type PromptSettings,
+} from "@/lib/types";
+import {
+  brandSettingsSchema,
+  localAgentSettingsSchema,
+  metricSettingsSchema,
+  modelGatewaySettingsSchema,
+  promptSettingsSchema,
+} from "@/lib/validation";
 
 const LOCAL_AGENT_SETTINGS_KEY = "local-agent";
 const BRAND_SETTINGS_KEY = "brand";
 const PROMPT_SETTINGS_KEY = "local-agent-prompt";
+const METRICS_SETTINGS_KEY = "metrics";
+
+/** Manual sync is the default; background refresh must be explicitly enabled. */
+export const defaultMetricsSettings: MetricsSettings = {
+  autoRefreshEnabled: false,
+  refreshSamplingHours: [2, 24, 72, 168],
+  perAccountThrottleMs: 4000,
+};
 
 export const defaultLocalAgentSettings: LocalAgentSettings = {
   runtimeMode: "local",
@@ -42,13 +64,13 @@ function readSettingsJson(value: string): unknown {
   }
 }
 
-async function readAppSetting(key: string) {
+export async function readAppSetting(key: string) {
   await ensureDatabase();
   const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1);
   return row ? readSettingsJson(row.valueJson) : {};
 }
 
-async function writeAppSetting(key: string, value: unknown) {
+export async function writeAppSetting(key: string, value: unknown) {
   await ensureDatabase();
   const updatedAt = Date.now();
   const valueJson = JSON.stringify(value);
@@ -141,3 +163,77 @@ export async function updatePromptSettings(patch: Partial<PromptSettings>): Prom
   await writeAppSetting(PROMPT_SETTINGS_KEY, next);
   return next;
 }
+
+export async function getMetricsSettings(): Promise<MetricsSettings> {
+  const parsed = metricSettingsSchema.safeParse(await readAppSetting(METRICS_SETTINGS_KEY));
+  const data = parsed.success ? parsed.data : {};
+  return {
+    autoRefreshEnabled: data.autoRefreshEnabled ?? defaultMetricsSettings.autoRefreshEnabled,
+    refreshSamplingHours: data.refreshSamplingHours ?? defaultMetricsSettings.refreshSamplingHours,
+    perAccountThrottleMs: data.perAccountThrottleMs ?? defaultMetricsSettings.perAccountThrottleMs,
+  };
+}
+
+export async function updateMetricsSettings(patch: Partial<MetricsSettings>): Promise<MetricsSettings> {
+  const current = await getMetricsSettings();
+  const next = metricSettingsSchema.parse({ ...current, ...patch }) as MetricsSettings;
+  await writeAppSetting(METRICS_SETTINGS_KEY, {
+    ...current,
+    ...next,
+  });
+  return getMetricsSettings();
+}
+
+const MODEL_GATEWAY_SETTINGS_KEY = "model-gateway";
+
+/**
+ * Manual model-gateway sync state for 系统 / 模型管理. `models` stays empty until
+ * the user runs a sync, so the bundled snapshot keeps serving the catalog.
+ */
+export const defaultModelGatewaySettings: ModelGatewaySettings = {
+  enabled: false,
+  endpoint: defaultModelGatewayEndpoint,
+  models: [],
+  source: "",
+  syncedAt: null,
+  status: "never",
+  message: "",
+};
+
+export async function getModelGatewaySettings(): Promise<ModelGatewaySettings> {
+  const parsed = modelGatewaySettingsSchema.safeParse(await readAppSetting(MODEL_GATEWAY_SETTINGS_KEY));
+  const data = parsed.success ? parsed.data : {};
+  return {
+    enabled: data.enabled ?? defaultModelGatewaySettings.enabled,
+    endpoint: data.endpoint ?? defaultModelGatewaySettings.endpoint,
+    models: data.models ?? defaultModelGatewaySettings.models,
+    source: data.source ?? defaultModelGatewaySettings.source,
+    syncedAt: data.syncedAt ?? defaultModelGatewaySettings.syncedAt,
+    status: data.status ?? defaultModelGatewaySettings.status,
+    message: data.message ?? defaultModelGatewaySettings.message,
+  };
+}
+
+export async function updateModelGatewaySettings(
+  patch: Partial<ModelGatewaySettings>,
+): Promise<ModelGatewaySettings> {
+  const current = await getModelGatewaySettings();
+  const next = modelGatewaySettingsSchema.parse({ ...current, ...patch });
+  await writeAppSetting(MODEL_GATEWAY_SETTINGS_KEY, {
+    ...current,
+    ...next,
+  });
+  return getModelGatewaySettings();
+}
+
+/** Drops the synced model list so the catalog falls back to the bundled snapshot. */
+export async function clearModelGatewayModels(): Promise<ModelGatewaySettings> {
+  return updateModelGatewaySettings({
+    models: [],
+    source: "",
+    syncedAt: null,
+    status: "never",
+    message: "",
+  });
+}
+

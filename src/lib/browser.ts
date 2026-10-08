@@ -20,10 +20,10 @@ async function loadPlaywrightChromium() {
   return chromium;
 }
 
-export async function launchSiteProfileContext(profilePath: string) {
+export async function launchSiteProfileContext(profilePath: string, options: { headless?: boolean } = {}) {
   const chromium = await loadPlaywrightChromium();
   return await chromium.launchPersistentContext(profilePath, {
-    headless: false,
+    headless: options.headless ?? false,
     viewport: DEFAULT_VIEWPORT,
   }) as unknown as BrowserContext;
 }

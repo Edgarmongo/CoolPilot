@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Providers } from "@/app/providers";
 import { getLocaleResource } from "@/lib/locale-resources";
-import { isLocale, locales, localizedPath, type Locale } from "@/lib/i18n-config";
+import { defaultLocale, isLocale, locales, localizedPath, type Locale } from "@/lib/i18n-config";
 import {
   PRODUCT_DESCRIPTOR_EN,
+  PRODUCT_DESCRIPTOR_ZH_CN,
   PRODUCT_DESCRIPTOR_ZH_HK,
   PRODUCT_SHORT_NAME,
 } from "@/lib/product-branding";
@@ -19,17 +20,23 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }): Promise<Metadata> {
   const { locale: rawLocale } = await params;
-  const locale = isLocale(rawLocale) ? rawLocale : "zh-hk";
-  const isEnglish = locale === "en";
+  const locale = isLocale(rawLocale) ? rawLocale : defaultLocale;
+  const description =
+    locale === "en"
+      ? PRODUCT_DESCRIPTOR_EN
+      : locale === "zh-hk"
+        ? PRODUCT_DESCRIPTOR_ZH_HK
+        : PRODUCT_DESCRIPTOR_ZH_CN;
 
   return {
     title: PRODUCT_SHORT_NAME,
-    description: isEnglish ? PRODUCT_DESCRIPTOR_EN : PRODUCT_DESCRIPTOR_ZH_HK,
+    description,
     alternates: {
       canonical: localizedPath(locale, "/dashboard"),
       languages: {
         en: localizedPath("en", "/dashboard"),
         "zh-HK": localizedPath("zh-hk", "/dashboard"),
+        "zh-CN": localizedPath("zh-cn", "/dashboard"),
       },
     },
     robots: {

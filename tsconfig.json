@@ -19,7 +19,10 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@drawnix/drawnix": ["./src/whiteboard/drawnix/index.ts"],
+      "@plait-board/react-board": ["./src/whiteboard/react-board/index.ts"],
+      "@plait-board/react-text": ["./src/whiteboard/react-text/index.ts"]
     }
   },
   "include": [

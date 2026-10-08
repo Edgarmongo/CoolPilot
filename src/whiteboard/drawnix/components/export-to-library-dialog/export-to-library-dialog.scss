@@ -1,0 +1,113 @@
+.Dialog.export-to-library-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(560px, 92vw);
+  max-height: 80vh;
+  padding: 1.25rem;
+  border-radius: var(--border-radius-lg, 8px);
+
+  .export-to-library-dialog__title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .export-to-library-dialog__description {
+    margin: 0;
+    font-size: 0.8125rem;
+    opacity: 0.75;
+  }
+
+  .export-to-library-dialog__label {
+    font-size: 0.75rem;
+    opacity: 0.7;
+  }
+
+  .export-to-library-dialog__input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--dialog-border-color, #ccc);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-family: inherit;
+
+    &:hover,
+    &:focus {
+      border-color: var(--color-primary, #5b8def);
+    }
+  }
+
+  .export-to-library-dialog__preview {
+    max-height: 240px;
+    margin: 0;
+    padding: 0.5rem;
+    overflow: auto;
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .export-to-library-dialog__empty {
+    padding: 0.5rem;
+    border: 1px dashed var(--dialog-border-color, #ccc);
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    opacity: 0.75;
+  }
+
+  .export-to-library-dialog__error {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    color: #e5484d;
+    font-size: 0.75rem;
+  }
+
+  .export-to-library-dialog__error-detail {
+    opacity: 0.8;
+    word-break: break-word;
+  }
+
+  .export-to-library-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .export-to-library-dialog__button {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-family: inherit;
+    cursor: pointer;
+
+    &--cancel {
+      background: rgba(0, 0, 0, 0.06);
+      color: inherit;
+
+      &:hover {
+        background: rgba(0, 0, 0, 0.12);
+      }
+    }
+
+    &--submit {
+      background-color: #5b8def;
+      color: #fff;
+
+      &:hover:not(:disabled) {
+        background-color: #4a7de0;
+      }
+
+      &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+    }
+  }
+}

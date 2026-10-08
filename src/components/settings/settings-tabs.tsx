@@ -4,9 +4,9 @@ import { useRouter } from "next/navigation";
 import { localizedPath } from "@/lib/i18n-config";
 import { useI18n } from "@/lib/i18n";
 
-export type SettingsTab = "runtime" | "permissions" | "language" | "brand" | "prompt";
+export type SettingsTab = "runtime" | "permissions" | "language" | "brand" | "prompt" | "backup";
 
-export const settingsTabs: SettingsTab[] = ["runtime", "permissions", "language", "brand", "prompt"];
+export const settingsTabs: SettingsTab[] = ["runtime", "permissions", "language", "brand", "prompt", "backup"];
 
 export function SettingsTabs({ activeTab }: { activeTab: SettingsTab }) {
   const { t, locale } = useI18n();
@@ -17,6 +17,7 @@ export function SettingsTabs({ activeTab }: { activeTab: SettingsTab }) {
     { id: "language", label: t("settingsTabLanguage"), href: "/settings/language" },
     { id: "brand", label: t("settingsTabBrand"), href: "/settings/brand" },
     { id: "prompt", label: t("settingsTabPrompt"), href: "/settings/prompt" },
+    { id: "backup", label: t("settingsTabBackup"), href: "/settings/backup" },
   ];
 
   return (

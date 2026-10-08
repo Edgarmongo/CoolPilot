@@ -29,7 +29,7 @@ export function LogoButton({
   showBackground = false,
   onClick,
   className,
-  ariaLabel = "Go to sites",
+  ariaLabel = "Go to accounts",
 }: LogoButtonProps) {
   const router = useRouter();
   const [isHovering, setIsHovering] = React.useState(false);

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { Play, Plus, RefreshCw, CalendarClock } from "lucide-react";
-import type { PlaybookId, RunEventRecord, RunRecord, SiteRecord } from "@/lib/types";
+import type { PlaybookId, RunEventRecord, RunRecord, AccountRecord } from "@/lib/types";
 import { playbookIds } from "@/lib/types";
 import { formatRunTime } from "@/lib/schedule";
 import { useI18n } from "@/lib/i18n";
@@ -16,7 +16,7 @@ import { ConsoleNotice, consoleInputClass } from "@/components/ui/console-surfac
 
 export default function RunsQueuePage() {
   const { t } = useI18n();
-  const { data: sites = [] } = useSWR<SiteRecord[]>("/api/sites", swrFetcher);
+  const { data: accounts = [] } = useSWR<AccountRecord[]>("/api/accounts", swrFetcher);
   const { data: runs = [], mutate: reloadRuns } = useSWR<RunRecord[]>("/api/runs?limit=200", swrFetcher, { refreshInterval: 3000 });
   const latestRunId = runs[0]?.id;
   const { data: events = [] } = useSWR<RunEventRecord[]>(
@@ -27,7 +27,7 @@ export default function RunsQueuePage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [runPlaybook, setRunPlaybook] = useState<PlaybookId>("threads_auto_post");
-  const [runSiteId, setRunSiteId] = useState("");
+  const [runAccountId, setRunAccountId] = useState("");
   const [runParams, setRunParams] = useState('{"contentFolder":"","allowNoImage":true,"confirmLivePost":false}');
   const [publishApproved, setPublishApproved] = useState(false);
   const [scheduleTime, setScheduleTime] = useState("09:00");
@@ -51,8 +51,8 @@ export default function RunsQueuePage() {
   useConsoleHeaderActions(headerActions);
 
   const siteOptions = useMemo(
-    () => sites.map((s) => ({ label: `${s.name} (${s.platform})`, value: s.id })),
-    [sites],
+    () => accounts.map((s) => ({ label: `${s.name} (${s.platform})`, value: s.id })),
+    [accounts],
   );
   const parsedRunParams = useMemo(() => {
     try {
@@ -82,7 +82,7 @@ export default function RunsQueuePage() {
       }
       const run = await apiPost<RunRecord>("/api/runs", {
         playbookId: runPlaybook,
-        siteId: runSiteId || undefined,
+        accountId: runAccountId || undefined,
         params: {
           ...parsedParams,
           frontendPublishApproved: parsedParams.confirmLivePost === true ? publishApproved : false,
@@ -98,7 +98,7 @@ export default function RunsQueuePage() {
     await runAction(async () => {
       const parsedParams = JSON.parse(runParams || "{}") as Record<string, unknown>;
       const schedule = await apiPost<{ nextRunAt: number }>("/api/schedules", {
-        playbookId: runPlaybook, siteId: runSiteId || undefined,
+        playbookId: runPlaybook, accountId: runAccountId || undefined,
         enabled: true, scheduleTimes: [{ type: "daily", time: scheduleTime }], params: parsedParams,
       });
       setNotice(t("scheduleCreatedNotice", { time: formatRunTime(schedule.nextRunAt) }));
@@ -170,7 +170,7 @@ export default function RunsQueuePage() {
           </label>
           <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
             <span>{t("site")}</span>
-            <select value={runSiteId} onChange={(e) => setRunSiteId(e.target.value)} className={consoleInputClass}>
+            <select value={runAccountId} onChange={(e) => setRunAccountId(e.target.value)} className={consoleInputClass}>
               <option value="">{t("unspecified")}</option>
               {siteOptions.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>

@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
 
-const PRODUCT_SHORT_NAME = "Meowus";
+const PRODUCT_SHORT_NAME = "CoolPilot";
 /** Legacy folder so existing installs keep DB/auth after productName change. */
 const LEGACY_USER_DATA_FOLDER = "SMEPost Auto Post";
 
@@ -16,7 +16,7 @@ let isQuitting = false;
 let schedulerTimer = null;
 const schedulerToken = crypto.randomBytes(32).toString("hex");
 
-// Pin userData before ready so productName "Meowus" does not orphan prior data.
+// Pin userData before ready so productName "CoolPilot" does not orphan prior data.
 app.setPath("userData", path.join(app.getPath("appData"), LEGACY_USER_DATA_FOLDER));
 
 function findStandaloneServer() {

@@ -3,7 +3,7 @@ import {
   appendRunEvent,
   createContentItem,
   getRun,
-  getSite,
+  getAccount,
   updateRunStatus,
 } from "@/db/repository";
 import { getLocalAgentSettings } from "@/db/repositories/settings";
@@ -42,7 +42,7 @@ function urlList(params: Record<string, unknown>) {
 }
 
 async function makeContext(run: RunRecord): Promise<AutomationContext> {
-  const site = run.siteId ? await getSite(run.siteId) : undefined;
+  const site = run.accountId ? await getAccount(run.accountId) : undefined;
   return {
     runId: run.id,
     site: site ?? undefined,
@@ -68,7 +68,7 @@ async function runTopicGenerator(run: RunRecord, ctx: AutomationContext) {
     topic,
     keywords: stringParam(run.params, "keywords"),
     maxWords: numberParam(run.params, "maxWords", 300),
-    language: stringParam(run.params, "language", "繁體中文"),
+    language: stringParam(run.params, "language", "简体中文"),
     prompt: stringParam(run.params, "prompt"),
   });
   const item = await createContentItem({
@@ -98,7 +98,7 @@ async function runUrlImporter(run: RunRecord, ctx: AutomationContext) {
           title: article.title || url,
           text: article.text,
           maxWords: numberParam(run.params, "maxWords", 300),
-          language: stringParam(run.params, "language", "繁體中文"),
+          language: stringParam(run.params, "language", "简体中文"),
           prompt: stringParam(run.params, "prompt"),
         })
       : {
@@ -139,7 +139,7 @@ async function runTopicSearch(run: RunRecord, ctx: AutomationContext) {
     topic,
     keywords: stringParam(run.params, "keywords"),
     maxWords: numberParam(run.params, "maxWords", 300),
-    language: stringParam(run.params, "language", "繁體中文"),
+    language: stringParam(run.params, "language", "简体中文"),
     prompt: `${stringParam(run.params, "prompt")}\n\n請根據以下新聞摘要整理：\n${sourceText}`,
   });
   const item = await createContentItem({
@@ -155,7 +155,7 @@ async function runTopicSearch(run: RunRecord, ctx: AutomationContext) {
 
 async function runThreads(run: RunRecord, ctx: AutomationContext) {
   if (!ctx.site) {
-    throw new Error("Threads run requires siteId");
+    throw new Error("Threads run requires accountId");
   }
   const settings = await getLocalAgentSettings();
   const result = await postNextThreadsContent({

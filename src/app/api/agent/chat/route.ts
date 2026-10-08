@@ -7,8 +7,8 @@ import {
   createContentItem,
   getContentItem,
   getAgentChatThread,
-  getSite,
-  listSites,
+  getAccount,
+  listAccounts,
   listAgentChatMessages,
   updateContentItemImage,
   updateAgentToolCall,
@@ -23,7 +23,7 @@ import { fail, ok, parseJson } from "@/lib/api";
 import { runSiteBrowserTool, type SiteBrowserToolName } from "@/lib/browser-preview";
 import { localeResources, normalizeLocale } from "@/lib/locale-resources";
 import { callSMEPost, readSMEPostAuth } from "@/lib/smepost-auth";
-import type { AgentCreditType, AgentToolStatus, SiteRecord } from "@/lib/types";
+import type { AgentCreditType, AgentToolStatus, AccountRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,12 +37,14 @@ const browserToolNames = [
   "browser_tab_control",
   "browser_screenshot",
   "threads_create_post",
+  "xiaohongshu_create_post",
+  "configured_create_post",
 ] as const;
 
 const schema = z.object({
   message: z.string().trim().min(1),
   threadId: z.string().trim().optional(),
-  targetSiteId: z.string().trim().optional(),
+  targetAccountId: z.string().trim().optional(),
   params: z.record(z.string(), z.unknown()).optional().default({}),
   locale: z.string().trim().optional(),
 });
@@ -71,14 +73,14 @@ type CloudBrowserCommand = {
 };
 
 function isBrowserTool(name: string): name is SiteBrowserToolName {
-  return browserToolNames.includes(name as SiteBrowserToolName);
+  return (browserToolNames as readonly string[]).includes(name);
 }
 
 function wantsCloudImage(message: string) {
   return /\b(image|picture|photo|generate.*visual|create.*visual|illustration|nano\s*banana|nanobanana|圖|圖片|相|插圖)\b/i.test(message);
 }
 
-function wantsCloudBrowser(message: string, site?: SiteRecord) {
+function wantsCloudBrowser(message: string, site?: AccountRecord) {
   return Boolean(site) && (
     /\b(browser|profile|open|snapshot|visit|threads|post|draft|publish|navigate|control)\b/i.test(message) ||
     /瀏覽器|開啟|截圖|快照|發佈|發布|貼文|草稿|控制/.test(message)
@@ -87,7 +89,7 @@ function wantsCloudBrowser(message: string, site?: SiteRecord) {
 
 function buildCloudToolRequests(input: {
   message: string;
-  site?: SiteRecord;
+  site?: AccountRecord;
   chatContext?: AgentChatContext;
 }): CloudToolRequest[] {
   const requests: CloudToolRequest[] = [];
@@ -119,7 +121,7 @@ function buildCloudToolRequests(input: {
 async function runBackendAgent(input: {
   message: string;
   locale: ReturnType<typeof normalizeLocale>;
-  site?: SiteRecord;
+  site?: AccountRecord;
   titleMessages?: string[];
   chatContext?: AgentChatContext;
 }) {
@@ -225,7 +227,7 @@ async function completeCloudBrowserCommand(input: {
 async function executeCloudToolCalls(input: {
   threadId: string;
   assistantMessageId: string;
-  site?: SiteRecord;
+  site?: AccountRecord;
   toolCalls: IncomingToolCall[];
 }) {
   const executed = [];
@@ -237,7 +239,7 @@ async function executeCloudToolCalls(input: {
       messageId: input.assistantMessageId,
       name: tool.name,
       status: "running",
-      siteId: input.site?.id,
+      accountId: input.site?.id,
       input: toolInput,
       output: tool.output ?? {},
       creditType: tool.creditType,
@@ -355,7 +357,7 @@ async function executeCloudToolCalls(input: {
 async function persistLocalToolCalls(input: {
   threadId: string;
   assistantMessageId: string;
-  site?: SiteRecord;
+  site?: AccountRecord;
   toolCalls: Array<{
     name: string;
     input: Record<string, unknown>;
@@ -371,7 +373,7 @@ async function persistLocalToolCalls(input: {
         messageId: input.assistantMessageId,
         name: tool.name,
         status: tool.status === "pending" ? "pending" : tool.status,
-        siteId: input.site?.id,
+        accountId: input.site?.id,
         input: tool.input,
         output: {
           ...tool.output,
@@ -402,21 +404,21 @@ export async function POST(request: Request) {
   if (parsed.error) return fail("Invalid agent chat payload", 400, parsed.error);
 
   try {
-    const site = parsed.data.targetSiteId ? await getSite(parsed.data.targetSiteId) : undefined;
-    if (parsed.data.targetSiteId && !site) return fail("Target site not found", 404);
+    const site = parsed.data.targetAccountId ? await getAccount(parsed.data.targetAccountId) : undefined;
+    if (parsed.data.targetAccountId && !site) return fail("Target site not found", 404);
 
     const settings = await getLocalAgentSettings();
     const locale = normalizeLocale(parsed.data.locale);
     const thread = parsed.data.threadId
       ? await getAgentChatThread(parsed.data.threadId, site?.id)
-      : await createAgentChatThread({ activeSiteId: site?.id, title: defaultChatThreadTitle(locale) });
+      : await createAgentChatThread({ activeAccountId: site?.id, title: defaultChatThreadTitle(locale) });
     if (!thread) return fail("Chat thread not found", 404);
     const userMessage = await createAgentChatMessage({
       threadId: thread.id,
       role: "user",
       content: parsed.data.message,
-      siteId: site?.id,
-      metadata: site ? { siteName: site.name, siteStatus: site.status } : {},
+      accountId: site?.id,
+      metadata: site ? { accountName: site.name, siteStatus: site.status } : {},
     });
     const messagesAfterUser = await listAgentChatMessages(thread.id);
     const titleMessages = userMessagesForTitle(messagesAfterUser);
@@ -431,21 +433,21 @@ export async function POST(request: Request) {
         if (!content) throw new Error(scheduleText.schedulePostMissingContent);
         const intent = resolveScheduleIntent({
           message: parsed.data.message,
-          sites: await listSites(),
+          accounts: await listAccounts(),
           selectedSite: site ?? undefined,
         });
         const toolInput = {
           scheduledAt: intent.scheduledAt,
           timeZone: intent.timeZone,
-          siteId: intent.site.id,
-          siteName: intent.site.name,
+          accountId: intent.site.id,
+          accountName: intent.site.name,
           contentItemId: content.id,
           postPreview: content.postReadyText || content.body,
         };
         const autoApprove = settings.agentPermissions.schedulePost === "auto";
         const schedule = autoApprove ? await createSchedule({
           playbookId: "threads_auto_post",
-          siteId: intent.site.id,
+          accountId: intent.site.id,
           enabled: true,
           scheduleTimes: [{ type: "once", at: new Date(intent.scheduledAt).toISOString() }],
           params: { contentItemId: content.id, scheduledPublishAuthorized: true },
@@ -459,7 +461,7 @@ export async function POST(request: Request) {
           threadId: thread.id,
           role: "assistant",
           content: assistantText,
-          siteId: intent.site.id,
+          accountId: intent.site.id,
           mode: settings.runtimeMode === "cloud" ? "smepost" : "local",
           metadata: { userMessageId: userMessage.id, scheduleRequest: true },
         });
@@ -468,7 +470,7 @@ export async function POST(request: Request) {
           messageId: assistant.id,
           name: "schedule_threads_post",
           status: autoApprove ? "completed" : "pending",
-          siteId: intent.site.id,
+          accountId: intent.site.id,
           input: toolInput,
           output: schedule ? { scheduleId: schedule.id, status: schedule.status } : {},
         });
@@ -484,7 +486,7 @@ export async function POST(request: Request) {
           threadId: thread.id,
           role: "assistant",
           content: assistantText,
-          siteId: site?.id,
+          accountId: site?.id,
           mode: settings.runtimeMode === "cloud" ? "smepost" : "local",
           metadata: { userMessageId: userMessage.id, scheduleRequest: true, failed: true },
         });
@@ -514,7 +516,7 @@ export async function POST(request: Request) {
         threadId: thread.id,
         role: "assistant",
         content: backend.assistant,
-        siteId: site?.id,
+        accountId: site?.id,
         mode: "smepost",
         metadata: { userMessageId: userMessage.id, itemId: backend.item?.id, targetSiteName: site?.name },
       });
@@ -553,7 +555,7 @@ export async function POST(request: Request) {
       threadId: thread.id,
       role: "assistant",
       content: local.assistant,
-      siteId: site?.id,
+      accountId: site?.id,
       mode: "local",
       metadata: {
         userMessageId: userMessage.id,

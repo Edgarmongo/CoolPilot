@@ -3,7 +3,7 @@
 import Link from "next/link";
 import useSWR from "swr";
 import { ArrowRight, CalendarClock, FileText, Globe2, Play } from "lucide-react";
-import type { ContentPage, RunRecord, ScheduleRecord, SiteRecord } from "@/lib/types";
+import type { ContentPage, RunRecord, ScheduleRecord, AccountRecord } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { localizedPath } from "@/lib/i18n-config";
 import { swrFetcher } from "@/lib/api-client";
@@ -51,7 +51,7 @@ function StatCard({
 
 export function ConsoleDashboardOverview() {
   const { t, locale } = useI18n();
-  const { data: sites = [] } = useSWR<SiteRecord[]>("/api/sites", swrFetcher);
+  const { data: accounts = [] } = useSWR<AccountRecord[]>("/api/accounts", swrFetcher);
   const { data: content } = useSWR<ContentPage>("/api/content?page=1&pageSize=1", swrFetcher, { refreshInterval: 5000 });
   const { data: runs = [] } = useSWR<RunRecord[]>("/api/runs", swrFetcher, { refreshInterval: 3000 });
   const { data: schedules = [] } = useSWR<ScheduleRecord[]>("/api/schedules", swrFetcher);
@@ -66,9 +66,9 @@ export function ConsoleDashboardOverview() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title={t("dashboardTotalSites")}
-          value={sites.length}
+          value={accounts.length}
           hint={t("dashboardSitesHint")}
-          href={localizedPath(locale, "/sites/list")}
+          href={localizedPath(locale, "/accounts/list")}
           icon={Globe2}
           cta={t("openLabel")}
         />

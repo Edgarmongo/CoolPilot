@@ -15,15 +15,22 @@ import type {
   AgentRuntimeEventRecord,
   AgentRuntimeRecord,
   AgentRunStatus,
+  MetricSource,
+  MetricStatus,
   PlaybookId,
+  PublishRecord,
+  PublishRecordStatus,
   RunEventRecord,
   RunRecord,
   RunStatus,
   ScheduleRecord,
   ScheduleTime,
-  SitePlatform,
-  SiteRecord,
-  SiteStatus,
+  AccountPlatform,
+  AccountRecord,
+  AccountStatus,
+  UsageRecord,
+  UsageRecordStatus,
+  UsageSummary,
 } from "@/lib/types";
 import { db, ensureDatabase } from "./client";
 import {
@@ -33,15 +40,19 @@ import {
   chatThreads,
   chatToolCalls,
   contentItems,
+  publishRecords,
   runEvents,
   runs,
   schedules,
-  sites,
+  accounts,
+  usageRecords,
 } from "./schema";
 import path from "node:path";
 import { deriveContentImageAssociations } from "@/lib/content-image-reconciliation";
+import { contentImageList, mergeContentMetadata } from "@/lib/content-images";
+import { summarizeUsageRecords, usageRangeStart } from "@/lib/usage";
 
-export const DEFAULT_AGENT_CHAT_THREAD_ID = "default-sites-agent-thread";
+export const DEFAULT_AGENT_CHAT_THREAD_ID = "default-accounts-agent-thread";
 
 function now() {
   return Date.now();
@@ -55,16 +66,17 @@ function parseJson<T>(value: string, fallback: T): T {
   }
 }
 
-function toSite(row: typeof sites.$inferSelect): SiteRecord {
+function toAccount(row: typeof accounts.$inferSelect): AccountRecord {
   return {
     id: row.id,
     name: row.name,
-    platform: row.platform as SitePlatform,
+    platform: row.platform as AccountPlatform,
     url: row.url,
     account: row.account,
     profilePath: row.profilePath,
     memo: row.memo,
-    status: row.status as SiteStatus,
+    status: row.status as AccountStatus,
+    preset: parseJson<Record<string, unknown>>(row.presetJson, {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -89,7 +101,7 @@ function toSchedule(row: typeof schedules.$inferSelect): ScheduleRecord {
   return {
     id: row.id,
     playbookId: row.playbookId as PlaybookId,
-    siteId: row.siteId ?? undefined,
+    accountId: row.accountId ?? undefined,
     enabled: row.enabled,
     scheduleTimes: parseJson<ScheduleTime[]>(row.scheduleTimesJson, []),
     params: parseJson<Record<string, unknown>>(row.paramsJson, {}),
@@ -107,7 +119,7 @@ function toRun(row: typeof runs.$inferSelect): RunRecord {
   return {
     id: row.id,
     playbookId: row.playbookId as PlaybookId,
-    siteId: row.siteId ?? undefined,
+    accountId: row.accountId ?? undefined,
     scheduleId: row.scheduleId ?? undefined,
     scheduledFor: row.scheduledFor ?? undefined,
     status: row.status as RunStatus,
@@ -132,11 +144,58 @@ function toRunEvent(row: typeof runEvents.$inferSelect): RunEventRecord {
   };
 }
 
+function toPublishRecord(row: typeof publishRecords.$inferSelect): PublishRecord {
+  return {
+    id: row.id,
+    accountId: row.accountId ?? undefined,
+    accountName: row.accountName,
+    platform: row.platform,
+    title: row.title,
+    contentType: row.contentType,
+    status: row.status as PublishRecordStatus,
+    url: row.url,
+    method: row.method,
+    terminal: row.terminal,
+    message: row.message,
+    contentItemId: row.contentItemId ?? undefined,
+    publishedAt: row.publishedAt ?? undefined,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    views: row.views,
+    likes: row.likes,
+    comments: row.comments,
+    shares: row.shares,
+    favorites: row.favorites,
+    followsDelta: row.followsDelta,
+    completionRate: row.completionRate ?? undefined,
+    metricStatus: row.metricStatus as MetricStatus,
+    metricsSyncedAt: row.metricsSyncedAt ?? undefined,
+    metricsSource: row.metricsSource ? (row.metricsSource as MetricSource) : undefined,
+  };
+}
+
+function toUsageRecord(row: typeof usageRecords.$inferSelect): UsageRecord {
+  return {
+    id: row.id,
+    provider: row.provider,
+    model: row.model,
+    kind: row.kind,
+    status: row.status as UsageRecordStatus,
+    inputTokens: row.inputTokens,
+    outputTokens: row.outputTokens,
+    totalTokens: row.totalTokens,
+    wordCount: row.wordCount,
+    accountId: row.accountId ?? undefined,
+    contentItemId: row.contentItemId ?? undefined,
+    createdAt: row.createdAt,
+  };
+}
+
 function toChatThread(row: typeof chatThreads.$inferSelect): AgentChatThreadRecord {
   return {
     id: row.id,
     title: row.title,
-    activeSiteId: row.activeSiteId ?? undefined,
+    activeAccountId: row.activeAccountId ?? undefined,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -148,7 +207,7 @@ function toChatMessage(row: typeof chatMessages.$inferSelect): AgentChatMessageR
     threadId: row.threadId,
     role: row.role as AgentChatRole,
     content: row.content,
-    siteId: row.siteId ?? undefined,
+    accountId: row.accountId ?? undefined,
     mode: row.mode ? (row.mode as AgentChatMode) : undefined,
     metadata: parseJson<Record<string, unknown>>(row.metadataJson, {}),
     createdAt: row.createdAt,
@@ -162,7 +221,7 @@ function toToolCall(row: typeof chatToolCalls.$inferSelect): AgentToolCallRecord
     messageId: row.messageId,
     name: row.name,
     status: row.status as AgentToolStatus,
-    siteId: row.siteId ?? undefined,
+    accountId: row.accountId ?? undefined,
     input: parseJson<Record<string, unknown>>(row.inputJson, {}),
     output: parseJson<Record<string, unknown>>(row.outputJson, {}),
     creditType: row.creditType ? (row.creditType as AgentCreditType) : undefined,
@@ -176,7 +235,7 @@ function toAgentRuntimeRun(row: typeof agentRuntimeRuns.$inferSelect): AgentRunt
   return {
     id: row.id,
     threadId: row.threadId ?? undefined,
-    siteId: row.siteId ?? undefined,
+    accountId: row.accountId ?? undefined,
     status: row.status as AgentRunStatus,
     mode: row.mode as "local" | "smepost",
     input: parseJson<Record<string, unknown>>(row.inputJson, {}),
@@ -199,30 +258,31 @@ function toAgentRuntimeEvent(row: typeof agentRuntimeEvents.$inferSelect): Agent
   };
 }
 
-export async function listSites() {
+export async function listAccounts() {
   await ensureDatabase();
-  return (await db.select().from(sites).orderBy(desc(sites.updatedAt))).map(toSite);
+  return (await db.select().from(accounts).orderBy(desc(accounts.updatedAt))).map(toAccount);
 }
 
-export async function getSite(id: string) {
+export async function getAccount(id: string) {
   await ensureDatabase();
-  const [row] = await db.select().from(sites).where(eq(sites.id, id)).limit(1);
-  return row ? toSite(row) : null;
+  const [row] = await db.select().from(accounts).where(eq(accounts.id, id)).limit(1);
+  return row ? toAccount(row) : null;
 }
 
-export async function createSite(input: {
+export async function createAccount(input: {
   name: string;
-  platform: SitePlatform;
+  platform: AccountPlatform;
   url?: string;
   account?: string;
   memo?: string;
-  status?: SiteStatus;
+  status?: AccountStatus;
+  preset?: Record<string, unknown>;
 }) {
   await ensureDatabase();
   const id = nanoid();
   const createdAt = now();
   const profilePath = path.join(browserProfilesRoot(), id);
-  await db.insert(sites).values({
+  await db.insert(accounts).values({
     id,
     name: input.name,
     platform: input.platform,
@@ -230,28 +290,31 @@ export async function createSite(input: {
     account: input.account ?? "",
     memo: input.memo ?? "",
     status: input.status ?? "needs_login",
+    presetJson: JSON.stringify(input.preset ?? {}),
     profilePath,
     createdAt,
     updatedAt: createdAt,
   });
-  return getSite(id);
+  return getAccount(id);
 }
 
-export async function updateSite(id: string, patch: Partial<Omit<SiteRecord, "id" | "createdAt">>) {
+export async function updateAccount(id: string, patch: Partial<Omit<AccountRecord, "id" | "createdAt">>) {
   await ensureDatabase();
+  const { preset, ...rest } = patch;
   await db
-    .update(sites)
+    .update(accounts)
     .set({
-      ...patch,
+      ...rest,
+      presetJson: preset ? JSON.stringify(preset) : undefined,
       updatedAt: now(),
     })
-    .where(eq(sites.id, id));
-  return getSite(id);
+    .where(eq(accounts.id, id));
+  return getAccount(id);
 }
 
-export async function deleteSite(id: string) {
+export async function deleteAccount(id: string) {
   await ensureDatabase();
-  await db.delete(sites).where(eq(sites.id, id));
+  await db.delete(accounts).where(eq(accounts.id, id));
 }
 
 export async function getContentItem(id: string) {
@@ -260,20 +323,29 @@ export async function getContentItem(id: string) {
   return row ? toContent(row) : null;
 }
 
+const contentStatuses = ["draft", "ready", "posted", "failed"] as const;
+
 export async function listContentItems(filter: {
   query?: string;
   from?: number;
   to?: number;
+  type?: string;
+  status?: string;
   page?: number;
   pageSize?: number;
 } = {}) {
   await ensureDatabase();
   const page = Math.max(1, filter.page ?? 1);
   const pageSize = Math.min(20, Math.max(1, filter.pageSize ?? 20));
+  const type = filter.type && /^[a-z0-9-]+$/i.test(filter.type) ? filter.type : "";
+  const status = filter.status && (contentStatuses as readonly string[]).includes(filter.status) ? filter.status : "";
   const conditions = [
     filter.query ? like(sql`lower(${contentItems.title})`, `%${filter.query.toLowerCase()}%`) : undefined,
     typeof filter.from === "number" ? gte(contentItems.createdAt, filter.from) : undefined,
     typeof filter.to === "number" ? lte(contentItems.createdAt, filter.to) : undefined,
+    // Content items store their kind inside the metadata JSON blob.
+    type ? like(contentItems.metadataJson, `%"type":"${type}"%`) : undefined,
+    status ? eq(contentItems.status, status) : undefined,
   ].filter(Boolean);
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [{ total }] = where
@@ -336,8 +408,11 @@ export async function updateContentItemImage(input: {
   await ensureDatabase();
   const current = await getContentItem(input.itemId);
   if (!current || !input.imagePath.trim()) return current;
+  // The generated image becomes the cover, so it must lead the image list too.
+  const images = [input.imagePath, ...contentImageList(current).filter((entry) => entry !== input.imagePath)].slice(0, 12);
   const metadata = {
     ...current.metadata,
+    images,
     ...(input.imagePrompt ? { imagePrompt: input.imagePrompt } : {}),
     ...(input.provider ? { imageProvider: input.provider } : {}),
     ...(input.model ? { imageModel: input.model } : {}),
@@ -368,6 +443,43 @@ export async function markContentItemPosted(itemId: string) {
     .set({ status: "posted", updatedAt: now() })
     .where(eq(contentItems.id, itemId));
   return getContentItem(itemId);
+}
+
+/** Updates the editable fields of a content item. Undefined fields are left untouched. */
+export async function updateContentItem(
+  id: string,
+  patch: {
+    title?: string;
+    body?: string;
+    postReadyText?: string;
+    imagePath?: string;
+    images?: string[];
+    metadata?: Record<string, unknown>;
+    status?: ContentItem["status"];
+  },
+) {
+  await ensureDatabase();
+  const current = await getContentItem(id);
+  if (!current) return null;
+  const metadata = mergeContentMetadata(current.metadata, { images: patch.images, metadata: patch.metadata });
+  await db
+    .update(contentItems)
+    .set({
+      title: patch.title,
+      body: patch.body,
+      postReadyText: patch.postReadyText,
+      imagePath: patch.imagePath,
+      metadataJson: JSON.stringify(metadata),
+      status: patch.status,
+      updatedAt: now(),
+    })
+    .where(eq(contentItems.id, id));
+  return getContentItem(id);
+}
+
+export async function deleteContentItem(id: string) {
+  await ensureDatabase();
+  await db.delete(contentItems).where(eq(contentItems.id, id));
 }
 
 export async function reconcileContentImagesFromChatHistory() {
@@ -404,7 +516,7 @@ export async function getSchedule(id: string) {
 
 export async function createSchedule(input: {
   playbookId: PlaybookId;
-  siteId?: string;
+  accountId?: string;
   enabled: boolean;
   scheduleTimes: ScheduleTime[];
   params?: Record<string, unknown>;
@@ -419,7 +531,7 @@ export async function createSchedule(input: {
   await db.insert(schedules).values({
     id,
     playbookId: input.playbookId,
-    siteId: input.siteId,
+    accountId: input.accountId,
     enabled: input.enabled,
     scheduleTimesJson: JSON.stringify(input.scheduleTimes),
     paramsJson: JSON.stringify(input.params ?? {}),
@@ -439,7 +551,7 @@ export async function updateSchedule(id: string, patch: Partial<ScheduleRecord>)
     .update(schedules)
     .set({
       playbookId: patch.playbookId,
-      siteId: patch.siteId,
+      accountId: patch.accountId,
       enabled: patch.enabled,
       scheduleTimesJson: patch.scheduleTimes ? JSON.stringify(patch.scheduleTimes) : undefined,
       paramsJson: patch.params ? JSON.stringify(patch.params) : undefined,
@@ -477,7 +589,7 @@ export async function getRun(id: string) {
 
 export async function createRun(input: {
   playbookId: PlaybookId;
-  siteId?: string;
+  accountId?: string;
   scheduleId?: string;
   scheduledFor?: number;
   params?: Record<string, unknown>;
@@ -488,7 +600,7 @@ export async function createRun(input: {
   await db.insert(runs).values({
     id,
     playbookId: input.playbookId,
-    siteId: input.siteId,
+    accountId: input.accountId,
     scheduleId: input.scheduleId,
     scheduledFor: input.scheduledFor,
     paramsJson: JSON.stringify(input.params ?? {}),
@@ -566,7 +678,7 @@ export async function listRunEvents(runId: string, after = 0) {
   return rows.map(toRunEvent).filter((event) => event.createdAt > after);
 }
 
-export async function getOrCreateDefaultAgentThread(activeSiteId?: string) {
+export async function getOrCreateDefaultAgentThread(activeAccountId?: string) {
   await ensureDatabase();
   const [existing] = await db
     .select()
@@ -579,7 +691,7 @@ export async function getOrCreateDefaultAgentThread(activeSiteId?: string) {
     await db.insert(chatThreads).values({
       id: DEFAULT_AGENT_CHAT_THREAD_ID,
       title: "Sites Agent",
-      activeSiteId,
+      activeAccountId,
       createdAt: timestamp,
       updatedAt: timestamp,
     });
@@ -591,14 +703,14 @@ export async function getOrCreateDefaultAgentThread(activeSiteId?: string) {
     return toChatThread(created);
   }
 
-  if (activeSiteId && existing.activeSiteId !== activeSiteId) {
+  if (activeAccountId && existing.activeAccountId !== activeAccountId) {
     await db
       .update(chatThreads)
-      .set({ activeSiteId, updatedAt: timestamp })
+      .set({ activeAccountId, updatedAt: timestamp })
       .where(eq(chatThreads.id, DEFAULT_AGENT_CHAT_THREAD_ID));
     return {
       ...toChatThread(existing),
-      activeSiteId,
+      activeAccountId,
       updatedAt: timestamp,
     };
   }
@@ -606,13 +718,13 @@ export async function getOrCreateDefaultAgentThread(activeSiteId?: string) {
   return toChatThread(existing);
 }
 
-export async function createAgentChatThread(input: { title?: string; activeSiteId?: string } = {}) {
+export async function createAgentChatThread(input: { title?: string; activeAccountId?: string } = {}) {
   await ensureDatabase();
   const timestamp = now();
   const row = {
     id: nanoid(),
     title: input.title ?? "Chat",
-    activeSiteId: input.activeSiteId ?? null,
+    activeAccountId: input.activeAccountId ?? null,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -629,19 +741,19 @@ export async function listAgentChatThreads(input: { limit?: number } = {}) {
   return (await query).map(toChatThread);
 }
 
-export async function getAgentChatThread(threadId: string, activeSiteId?: string) {
+export async function getAgentChatThread(threadId: string, activeAccountId?: string) {
   await ensureDatabase();
   if (threadId === DEFAULT_AGENT_CHAT_THREAD_ID) {
-    return getOrCreateDefaultAgentThread(activeSiteId);
+    return getOrCreateDefaultAgentThread(activeAccountId);
   }
   const [existing] = await db.select().from(chatThreads).where(eq(chatThreads.id, threadId)).limit(1);
   if (!existing) {
     return null;
   }
-  if (activeSiteId && existing.activeSiteId !== activeSiteId) {
+  if (activeAccountId && existing.activeAccountId !== activeAccountId) {
     const updatedAt = now();
-    await db.update(chatThreads).set({ activeSiteId, updatedAt }).where(eq(chatThreads.id, threadId));
-    return { ...toChatThread(existing), activeSiteId, updatedAt };
+    await db.update(chatThreads).set({ activeAccountId, updatedAt }).where(eq(chatThreads.id, threadId));
+    return { ...toChatThread(existing), activeAccountId, updatedAt };
   }
   return toChatThread(existing);
 }
@@ -693,14 +805,14 @@ export async function createAgentChatMessage(input: {
   threadId?: string;
   role: AgentChatRole;
   content: string;
-  siteId?: string;
+  accountId?: string;
   mode?: AgentChatMode;
   metadata?: Record<string, unknown>;
 }) {
   await ensureDatabase();
   const thread = input.threadId
-    ? await getAgentChatThread(input.threadId, input.siteId)
-    : await getOrCreateDefaultAgentThread(input.siteId);
+    ? await getAgentChatThread(input.threadId, input.accountId)
+    : await getOrCreateDefaultAgentThread(input.accountId);
   if (!thread) throw new Error("Chat thread not found");
   const createdAt = now();
   const row = {
@@ -708,7 +820,7 @@ export async function createAgentChatMessage(input: {
     threadId: input.threadId ?? thread.id,
     role: input.role,
     content: input.content,
-    siteId: input.siteId,
+    accountId: input.accountId,
     mode: input.mode,
     metadataJson: JSON.stringify(input.metadata ?? {}),
     createdAt,
@@ -716,7 +828,7 @@ export async function createAgentChatMessage(input: {
   await db.insert(chatMessages).values(row);
   await db
     .update(chatThreads)
-    .set({ activeSiteId: input.siteId ?? thread.activeSiteId, updatedAt: createdAt })
+    .set({ activeAccountId: input.accountId ?? thread.activeAccountId, updatedAt: createdAt })
     .where(eq(chatThreads.id, row.threadId));
   const [created] = await db.select().from(chatMessages).where(eq(chatMessages.id, row.id)).limit(1);
   return toChatMessage(created);
@@ -727,7 +839,7 @@ export async function createAgentToolCall(input: {
   messageId: string;
   name: string;
   status?: AgentToolStatus;
-  siteId?: string;
+  accountId?: string;
   input?: Record<string, unknown>;
   output?: Record<string, unknown>;
   creditType?: AgentCreditType;
@@ -735,8 +847,8 @@ export async function createAgentToolCall(input: {
 }) {
   await ensureDatabase();
   const thread = input.threadId
-    ? await getAgentChatThread(input.threadId, input.siteId)
-    : await getOrCreateDefaultAgentThread(input.siteId);
+    ? await getAgentChatThread(input.threadId, input.accountId)
+    : await getOrCreateDefaultAgentThread(input.accountId);
   if (!thread) throw new Error("Chat thread not found");
   const createdAt = now();
   const row = {
@@ -745,7 +857,7 @@ export async function createAgentToolCall(input: {
     messageId: input.messageId,
     name: input.name,
     status: input.status ?? "pending",
-    siteId: input.siteId,
+    accountId: input.accountId,
     inputJson: JSON.stringify(input.input ?? {}),
     outputJson: JSON.stringify(input.output ?? {}),
     creditType: input.creditType,
@@ -792,7 +904,7 @@ export async function updateAgentToolCall(
 
 export async function createAgentRuntimeRun(input: {
   threadId?: string;
-  siteId?: string;
+  accountId?: string;
   mode?: "local" | "smepost";
   status?: AgentRunStatus;
   input?: Record<string, unknown>;
@@ -803,7 +915,7 @@ export async function createAgentRuntimeRun(input: {
   const row = {
     id: nanoid(),
     threadId: input.threadId ?? null,
-    siteId: input.siteId ?? null,
+    accountId: input.accountId ?? null,
     status: input.status ?? "queued",
     mode: input.mode ?? "local",
     inputJson: JSON.stringify(input.input ?? {}),
@@ -873,4 +985,142 @@ export async function listAgentRuntimeEvents(agentRunId: string, after = 0) {
     .where(eq(agentRuntimeEvents.agentRunId, agentRunId))
     .orderBy(asc(agentRuntimeEvents.createdAt));
   return rows.map(toAgentRuntimeEvent).filter((event) => event.createdAt > after);
+}
+
+export async function listPublishRecords(limit = 200) {
+  await ensureDatabase();
+  const rows = await db.select().from(publishRecords).orderBy(desc(publishRecords.createdAt)).limit(limit);
+  return rows.map(toPublishRecord);
+}
+
+export async function getPublishRecord(id: string) {
+  await ensureDatabase();
+  const [row] = await db.select().from(publishRecords).where(eq(publishRecords.id, id)).limit(1);
+  return row ? toPublishRecord(row) : null;
+}
+
+export async function createPublishRecord(input: {
+  accountId?: string;
+  accountName?: string;
+  platform?: string;
+  title?: string;
+  contentType?: string;
+  status?: PublishRecordStatus;
+  url?: string;
+  method?: string;
+  terminal?: string;
+  message?: string;
+  contentItemId?: string;
+  publishedAt?: number;
+}) {
+  await ensureDatabase();
+  const createdAt = now();
+  const id = nanoid();
+  await db.insert(publishRecords).values({
+    id,
+    accountId: input.accountId,
+    accountName: input.accountName ?? "",
+    platform: input.platform ?? "",
+    title: input.title ?? "",
+    contentType: input.contentType ?? "",
+    status: input.status ?? "queued",
+    url: input.url ?? "",
+    method: input.method ?? "",
+    terminal: input.terminal ?? "",
+    message: input.message ?? "",
+    contentItemId: input.contentItemId,
+    publishedAt: input.publishedAt,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  return getPublishRecord(id);
+}
+
+export async function updatePublishRecord(
+  id: string,
+  patch: Partial<Pick<PublishRecord, "status" | "url" | "message" | "publishedAt">>,
+) {
+  await ensureDatabase();
+  await db
+    .update(publishRecords)
+    .set({
+      status: patch.status,
+      url: patch.url,
+      message: patch.message,
+      publishedAt: patch.publishedAt,
+      updatedAt: now(),
+    })
+    .where(eq(publishRecords.id, id));
+  return getPublishRecord(id);
+}
+
+export async function deletePublishRecord(id: string) {
+  await ensureDatabase();
+  await db.delete(publishRecords).where(eq(publishRecords.id, id));
+}
+
+export async function getUsageRecord(id: string) {
+  await ensureDatabase();
+  const [row] = await db.select().from(usageRecords).where(eq(usageRecords.id, id)).limit(1);
+  return row ? toUsageRecord(row) : null;
+}
+
+export async function listUsageRecords(filter: { from?: number; to?: number; limit?: number } = {}) {
+  await ensureDatabase();
+  const limit = Math.min(Math.max(1, Math.floor(filter.limit ?? 500)), 5000);
+  const conditions = [];
+  if (filter.from !== undefined) conditions.push(gte(usageRecords.createdAt, filter.from));
+  if (filter.to !== undefined) conditions.push(lte(usageRecords.createdAt, filter.to));
+  const rows = await db
+    .select()
+    .from(usageRecords)
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(usageRecords.createdAt))
+    .limit(limit);
+  return rows.map(toUsageRecord);
+}
+
+export async function createUsageRecord(input: {
+  provider?: string;
+  model?: string;
+  kind?: string;
+  status?: UsageRecordStatus;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  wordCount?: number;
+  accountId?: string;
+  contentItemId?: string;
+  createdAt?: number;
+}) {
+  await ensureDatabase();
+  const id = nanoid();
+  const inputTokens = Math.max(0, Math.round(input.inputTokens ?? 0));
+  const outputTokens = Math.max(0, Math.round(input.outputTokens ?? 0));
+  await db.insert(usageRecords).values({
+    id,
+    provider: input.provider ?? "",
+    model: input.model ?? "",
+    kind: input.kind ?? "article",
+    status: input.status ?? "success",
+    inputTokens,
+    outputTokens,
+    totalTokens: Math.max(0, Math.round(input.totalTokens ?? inputTokens + outputTokens)),
+    wordCount: Math.max(0, Math.round(input.wordCount ?? 0)),
+    accountId: input.accountId,
+    contentItemId: input.contentItemId,
+    createdAt: input.createdAt ?? now(),
+  });
+  return getUsageRecord(id);
+}
+
+export async function deleteUsageRecord(id: string) {
+  await ensureDatabase();
+  await db.delete(usageRecords).where(eq(usageRecords.id, id));
+}
+
+export async function summarizeUsage(rangeDays: number): Promise<UsageSummary> {
+  const from = usageRangeStart(rangeDays);
+  const records = await listUsageRecords({ from, limit: 5000 });
+  return summarizeUsageRecords(records, rangeDays);
 }

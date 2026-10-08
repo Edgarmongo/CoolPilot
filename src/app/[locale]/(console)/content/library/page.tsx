@@ -6,6 +6,7 @@ import { Bot, Globe2, LayoutGrid, List, Plus, Search, X } from "lucide-react";
 import type { ContentItem, ContentPage } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { apiPost, swrFetcher } from "@/lib/api-client";
+import { htmlToPlainText, looksLikeHtml } from "@/lib/article-themes";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useConsoleHeaderActions } from "@/components/ui/console-header-actions";
@@ -22,6 +23,11 @@ function imageUrl(imagePath?: string) {
 function metadataString(metadata: Record<string, unknown>, key: string) {
   const value = metadata[key];
   return typeof value === "string" && value.trim() ? value : "";
+}
+
+/** Article bodies are stored as rich HTML, so the details view shows plain text. */
+function displayBody(body: string) {
+  return looksLikeHtml(body) ? htmlToPlainText(body) : body;
 }
 
 const CONTENT_VIEW_STORAGE_KEY = "content-library-view";
@@ -97,7 +103,7 @@ export default function ContentLibraryPage() {
   async function handleGenerate() {
     await runAction(async () => {
       const result = await apiPost<{ item: ContentItem }>("/api/content/generate", {
-        topic, prompt, language: "Traditional Chinese", maxWords: 300,
+        topic, prompt, language: "Simplified Chinese", maxWords: 300,
       });
       setNotice(t("contentReadyNotice", { title: result.item.title }));
       setTopic(""); setPrompt(""); setIsAddOpen(false);
@@ -108,7 +114,7 @@ export default function ContentLibraryPage() {
   async function handleImportUrl() {
     await runAction(async () => {
       const result = await apiPost<{ item: ContentItem }>("/api/content/import-url", {
-        url, rewrite: true, language: "Traditional Chinese", maxWords: 300,
+        url, rewrite: true, language: "Simplified Chinese", maxWords: 300,
       });
       setNotice(t("contentReadyNotice", { title: result.item.title }));
       setUrl(""); setIsAddOpen(false);
@@ -344,45 +350,45 @@ export default function ContentLibraryPage() {
         )}
       </Dialog>
 
-      <Dialog open={Boolean(selectedItem)} onClose={() => setSelectedItem(null)} title={selectedItem?.title || t("contentDetails")} maxWidth="lg">
+      <Dialog open={Boolean(selectedItem)} onClose={() => setSelectedItem(null)} title={selectedItem?.title || t("contentDetails")} maxWidth="responsive">
         {selectedItem ? (
-          <div className="max-h-[70vh] space-y-5 overflow-y-auto pr-2 text-sm">
+          <div className="max-h-[70vh] min-w-0 space-y-5 overflow-y-auto pr-2 text-sm">
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-[28px] bg-zinc-50 p-4">
+              <div className="min-w-0 rounded-[28px] bg-zinc-50 p-4">
                 <p className="text-xs font-semibold uppercase text-zinc-400">{t("contentProvider")}</p>
-                <p className="mt-1 text-zinc-800">{metadataString(selectedItem.metadata, "provider") || t("contentNoValue")}</p>
+                <p className="mt-1 text-zinc-800 [overflow-wrap:anywhere]">{metadataString(selectedItem.metadata, "provider") || t("contentNoValue")}</p>
               </div>
-              <div className="rounded-[28px] bg-zinc-50 p-4">
+              <div className="min-w-0 rounded-[28px] bg-zinc-50 p-4">
                 <p className="text-xs font-semibold uppercase text-zinc-400">{t("contentModel")}</p>
-                <p className="mt-1 text-zinc-800">{metadataString(selectedItem.metadata, "model") || t("contentNoValue")}</p>
+                <p className="mt-1 text-zinc-800 [overflow-wrap:anywhere]">{metadataString(selectedItem.metadata, "model") || t("contentNoValue")}</p>
               </div>
             </div>
 
             {selectedImageUrl ? (
-              <figure className="rounded-[28px] border border-zinc-100 bg-zinc-50 p-4">
+              <figure className="min-w-0 rounded-[28px] border border-zinc-100 bg-zinc-50 p-4">
                 <figcaption className="mb-2 text-xs font-semibold uppercase text-zinc-400">{t("contentImage")}</figcaption>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={selectedImageUrl} alt={selectedItem.title} className="max-h-80 w-full rounded-[24px] object-contain" />
               </figure>
             ) : null}
 
-            <section>
+            <section className="min-w-0">
               <h3 className="mb-2 text-xs font-semibold uppercase text-zinc-400">{t("contentFullPost")}</h3>
-              <p className="whitespace-pre-wrap rounded-[28px] bg-zinc-50 p-4 leading-6 text-zinc-700">{selectedItem.postReadyText || t("contentNoValue")}</p>
+              <p className="whitespace-pre-wrap rounded-[28px] bg-zinc-50 p-4 leading-6 text-zinc-700 [overflow-wrap:anywhere]">{selectedItem.postReadyText || t("contentNoValue")}</p>
             </section>
-            <section>
+            <section className="min-w-0">
               <h3 className="mb-2 text-xs font-semibold uppercase text-zinc-400">{t("contentBody")}</h3>
-              <p className="whitespace-pre-wrap rounded-[28px] bg-zinc-50 p-4 leading-6 text-zinc-700">{selectedItem.body || t("contentNoValue")}</p>
+              <p className="whitespace-pre-wrap rounded-[28px] bg-zinc-50 p-4 leading-6 text-zinc-700 [overflow-wrap:anywhere]">{displayBody(selectedItem.body) || t("contentNoValue")}</p>
             </section>
-            <section>
+            <section className="min-w-0">
               <h3 className="mb-2 text-xs font-semibold uppercase text-zinc-400">{t("contentImagePrompt")}</h3>
-              <p className="whitespace-pre-wrap rounded-[28px] bg-zinc-50 p-4 leading-6 text-zinc-700">{metadataString(selectedItem.metadata, "imagePrompt") || t("contentNoValue")}</p>
+              <p className="whitespace-pre-wrap rounded-[28px] bg-zinc-50 p-4 leading-6 text-zinc-700 [overflow-wrap:anywhere]">{metadataString(selectedItem.metadata, "imagePrompt") || t("contentNoValue")}</p>
             </section>
-            <section>
+            <section className="min-w-0">
               <h3 className="mb-2 text-xs font-semibold uppercase text-zinc-400">{t("contentSources")}</h3>
-              <p className="break-words rounded-[28px] bg-zinc-50 p-4 leading-6 text-zinc-700">{selectedItem.sourceUrls.join("\n") || t("contentNoValue")}</p>
+              <p className="rounded-[28px] bg-zinc-50 p-4 leading-6 text-zinc-700 [overflow-wrap:anywhere]">{selectedItem.sourceUrls.join("\n") || t("contentNoValue")}</p>
             </section>
-            <p className="text-xs text-zinc-400">{t("contentCreatedAt")}: {new Date(selectedItem.createdAt).toLocaleString()}</p>
+            <p className="text-xs text-zinc-400 [overflow-wrap:anywhere]">{t("contentCreatedAt")}: {new Date(selectedItem.createdAt).toLocaleString()}</p>
           </div>
         ) : null}
       </Dialog>

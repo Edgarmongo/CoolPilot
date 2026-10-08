@@ -14,8 +14,8 @@ async function activePage(context: Parameters<typeof playwrightSessionManager.ge
   return session.page;
 }
 
-function profileKeyForContext(siteId?: string) {
-  return siteId || "default";
+function profileKeyForContext(accountId?: string) {
+  return accountId || "default";
 }
 
 function needsApproval(permission: "auto" | "confirm") {
@@ -139,7 +139,7 @@ export function createDefaultToolRegistry() {
       inputSchema: z.object({
         topic: z.string().min(1),
         prompt: z.string().optional().default(""),
-        language: z.string().optional().default("Traditional Chinese"),
+        language: z.string().optional().default("Simplified Chinese"),
         maxWords: z.number().int().min(50).max(1000).optional().default(260),
       }),
       outputSchema: z.object({
@@ -264,6 +264,58 @@ export function createDefaultToolRegistry() {
           ...output,
           drafted: Boolean(output.drafted),
           published: Boolean(output.published),
+          text: typeof output.text === "string" ? output.text : input.text,
+          loginRequired: Boolean(output.loginRequired),
+        };
+      },
+    })
+    .register({
+      name: "xiaohongshu_create_post",
+      description:
+        "Draft or publish a 小红书 (Xiaohongshu) post through the selected local browser profile.",
+      inputSchema: z.object({
+        title: z.string().min(1),
+        text: z.string().optional().default(""),
+        imagePath: z.string().optional().default(""),
+        publish: z.boolean().optional().default(false),
+      }),
+      outputSchema: z
+        .object({
+          url: z.string(),
+          drafted: z.boolean(),
+          published: z.boolean(),
+          title: z.string().optional(),
+          text: z.string().optional(),
+          loginRequired: z.boolean().optional(),
+        })
+        .passthrough(),
+      requiresApproval: (input, context) =>
+        needsApproval(
+          input.publish
+            ? context.settings.agentPermissions.browserPostContent
+            : context.settings.agentPermissions.browserStep
+        ),
+      async execute(input, context) {
+        const site = context.site;
+        if (!site) {
+          throw new Error("Mention a 小红书 site with @ before creating a post.");
+        }
+        const output = (await runSiteBrowserTool(site, {
+          name: "xiaohongshu_create_post",
+          args: input,
+        })) as {
+          url: string;
+          drafted?: unknown;
+          published?: unknown;
+          title?: unknown;
+          text?: unknown;
+          loginRequired?: unknown;
+        };
+        return {
+          ...output,
+          drafted: Boolean(output.drafted),
+          published: Boolean(output.published),
+          title: typeof output.title === "string" ? output.title : input.title,
           text: typeof output.text === "string" ? output.text : input.text,
           loginRequired: Boolean(output.loginRequired),
         };
