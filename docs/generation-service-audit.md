@@ -407,7 +407,10 @@ seam an article seam. `src/lib/article-generation.ts` must never import `next/*`
 `@/lib/editor-link`, or the image runtime, and `resolveArticleImages()` is the only image dependency it may
 have, because image *identity* is C4's question and image *attachment* is this pipeline's.
 
-Status: **C3-2 Cut A passed review and is frozen at commit `841a238`.** No further change to
+Status: **C3-2 Cut A passed review. The implementation is frozen at commit `841a238`; this freeze
+declaration is recorded at `747dde6`.** The two are named separately because they are not the same event: the
+first commit changes code and behaviour, the second changes only this document, and `git log` should not be
+readable two ways about which one is "the freeze commit". No further change to
 `src/lib/article-generation.ts` belongs to C3; the entries' guards, envelopes, provenance and derived
 inputs stay theirs. F-C3-5, F-C3-6 and F-C3-7 remain open and deliberately unfixed - they are image-source
 semantics (C4), usage/observability, and the topic pipeline (C5) - and C3's next act is *not* automatically
