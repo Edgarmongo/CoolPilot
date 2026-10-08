@@ -10,5 +10,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // Provider keys always come from the test, never from the machine's `.env.local` - see the file.
+    setupFiles: ["./src/test/app-env.ts"],
   },
 });

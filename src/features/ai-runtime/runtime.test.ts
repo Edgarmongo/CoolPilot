@@ -16,27 +16,20 @@ process.env.SOCIAL_AUTO_POST_DATA_DIR = dataDir;
 const { aiProviderOrder, aiProviderRegistry } = await import("@/features/ai-settings/provider-registry");
 
 /**
- * The env a legacy install may have exported, cleared before anything seeds.
+ * The model names a legacy install may have exported, cleared before anything seeds.
  *
  * `ensureModelRuntimeSeeded()` runs the legacy import (G2), which turns `<PROVIDER>_MODEL` into a
  * real, enabled model row - so an ambient `GEMINI_MODEL` would hand these tests a second callable
  * provider and make the routing assertions describe the developer's shell instead of the runtime.
- * Same for the key variables (`secrets.ts` also accepts the singular `OPENAI_API_KEY` spelling).
+ * The key variables are not handled here: `src/test/app-env.ts` pins every one of them for the whole
+ * run, which is also what keeps the seed's catalog discovery (D-P3-1) off the network.
  */
-const legacyEnvVars: string[] = [
+const legacyModelEnvVars: string[] = [
   ...aiProviderOrder.map((provider) => aiProviderRegistry[provider].modelEnv).filter((name) => Boolean(name)),
-  "GEMINI_API_KEYS",
-  "OPENAI_API_KEYS",
-  "OPENROUTER_API_KEYS",
-  "GROQ_API_KEYS",
-  "GEMINI_API_KEY",
-  "OPENAI_API_KEY",
-  "OPENROUTER_API_KEY",
-  "GROQ_API_KEY",
   "GEMINI_IMAGE_MODEL",
   "OPENAI_IMAGE_MODEL",
 ];
-for (const name of legacyEnvVars) {
+for (const name of legacyModelEnvVars) {
   delete process.env[name];
 }
 

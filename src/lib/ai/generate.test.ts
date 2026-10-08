@@ -26,6 +26,7 @@ const repository = await import("@/db/repositories/ai-runtime");
 const credentials = await import("@/lib/credentials");
 const { aiProviderOrder, aiProviderRegistry } = await import("@/features/ai-settings/provider-registry");
 const { postDraftSchema } = await import("./schemas");
+const { keylessAppEnvValue } = await import("@/test/app-env");
 
 /**
  * Every env var a legacy install may have exported. This suite asserts "nothing is configured",
@@ -33,21 +34,28 @@ const { postDraftSchema } = await import("./schemas");
  * accepts as a fallback) in the developer's shell must not be able to change the outcome - the
  * `*_MODEL` variables count too, because `resolveProviderModel()` reads them when settings are
  * absent. Clearing them is what makes the "no key anywhere" cases below mean what they say.
+ *
+ * The key variables are neutralised instead of deleted: deleting hands them back to the app env file,
+ * which on a developer machine holds real keys, and the seed discovers a catalog for every keyed
+ * provider (D-P3-1) - so a deleted variable would have the seed fetch. `src/test/app-env.ts` pins them
+ * for the whole run; repeating it per test keeps a case that sets a key from leaking into the next.
  */
-const legacyEnvVars: string[] = [
+const legacyModelEnvVars: string[] = [
   ...new Set([
     ...aiProviderOrder.map((provider) => aiProviderRegistry[provider].modelEnv).filter((name) => Boolean(name)),
-    "GEMINI_API_KEYS",
-    "OPENAI_API_KEYS",
-    "OPENROUTER_API_KEYS",
-    "GROQ_API_KEYS",
-    "GEMINI_API_KEY",
-    "OPENAI_API_KEY",
-    "OPENROUTER_API_KEY",
-    "GROQ_API_KEY",
     "GEMINI_IMAGE_MODEL",
     "OPENAI_IMAGE_MODEL",
   ]),
+];
+const legacyKeyEnvVars = [
+  "GEMINI_API_KEYS",
+  "OPENAI_API_KEYS",
+  "OPENROUTER_API_KEYS",
+  "GROQ_API_KEYS",
+  "GEMINI_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "GROQ_API_KEY",
 ];
 
 function jsonResponse(body: unknown, status = 200) {
@@ -131,6 +139,13 @@ const offline = () => jsonResponse({ error: { message: "offline" } }, 500);
 
 /** Blank slate: nothing callable, no legacy key in the process, no vault entry. */
 async function resetRuntime() {
+  // Neutralised before the seed: it discovers a catalog for every provider that holds a key (D-P3-1).
+  for (const name of legacyKeyEnvVars) {
+    process.env[name] = keylessAppEnvValue;
+  }
+  for (const name of legacyModelEnvVars) {
+    delete process.env[name];
+  }
   await registry.ensureModelRuntimeSeeded();
   for (const providerId of ["gemini", "groq", "openai", "openrouter", "qwen", "deepseek"] as const) {
     await repository.setModelsEnabledByProvider(providerId, false);
@@ -138,9 +153,6 @@ async function resetRuntime() {
   }
   // A capability default from an earlier test would outrank the provider preference under test.
   await registry.setModelDefaultForCapability("chat", null);
-  for (const name of legacyEnvVars) {
-    delete process.env[name];
-  }
 }
 
 /** Makes one provider/model pair really callable, with exactly that model left enabled. */

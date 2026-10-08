@@ -13,10 +13,14 @@ const dataDir = mkdtempSync(path.join(tmpdir(), "coolpilot-credential-"));
 process.env.SOCIAL_AUTO_POST_DATA_DIR = dataDir;
 
 const credentials = await import("@/lib/credentials");
+// The whole run starts with every provider key variable set to a keyless value (`src/test/app-env.ts`).
+// Restoring that value after a case - instead of deleting the variable - is what keeps a case from
+// falling back to the developer's own `.env.local`.
+const { keylessAppEnvValue } = await import("@/test/app-env");
 
 describe("credential store", () => {
   afterEach(() => {
-    delete process.env.DEEPSEEK_API_KEYS;
+    process.env.DEEPSEEK_API_KEYS = keylessAppEnvValue;
   });
 
   it("parses refs and rejects anything that is not one", () => {

@@ -20,6 +20,7 @@ import {
 import { describeCredential, credentialRefFor, readCredentialKeys } from "@/lib/credentials";
 import { isProtocolImplemented } from "./adapters";
 import { planCredentialKeys } from "./key-pool";
+import { discoverProviderCatalogs } from "./sync";
 import {
   explainRequirement,
   detectCapabilities,
@@ -157,17 +158,59 @@ async function seedGatewayCatalog() {
 
 export async function ensureModelRuntimeSeeded() {
   const marker = (await readAppSetting(seedSettingsKey)) as { version?: unknown };
-  if (Number(marker?.version ?? 0) >= seedVersion) {
-    return;
+  if (Number(marker?.version ?? 0) < seedVersion) {
+    await seedLegacyProviders(0);
+    await seedVendorProviders(10);
+    await seedGatewayProvider();
+    await seedGatewayCatalog();
+    // G2: after the registry owns the models, the legacy form's model choices stop being the
+    // source of truth for routing - so they are imported once, here.
+    await importLegacyAiSettings().catch(() => undefined);
+    await writeAppSetting(seedSettingsKey, { version: seedVersion, seededAt: Date.now() });
   }
-  await seedLegacyProviders(0);
-  await seedVendorProviders(10);
-  await seedGatewayProvider();
-  await seedGatewayCatalog();
-  // G2: after the registry owns the models, the legacy form's model choices stop being the
-  // source of truth for routing - so they are imported once, here.
-  await importLegacyAiSettings().catch(() => undefined);
-  await writeAppSetting(seedSettingsKey, { version: seedVersion, seededAt: Date.now() });
+  // Deliberately outside the seed marker: a key added after this process booted still has to
+  // discover its catalog (`docs/generate-migration-p3.md`, D-P3-1).
+  await ensureColdStartCatalogs();
+}
+
+/**
+ * Cold-start discovery (D-P3-1): a provider that holds a credential but has nothing callable yet
+ * gets one catalog sync - the guarantee the pre-runtime path provided by resolving a model on
+ * demand, and the last gap `lib/ai/compat.ts` still had to patch.
+ *
+ * It lives here, in the seed, and not in `resolveRoute()`: routing stays a deterministic decision
+ * with no network of its own. The pass is cheap for an install that works (one read of the models
+ * and providers, `discoverProviderCatalogs` then skips every provider that is callable or holds no
+ * credential without a network call) and every failure is swallowed, so a provider that is down
+ * can delay one request but never start-up.
+ */
+async function ensureColdStartCatalogs(): Promise<string[]> {
+  try {
+    const [models, providers, endpoints] = await Promise.all([
+      listModels({ limit: 4000 }),
+      listModelProviders(),
+      listModelEndpoints(),
+    ]);
+    const callable = new Set(models.filter((model) => model.enabled).map((model) => model.providerId));
+    // A provider whose catalog already synced successfully is left alone: if nothing of it is
+    // enabled the user switched those models off (or the catalog holds nothing this runtime can
+    // call), and re-syncing it on every request would be noise. Never-synced and failed providers
+    // are retried, so pasting a valid key repairs the install on the next request.
+    const settled = new Set(
+      endpoints
+        .filter((endpoint) => endpoint.enabled && endpoint.status === "ok")
+        .map((endpoint) => endpoint.providerId),
+    );
+    const pending = providers
+      .map((provider) => provider.providerId)
+      .filter((providerId) => !callable.has(providerId) && !settled.has(providerId));
+    if (pending.length === 0) {
+      return [];
+    }
+    return await discoverProviderCatalogs(pending).catch(() => []);
+  } catch {
+    return [];
+  }
 }
 
 export type ProviderEndpointView = ModelEndpointRecord & {
