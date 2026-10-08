@@ -1,7 +1,7 @@
 import { createContentItem, createUsageRecord } from "@/db/repository";
 import { listKnowledgeBase } from "@/db/repositories/knowledge-base";
 import { getDefaultPosition, getPosition } from "@/db/repositories/positions";
-import { generateStructured } from "@/lib/ai/generate";
+import { aiRuntime } from "@/features/ai-runtime";
 import { postDraftSchema } from "@/lib/ai/schemas";
 import {
   audiencePrompt,
@@ -14,7 +14,7 @@ import {
   type AiWritingPositioning,
   type OutputLanguage,
 } from "@/lib/ai-writing";
-import { fail, ok, parseJson } from "@/lib/api";
+import { fail, failFromError, ok, parseJson } from "@/lib/api";
 import { resolveArticleImages } from "@/lib/article-images";
 import { selectKnowledgeReferences } from "@/lib/knowledge-base";
 import { countTextCharacters } from "@/lib/usage";
@@ -51,6 +51,14 @@ function toPositioning(position: PositionRecord | null): AiWritingPositioning | 
  * Generates a ready-to-publish article from a topic. Shared by AI writing,
  * article creation, posts and videos, so positioning and the knowledge base
  * apply consistently to every generation entry point.
+ *
+ * The model call goes straight to `aiRuntime` (batch P3-A3 of `docs/generate-migration-p3.md`):
+ * provider order, model choice, key rotation, failover and structured-output validation are the
+ * runtime's business, while the writing agent's prompt, the article prompt, the schema and everything
+ * after the call (images, the content item, the usage row) stay this route's. The answer is read
+ * through the runtime's own names (`providerId`, `model`, `usage`), and a failure keeps the runtime's
+ * code *and* status (D-P3-3) instead of a 502 flattened from a message, so a missing credential is a
+ * 400 - the payload guard below is the only error this route still words itself.
  */
 export async function POST(request: Request) {
   const parsed = await parseJson(request, contentGenerateSchema);
@@ -99,9 +107,13 @@ export async function POST(request: Request) {
   });
 
   try {
-    const result = await generateStructured({ prompt, systemPrompt, schema: postDraftSchema });
-    const title = result.data.title.trim() || data.topic;
-    const body = result.data.body.trim();
+    const response = await aiRuntime.chatStructured({
+      messages: [{ role: "user", content: prompt }],
+      systemPrompt,
+      schema: postDraftSchema,
+    });
+    const title = response.data.title.trim() || data.topic;
+    const body = response.data.body.trim();
     const images = await resolveArticleImages({
       strategy: config.imageStrategy,
       target: imageCountValues[config.imageCount],
@@ -124,8 +136,8 @@ export async function POST(request: Request) {
         generationType: "topic",
         agentId: agent.id,
         agentName: agent.name,
-        provider: result.provider,
-        model: result.model,
+        provider: response.providerId,
+        model: response.model,
         positioningId: positioning?.id ?? "",
         aiWriting: { ...config },
       },
@@ -133,19 +145,21 @@ export async function POST(request: Request) {
     });
 
     await createUsageRecord({
-      provider: result.provider,
-      model: result.model,
+      provider: response.providerId,
+      model: response.model,
       kind: "article",
       status: "success",
-      inputTokens: result.usage?.inputTokens,
-      outputTokens: result.usage?.outputTokens,
-      totalTokens: result.usage?.totalTokens,
+      inputTokens: response.usage?.inputTokens,
+      outputTokens: response.usage?.outputTokens,
+      totalTokens: response.usage?.totalTokens,
       wordCount: countTextCharacters(body),
       contentItemId: item?.id,
     });
 
-    return ok({ item, provider: result.provider, model: result.model, images }, { status: 201 });
+    return ok({ item, provider: response.providerId, model: response.model, images }, { status: 201 });
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Generation failed", 502);
+    // No local error taxonomy: `failFromError` keeps an `AppError`'s own code and status (the runtime
+    // sets both) and answers anything else with this route's long-standing 502.
+    return failFromError(error, "AI_PROVIDER_FAILED", 502);
   }
 }

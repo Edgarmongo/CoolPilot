@@ -375,3 +375,81 @@ because `resetRuntime()` resets the runtime's own tables, not these.
   remaining routes (`content/generate`, `content/[id]/translate`, `knowledge-base/ai-parse`,
   `positions/generate`), the facade itself and its own test - one route per commit, so the count is the
   batch's progress bar.
+
+### P3-A3-2.2 - `api/content/generate`
+
+The article-creation entry point: the same `postDraftSchema` call shape as A3-2.1, but a different set of inputs
+in front of it (a writing agent, a knowledge mode, the legacy `language` string) and the same content item /
+usage row / 201 envelope behind it. Only the call boundary moved.
+
+| Field | Before | After |
+| --- | --- | --- |
+| Call | `generateStructured({ prompt, systemPrompt, schema: postDraftSchema })` | `aiRuntime.chatStructured({ messages: [{ role: "user", content: prompt }], systemPrompt, schema: postDraftSchema })` |
+| Article | `result.data` -> `title` / `body` | `response.data` - unchanged |
+| Provider / model | `result.provider`, `result.model` (item metadata, usage row, 201 envelope) | `response.providerId`, `response.model` |
+| Usage | `result.usage?.inputTokens` / `outputTokens` / `totalTokens` | `response.usage?.*` - unchanged field names |
+| Failure | `fail(error.message, 502)` -> 502, code `UNKNOWN_ERROR` | `failFromError(error, "AI_PROVIDER_FAILED", 502)`: an `AppError` keeps the runtime's code *and* status, anything else keeps this route's 502 |
+| Legacy import | `generateStructured` from `@/lib/ai/generate` | `aiRuntime` from `@/features/ai-runtime` |
+
+Kept, because this batch migrates a boundary rather than a business: the positioning lookup (`positioningId ?
+getPosition(...) : getDefaultPosition()`), `guessLanguage()` over the legacy `language` field, the config this
+route derives from the payload (`materialSource: "free"`, `wordCount` from `maxWords`, `coreKeywords` from
+`keywords`), the material (`{ topics: [], products: [], freeText: topic`, then `prompt }`), the writing agent's
+prompt joined with `buildArticleSystemPrompt()` by `"\n\n"`, `buildArticlePrompt()` with the audience and
+industry labels, `selectKnowledgeReferences()` under `knowledgeMode === "position"`, `resolveArticleImages()` with
+no product photos and no source pages, the title trim with its `data.topic` fallback, the `title\n\nbody` post
+text, the metadata (`type`, `topic`, `prompt`, `generationType: "topic"`, the agent's id and name, the
+provider/model, `positioningId`, the whole `aiWriting` config), the usage row and the 201 envelope
+`{ item, provider, model, images }`.
+
+Two pre-existing asymmetries against A3-2.1 are preserved on purpose, and both are now pinned by a case:
+
+* This route words its own payload guard - `fail("Invalid generation payload", 400, error)` - and that string is
+  not an `AppErrorCode`, so it answers 400 with code `UNKNOWN_ERROR` and a human message where
+  `api/ai-writing/generate` answers `INVALID_PAYLOAD`.
+* A `positioningId` that no longer resolves is not an error at all: no persona is sent,
+  `selectKnowledgeReferences()` is called without an id (so it stops filtering and every enabled entry applies),
+  the metadata records `positioningId: ""` and `aiWriting.positioningId` keeps the id the console sent.
+
+The status of an AI exception is the same D-P3-3 trade as A3-2.1: a missing credential is a 400
+`MODEL_CREDENTIAL_MISSING` instead of a 502 built from `MissingAIKeyError`'s message, a cooled-down pool a 429,
+and an upstream 5xx a 502 carrying the upstream status in `details.status`; a non-`AppError` keeps this route's
+long-standing 502 (only its code becomes `AI_PROVIDER_FAILED`). Neither console caller branches on any of it:
+`components/creation/article-ai-dialog.tsx` shows one generic failure (`awGenerateFailed`), and
+`components/generate-content-panel.tsx` prints whatever message `apiPost()` surfaced.
+
+Tests (`src/app/api/content/generate/route.test.ts`, 6 cases - the runtime is *not* mocked, the route handler is
+called for real, and only the transport is stubbed):
+
+1. Success: HTTP 201, the stored item (trimmed title, `title\n\nbody`, `status: "ready"`, no source URLs), the
+   `"product"` strategy resolving to no image at all (`images: []`, and `imagePath` comes back `undefined`), the
+   runtime's `provider`/`model` in the response *and* in the metadata (which is compared against the whole
+   `aiWriting` config the route derives), one structured call with JSON mode on the wire, a system turn
+   byte-identical to the agent's prompt joined with `buildArticleSystemPrompt()` for this positioning, and a user
+   turn that starts with the prompt this config/material/knowledge must produce (rebuilt in the test from the
+   same tables, so the case pins the route's *assembly*) plus the schema instruction the runtime appends. The
+   usage row carries the runtime's token report and the stored body's character count.
+2. The console's older payload: no `languageCode` and no extra instructions - `guessLanguage("English")` and
+   `guessLanguage("繁體")` reach the prompt as `English` / `繁體中文（香港）` and the metadata's `aiWriting` as
+   `en` / `zh-TW`, `positioningId: ""` resolves through `getDefaultPosition()` (the metadata records the row that
+   was found), and the material is the topic alone.
+3. A removed credential: HTTP **400**, code `MODEL_CREDENTIAL_MISSING`, a message that is no longer
+   `Missing qwen API key`, no provider call, and neither an article nor a usage row written.
+4. A provider 5xx: HTTP **502**, code `MODEL_UPSTREAM_FAILED`, `details.status` = 503, one attempt, nothing
+   stored.
+5. The guard: a body without `topic`, a `maxWords` below the floor, an unknown `articleStyle` and a body that is
+   not JSON are all 400 carrying this route's own message and code, with nothing on the wire.
+6. Assembly: a chosen writing agent with `knowledgeMode: "off"` sends that agent's prompt and no knowledge
+   references, and an unknown `positioningId` sends no persona while both knowledge entries still apply.
+
+The file mocks `@/lib/ai` and `@/lib/ai/generate` with throwing factories and leaves `@/lib/ai/compat` real for
+the same reason as A3-2.1 (`lib/article-images.ts` -> `lib/agent/image-generation.ts` until P3-B). The business
+rows (one positioning, one knowledge entry tied to it, one entry that applies to every positioning) are created
+once in `beforeAll`, because `resetRuntime()` resets the runtime's own tables, not these.
+
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .` exit 0
+  with 0 errors (the same single pre-existing `react-hooks/exhaustive-deps` warning),
+  `node_modules\.bin\vitest.cmd run` = **62 files / 356 tests, all pass** - A3-2.1's 61 / 350 plus exactly this
+  batch's 1 file / 6 tests. `git grep "generateStructured" -- src` now finds, in production code, the three
+  remaining routes (`content/[id]/translate`, `knowledge-base/ai-parse`, `positions/generate`), the facade itself
+  and its own test - one route per commit, so the count is the batch's progress bar.
