@@ -329,7 +329,8 @@ verified success existed only in `publish-run-panel`'s tab state: the `publish_r
   author navigated to as a success is now *visible* in the record it writes.
 - **Pinned by**: `src/app/api/publish/verify/route.test.ts` (one success = exactly one record plus
   `posted`; a repeated poll adds nothing; a failed check writes nothing and does not spend the receipt;
-  success without a receipt writes nothing; no session writes nothing) and
+  success without a receipt writes nothing; no session writes nothing; an item deleted after the draft
+  keeps its record and loses only the status move) and
   `src/app/api/publish/draft/route.test.ts` (the receipt is remembered, only for a draft that names a
   content item, and only once). Both drive a fake session (`src/test/browser-session-fixture.ts`) instead
   of Playwright: the check reads a URL and a body text, and the receipt lives on the session object, so no

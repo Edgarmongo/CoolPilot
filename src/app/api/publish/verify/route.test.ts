@@ -18,6 +18,7 @@ import path from "node:path";
  *   - the author still sitting in the editor, and the same author publishing a minute later
  *   - a success the server cannot attribute to a draft it made (success without a receipt)
  *   - no live session at all
+ *   - the content item deleted between the draft and the verify (the fact outlives it)
  *
  * A fake session stands in for the live page (`src/test/browser-session-fixture.ts`), so nothing
  * here needs Playwright, a platform account or the network. The temp database is pinned before
@@ -28,7 +29,8 @@ process.env.SOCIAL_AUTO_POST_DB_URL = `file:${path.join(dataDir, "publish.db").r
 process.env.SOCIAL_AUTO_POST_DATA_DIR = dataDir;
 
 const { POST } = await import("./route");
-const { createAccount, createContentItem, getContentItem, listPublishRecords } = await import("@/db/repository");
+const { createAccount, createContentItem, deleteContentItem, getContentItem, listPublishRecords } =
+  await import("@/db/repository");
 const { rememberPublishDraft } = await import("@/lib/browser-preview");
 const { closeFakeSessions, openFakeSession } = await import("@/test/browser-session-fixture");
 
@@ -137,6 +139,25 @@ describe("POST /api/publish/verify", () => {
     expect(await recordCount()).toBe(before);
     expect(await recordsFor(item.id)).toHaveLength(1);
     expect((await getContentItem(item.id))?.status).toBe("posted");
+  });
+
+  it("keeps the record when the content item was deleted after the draft", async () => {
+    const { account, item } = await seedDraft({ url: publishedUrl });
+    // The author publishes and then throws the local draft away. The publish happened, and deleting
+    // what it came from does not undo it: the fact outlives the content item it was attributed to.
+    await deleteContentItem(item.id);
+
+    await verify(account.id);
+
+    const records = await recordsFor(item.id);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      contentItemId: item.id,
+      status: "published",
+      url: publishedUrl,
+    });
+    // The consequence of the fact went with the item, and that is a no-op rather than a failure.
+    expect(await getContentItem(item.id)).toBeNull();
   });
 
   it("writes nothing while the author is still in the editor, and records it once they publish", async () => {
