@@ -53,6 +53,7 @@ cd CoolPilot
 - 在「Publishing → Accounts」執行靜默帳號風控巡檢，確認每個已儲存的 profile 仍能開啟發佈頁而不是卡在登入牆；巡檢判定未登入的帳號不會再浪費時間啟動瀏覽器。
 - 在「系統設定 → 備份」把整個工作區匯出成單一 JSON 檔案並隨時還原，本機資料可攜、也保有自己的副本。
 - 在「自動化 → 內容日曆」用同一個月曆檢視規劃、執行紀錄與發佈紀錄，還能把成效最好的時段一鍵變成每週排程。
+- 在「系統 → 工作區」查看工作區實際內容：資料庫大小與資料表數量、內容素材、瀏覽器 profiles、影片，以及目前沒有任何東西指向的項目（`GET /api/workspace/manifest`）。這一頁只讀取，不會移動或刪除任何檔案。
 
 目前瀏覽器自動化的核心是每個帳號各自獨立的持久化 Chromium profile。專案包含 CloakBrowser 作為 stealth Chromium dependency，但目前 app 的啟動路徑仍直接使用 Playwright persistent contexts。請把 stealth tooling 視為有用的依賴，而不是能保證避開平台偵測的承諾。
 
@@ -282,6 +283,17 @@ node_modules\.bin\eslint.cmd .
 - `web-data/artifacts/`：生成圖片、截圖、agent artifacts
 
 可透過 `SOCIAL_AUTO_POST_DATA_DIR` 或 `APP_DATA_DIR` 覆寫資料目錄。
+
+### 工作區概況
+
+「系統 → 工作區」（`/system/workspace`，資料來自 `GET /api/workspace/manifest`）顯示目前這個 process 開啟的工作區裡實際有什麼：資料庫與資料表數量、內容素材以及其中有多少被內容引用、瀏覽器 profile 的已關聯／未關聯數量、影片，以及 **需要留意** 區塊——列出工作區裡「沒有任何東西指向」的項目（未關聯的 profiles、目前版本讀不了的資料表、不屬於任何分區的根目錄檔案）。
+
+這個 endpoint 唯讀而且 `force-dynamic`：
+
+- 只讀取工作區，不會建立它：對全新安裝讀取概況，不會留下 `artifacts/`、`videos/` 或資料庫檔案。
+- 缺少任何東西都只是一個更小的數字，不是錯誤：沒有資料庫、資料庫檔案其實不是資料庫、`uploads/` 不存在，都會回 `200`；只有 manifest 本身壞掉（程式 bug）才回標準錯誤格式。
+- 路徑是正在執行的 app 解析出來的那一個（`SOCIAL_AUTO_POST_DATA_DIR`，packaged build 為 `APP_DATA_DIR`），所以數字不會是 build 機器的工作區。
+- 頁面只讀取：沒有清理、匯出或刪除。備份與還原仍在「系統設定 → 備份」。
 
 ### 備份與還原
 

@@ -53,6 +53,7 @@ cd CoolPilot
 - Run a headless account risk check (**Publishing → Accounts**) that verifies each saved profile can still reach its publishing page instead of hitting a login wall, and refuses to launch a browser for an account the check found signed out.
 - Export the whole workspace into one JSON file and restore it later under **System Settings → Backup**, so local data stays portable and owns its own copy.
 - Plan and review everything on one monthly **Content Calendar** (**Automation → Content Calendar**) that shows planned occurrences, run history, and publish logs side by side, and can turn your best-performing time slots into a weekly schedule in one click.
+- See what the workspace actually holds under **System → Workspace**: database size and table count, content assets, browser profiles, videos, and what nothing points at yet (`GET /api/workspace/manifest`). The page is read-only — nothing is moved or deleted from there.
 
 Current browser automation is centered on persistent per-account Chromium profiles. CloakBrowser is included as a stealth Chromium dependency, but the current app launch paths still use Playwright persistent contexts directly. Treat stealth tooling as a useful dependency, not a guarantee against platform detection.
 
@@ -283,6 +284,17 @@ Local runtime files are stored under `web-data/` by default:
 - `web-data/artifacts/` for generated images, screenshots, and agent artifacts
 
 Override the data directory with `SOCIAL_AUTO_POST_DATA_DIR` or `APP_DATA_DIR`.
+
+### Workspace overview
+
+**System → Workspace** (`/system/workspace`, backed by `GET /api/workspace/manifest`) shows what is actually inside the workspace this process has open: the database and its table count, content assets and how many of them content references, browser profiles linked and unlinked, videos, and an **Attention** section naming what nothing in the workspace points at yet (unlinked profiles, tables this build cannot read, and root-level files no section owns).
+
+The endpoint is read-only and `force-dynamic`:
+
+- It reads the workspace, it does not create it: asking for the overview of an empty install leaves no `artifacts/`, no `videos/` and no database behind.
+- Everything missing is a smaller number rather than an error: no database, a database file that is not a database, or an absent `uploads/` all answer `200`. Only a broken manifest — a bug — answers the standard error shape.
+- The path is the one the running app resolved (`SOCIAL_AUTO_POST_DATA_DIR`, or `APP_DATA_DIR` in packaged builds), so the numbers are never the build machine's workspace.
+- The page only reads. Cleanup, export and delete are not there; backup and restore stay under **System Settings → Backup**.
 
 ### Backup and restore
 

@@ -15,6 +15,7 @@ import {
   ChevronUp,
   Database,
   Globe2,
+  HardDrive,
   History,
   House,
   Library,
@@ -185,6 +186,9 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
           { id: "models", name: t("navModelManagement"), icon: Boxes, href: "/system/models", segment: "/system/models" },
           { id: "usage", name: t("navUsage"), icon: BarChart3, href: "/system/usage", segment: "/system/usage" },
           { id: "settings", name: t("navSettings"), icon: SlidersHorizontal, href: "/settings", segment: "/settings" },
+          // Last on purpose: the mobile "System" tab opens the group's first child (#leafHref), and
+          // B0-3-B adds a surface without changing where that tab already lands.
+          { id: "workspace", name: t("navWorkspace"), icon: HardDrive, href: "/system/workspace", segment: "/system/workspace" },
         ],
       },
     ],
@@ -406,6 +410,7 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
             {isAccountMenuOpen ? (
               <div className="absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-xl">
                 <AccountDropdownLink href="/system/models" icon={<Boxes className="size-4" />} label={t("navModelManagement")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
+                <AccountDropdownLink href="/system/workspace" icon={<HardDrive className="size-4" />} label={t("navWorkspace")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/permissions" icon={<ShieldCheck className="size-4" />} label={t("settingsTabPermissions")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/language" icon={<Globe2 className="size-4" />} label={t("settingsTabLanguage")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/brand" icon={<WalletCards className="size-4" />} label={t("settingsTabBrand")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
