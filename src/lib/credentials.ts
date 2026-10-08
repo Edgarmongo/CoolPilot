@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { dataRoot } from "@/lib/paths";
+import { dataRoot, ensureDataRoot } from "@/lib/paths";
 import { maskKey, readAppEnvValue } from "@/lib/secrets";
 
 /**
@@ -173,6 +173,9 @@ async function readVault(): Promise<VaultFile> {
 }
 
 async function writeVault(vault: VaultFile) {
+  // The vault is a file in the workspace root, so this write is what initializes the root:
+  // reading a credential only resolves the path (P5-B0-2.5).
+  ensureDataRoot();
   await fs.writeFile(vaultPath(), `${JSON.stringify(vault, null, 2)}\n`, { encoding: "utf-8", mode: 0o600 });
 }
 
@@ -186,6 +189,9 @@ async function loadVaultKey() {
   } catch {
     // First run: fall through and create one.
   }
+  // First run: generating the key is a write into the root, so the root has to exist here. A read
+  // of a credential that already has a key resolves its paths and creates nothing (P5-B0-2.5).
+  ensureDataRoot();
   const created = randomBytes(32);
   await fs.writeFile(vaultKeyPath(), `${created.toString("base64")}\n`, { encoding: "utf-8", mode: 0o600 });
   return created;

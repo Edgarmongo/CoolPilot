@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { fail, ok } from "@/lib/api";
-import { videosRoot } from "@/lib/paths";
+import { ensureVideosRoot } from "@/lib/paths";
 import { MAX_VIDEO_BYTES, isVideoFileName, videoUrl } from "@/lib/video-library";
 
 export const runtime = "nodejs";
@@ -26,6 +26,6 @@ export async function POST(request: Request) {
   const createdAt = Date.now();
   const fileName = `video-${createdAt}-${nanoid(8)}${extension}`;
   const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(path.join(videosRoot(), fileName), buffer);
+  await fs.writeFile(path.join(ensureVideosRoot(), fileName), buffer);
   return ok({ fileName, url: videoUrl(fileName), size: buffer.length, createdAt }, { status: 201 });
 }

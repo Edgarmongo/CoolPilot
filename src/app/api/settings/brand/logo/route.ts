@@ -3,7 +3,7 @@ import path from "node:path";
 import { nanoid } from "nanoid";
 import { getBrandSettings, updateBrandSettings } from "@/db/repositories/settings";
 import { fail, failFromError, ok } from "@/lib/api";
-import { uploadsRoot } from "@/lib/paths";
+import { brandLogosRoot, ensureBrandLogosRoot } from "@/lib/paths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,12 +15,9 @@ const allowedTypes = new Map([
   ["image/webp", ".webp"],
 ]);
 
-function brandLogoRoot() {
-  return path.join(uploadsRoot(), "brand-logos");
-}
-
+/** Resolves a stored path only when it sits inside the section this route serves. */
 function containedLogoPath(filePath: string) {
-  const root = path.resolve(brandLogoRoot());
+  const root = path.resolve(brandLogosRoot());
   const resolved = path.resolve(filePath);
   return resolved.startsWith(`${root}${path.sep}`) ? resolved : null;
 }
@@ -65,8 +62,8 @@ export async function POST(request: Request) {
       return fail("INVALID_PAYLOAD", 400);
     }
 
-    const root = brandLogoRoot();
-    await fs.mkdir(root, { recursive: true });
+    // The upload is the writer of this section, so it initializes what it is about to fill.
+    const root = ensureBrandLogosRoot();
     await removeExistingLogo();
     const filePath = path.join(root, `brand-logo-${Date.now()}-${nanoid(8)}${extension}`);
     await fs.writeFile(filePath, Buffer.from(await file.arrayBuffer()));

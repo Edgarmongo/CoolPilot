@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { fail, ok } from "@/lib/api";
-import { artifactsRoot } from "@/lib/paths";
+import { ensureArtifactsRoot } from "@/lib/paths";
 
 export const runtime = "nodejs";
 
@@ -31,6 +31,6 @@ export async function POST(request: Request) {
   if (buffer.length === 0) return fail("EMPTY_UPLOAD", 400);
 
   const fileName = `upload-${Date.now()}-${nanoid(8)}${extension}`;
-  await fs.writeFile(path.join(artifactsRoot(), fileName), buffer);
+  await fs.writeFile(path.join(ensureArtifactsRoot(), fileName), buffer);
   return ok({ fileName, url: imageUrl(fileName) }, { status: 201 });
 }

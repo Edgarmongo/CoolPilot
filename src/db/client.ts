@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import * as schema from "./schema";
 import { quoteIdentifier } from "@/lib/backup";
-import { dataRoot, normalizeFileUrl } from "@/lib/paths";
+import { dataRoot, ensureDataRoot, normalizeFileUrl } from "@/lib/paths";
 
 function resolveDatabaseUrl() {
   const configured = process.env.SOCIAL_AUTO_POST_DB_URL?.trim();
@@ -30,10 +30,14 @@ function resolveDatabaseUrl() {
 const dbUrl = resolveDatabaseUrl();
 
 if (dbUrl.startsWith("file:")) {
+  // A file database, and a configured URL may point outside the workspace: this directory is
+  // created because the database layer decided it, not because the workspace boundary did.
   const filePath = dbUrl.slice("file:".length);
   mkdirSync(path.dirname(filePath), { recursive: true });
 } else {
-  dataRoot();
+  // A remote target still means this workspace needs a root: the vault, the sections and the
+  // database file the app falls back to all live in it (P5-B0-2.5).
+  ensureDataRoot();
 }
 
 export const sqlite = createClient({ url: dbUrl });

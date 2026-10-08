@@ -45,6 +45,9 @@ export function createPublishLog(scope: string): PublishLogger {
   const persist = (line: string) => {
     if (!isPublishDebugEnabled()) return;
     try {
+      // Writing the log is what initializes this section, so a publish run with debug logging off
+      // leaves the workspace exactly as it found it (P5-B0-2.5). `publish-logs` is this module's own
+      // nested directory, under the artifacts section the boundary owns.
       fs.mkdirSync(logsDir(), { recursive: true });
       fs.appendFileSync(filePath, `${line}\n`);
     } catch {

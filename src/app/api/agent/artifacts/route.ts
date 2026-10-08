@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { artifactsRoot } from "@/lib/paths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,16 +12,11 @@ const contentTypes: Record<string, string> = {
   ".webp": "image/webp",
 };
 
-function localArtifactsRoot() {
-  return process.env.SOCIAL_AUTO_POST_DATA_DIR
-    ? path.resolve(process.env.SOCIAL_AUTO_POST_DATA_DIR, "artifacts")
-    : path.join(/*turbopackIgnore: true*/ process.cwd(), "web-data", "artifacts");
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const requestedFile = url.searchParams.get("file") ?? "";
-  const root = path.resolve(localArtifactsRoot());
+  // Resolved, not initialized: asking for an artifact must not create the section (P5-B0-2.5).
+  const root = artifactsRoot();
   const fileName = path.basename(requestedFile);
   const resolved = path.join(root, fileName);
   const ext = path.extname(resolved).toLowerCase();

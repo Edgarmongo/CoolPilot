@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
-import { artifactsRoot } from "@/lib/paths";
+import { ensureArtifactsRoot } from "@/lib/paths";
 
 /**
  * Downloads remote images into the artifacts directory.
@@ -111,7 +111,8 @@ export async function fetchRemoteImageToArtifacts(input: { url: string; fallback
     try {
       const { buffer, extension } = await downloadImage(candidate.url, candidate.timeoutMs);
       const fileName = `online-${Date.now()}-${nanoid(8)}${extension}`;
-      await fs.writeFile(path.join(artifactsRoot(), fileName), buffer);
+      // Downloading into a file is the write that initializes the section (P5-B0-2.5).
+      await fs.writeFile(path.join(ensureArtifactsRoot(), fileName), buffer);
       return fileName;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);

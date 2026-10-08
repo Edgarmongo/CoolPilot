@@ -1,8 +1,8 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { fail, failFromError, ok } from "@/lib/api";
-import { uploadsRoot } from "@/lib/paths";
+import { ensureProductImagesRoot, productImagesRoot } from "@/lib/paths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,16 +24,12 @@ const contentTypes: Record<string, string> = {
   ".gif": "image/gif",
 };
 
-function productImagesRoot() {
-  return path.join(uploadsRoot(), "product-images");
-}
-
 /** Maps a client-supplied file name to an in-root path, or null when invalid. */
 function resolveRequestedFile(requested: string) {
   const fileName = path.basename(requested);
   if (!requested || fileName !== requested) return null;
   if (!contentTypes[path.extname(fileName).toLowerCase()]) return null;
-  return path.join(path.resolve(productImagesRoot()), fileName);
+  return path.join(productImagesRoot(), fileName);
 }
 
 export async function GET(request: Request) {
@@ -62,8 +58,8 @@ export async function POST(request: Request) {
     if (!extension || file.size <= 0 || file.size > MAX_IMAGE_SIZE) {
       return fail("INVALID_PAYLOAD", 400);
     }
-    const root = productImagesRoot();
-    await mkdir(root, { recursive: true });
+    // The upload is the writer of this section, so it initializes what it is about to fill.
+    const root = ensureProductImagesRoot();
     const filePath = path.join(root, `product-${Date.now()}-${nanoid(8)}${extension}`);
     await writeFile(filePath, Buffer.from(await file.arrayBuffer()));
     return ok(

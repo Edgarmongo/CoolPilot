@@ -6,8 +6,16 @@ import path from "node:path";
 import * as schema from "@/db/schema";
 import { contentImageList } from "@/lib/content-images";
 import { credentialVaultFileNames } from "@/lib/credentials";
-import { normalizeFileUrl } from "@/lib/paths";
-import { resolveAppDataDir } from "@/lib/runtime-config";
+import {
+  artifactsRoot,
+  brandLogosRoot,
+  browserProfilesRoot,
+  dataRoot,
+  normalizeFileUrl,
+  productImagesRoot,
+  uploadsRoot,
+  videosRoot,
+} from "@/lib/paths";
 
 /**
  * P5-B0-2: the first real domain API of a workspace, and the only one that reports on the whole
@@ -15,11 +23,10 @@ import { resolveAppDataDir } from "@/lib/runtime-config";
  *
  * The rules it has to keep, and why they are not free:
  *
- *   - **Read-only.** `@/lib/paths` resolves a root by creating it (`mkdirSync`), so the layout
- *     below is derived from `resolveAppDataDir()` and joined by hand instead of asking for
- *     `artifactsRoot()` and friends. A missing directory is reported as missing, and is never
- *     created to be measured. The `paths.ts` roots themselves are left alone: making them
- *     side-effect-free is a separate change (P5-B0-2.5 Path Boundary Cleanup), not this one.
+ *   - **Read-only.** The layout comes from `@/lib/paths`, whose accessors now resolve a path
+ *     without creating it (P5-B0-2.5), so this inventory and the boundary cannot describe two
+ *     different workspaces. A missing directory is reported as missing and is never created to be
+ *     measured: only the `ensure*` accessors, called by a writer, initialize a section.
  *   - **Nothing is written to the database either.** `@libsql/client` creates a missing database
  *     file as soon as a statement runs on it (measured: a `SELECT` on a `file:` URL that does not
  *     exist leaves a 4 KiB file behind), so a database that is not there is reported from
@@ -122,19 +129,13 @@ export type WorkspaceManifest = {
 };
 
 /**
- * The workspace layout, spelled out here instead of asked for from `@/lib/paths`: those accessors
- * create every root they resolve, and an inventory must not. Keeping the two views of the layout
- * identical is `manifest.test.ts`'s job - it builds its fixtures through the accessors.
+ * The database file, named here rather than asked for from `@/lib/paths`: `@/db/client` resolves a
+ * database URL that a configuration may point outside the workspace, so the database layer owns
+ * this one entry of the layout. Every section below comes from the boundary.
  */
 const DATABASE_FILE_NAME = "social-auto-post.db";
 /** SQLite's own sidecars of the database file: they are the database, not loose data beside it. */
 const DATABASE_SIDECAR_SUFFIXES = ["-wal", "-shm", "-journal"];
-const ARTIFACTS_DIRECTORY = "artifacts";
-const BROWSER_PROFILES_DIRECTORY = "browser-profiles";
-const VIDEOS_DIRECTORY = "videos";
-const UPLOADS_DIRECTORY = "uploads";
-const PRODUCT_IMAGES_DIRECTORY = "product-images";
-const BRAND_LOGOS_DIRECTORY = "brand-logos";
 const ACCOUNTS_TABLE = "accounts";
 const CONTENT_ITEMS_TABLE = "content_items";
 
@@ -292,10 +293,10 @@ async function readDatabase(target: string): Promise<DatabaseInventory> {
  */
 async function readUnaccountedRootFiles(root: string, databaseTarget: string) {
   const accounted = new Set<string>([
-    ARTIFACTS_DIRECTORY,
-    BROWSER_PROFILES_DIRECTORY,
-    VIDEOS_DIRECTORY,
-    UPLOADS_DIRECTORY,
+    path.basename(artifactsRoot()),
+    path.basename(browserProfilesRoot()),
+    path.basename(videosRoot()),
+    path.basename(uploadsRoot()),
     ...credentialVaultFileNames,
   ]);
   const databaseNames = new Set([DATABASE_FILE_NAME]);
@@ -319,17 +320,17 @@ async function readUnaccountedRootFiles(root: string, databaseTarget: string) {
 /**
  * Reads the workspace without touching it. Everything below is `stat`, `readdir` and `SELECT`: no
  * directory is created, no database is written, and the workspace that is read is the open one
- * (`resolveAppDataDir()`), never a path a caller supplies.
+ * (`dataRoot()`), never a path a caller supplies.
  */
 export async function createWorkspaceManifest(): Promise<WorkspaceManifest> {
-  const root = resolveAppDataDir();
+  const root = dataRoot();
   const databaseTarget = resolveDatabaseTarget(root);
   const database = await readDatabase(databaseTarget);
 
-  const artifacts = await readDirectoryTree(path.join(root, ARTIFACTS_DIRECTORY), true);
+  const artifacts = await readDirectoryTree(artifactsRoot(), true);
   const linkedArtifacts = artifacts.files.filter((file) => database.contentImageNames.has(file.name)).length;
 
-  const profilesDirectory = path.join(root, BROWSER_PROFILES_DIRECTORY);
+  const profilesDirectory = browserProfilesRoot();
   const claimedProfiles = new Set(database.accountIds);
   const profileIds = (await fs.readdir(profilesDirectory, { withFileTypes: true }).catch(() => []))
     .filter((entry) => entry.isDirectory())
@@ -342,10 +343,10 @@ export async function createWorkspaceManifest(): Promise<WorkspaceManifest> {
     unlinkedProfiles.push({ id, fileCount: tree.fileCount, sizeBytes: tree.totalBytes });
   }
 
-  const videosDirectory = path.join(root, VIDEOS_DIRECTORY);
-  const uploadsDirectory = path.join(root, UPLOADS_DIRECTORY);
-  const productImagesDirectory = path.join(uploadsDirectory, PRODUCT_IMAGES_DIRECTORY);
-  const brandLogosDirectory = path.join(uploadsDirectory, BRAND_LOGOS_DIRECTORY);
+  const videosDirectory = videosRoot();
+  const uploadsDirectory = uploadsRoot();
+  const productImagesDirectory = productImagesRoot();
+  const brandLogosDirectory = brandLogosRoot();
   const videos = await readDirectoryTree(videosDirectory, false);
   const uploads = await readDirectoryTree(uploadsDirectory, false);
   const productImages = await readDirectoryTree(productImagesDirectory, false);

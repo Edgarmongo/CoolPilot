@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import { getLocalAgentSettings } from "@/db/repositories/settings";
 import { aiRuntime } from "@/features/ai-runtime";
 import { AppError } from "@/lib/app-errors";
-import { artifactsRoot } from "@/lib/paths";
+import { ensureArtifactsRoot } from "@/lib/paths";
 
 /**
  * Image generation facade over `aiRuntime` (phase P2 of `docs/generate-migration.md`, G3; cut off the
@@ -42,8 +42,9 @@ function extensionFor(mimeType: string) {
 }
 
 async function writeBase64Image(base64: string, extension = "png") {
-  const outDir = artifactsRoot();
-  await fs.mkdir(outDir, { recursive: true });
+  // Landing the file is the write that initializes the section: resolving a path no longer creates
+  // the directory it points at (P5-B0-2.5).
+  const outDir = ensureArtifactsRoot();
   const filePath = path.join(outDir, `agent-image-${Date.now()}-${nanoid(8)}.${extension}`);
   await fs.writeFile(filePath, Buffer.from(base64, "base64"));
   return filePath;

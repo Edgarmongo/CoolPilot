@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { generateImageFile } from "@/lib/agent/image-generation";
-import { artifactsRoot } from "@/lib/paths";
+import { ensureArtifactsRoot } from "@/lib/paths";
 import { fetchArticleText } from "@/lib/scraper";
 import type { ImageStrategy } from "@/lib/ai-writing";
 
@@ -11,8 +11,7 @@ export const maxGeneratedArticleImages = 3;
 
 /** Copies a stored product image into the artifacts dir so the library can serve it. */
 export async function copyIntoArtifacts(sourcePath: string) {
-  const dir = artifactsRoot();
-  await fs.mkdir(dir, { recursive: true });
+  const dir = ensureArtifactsRoot();
   const extension = path.extname(sourcePath).toLowerCase() || ".png";
   const target = path.join(dir, `writing-${Date.now()}-${nanoid(8)}${extension}`);
   await fs.copyFile(sourcePath, target);
