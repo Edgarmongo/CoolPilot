@@ -308,17 +308,21 @@ commit changed the test inventory, so the number P3 must compare against is **57
 | Point in time | Test files | Tests | What moved |
 | --- | --- | --- | --- |
 | `2d8e5f8` (P2 landed) | 58 | 331 | - |
-| `a4ce0d1` (rebrand; runtime made local-only) | 57 | 326 | -7 `src/features/smepost/client.test.ts` (deleted with the SME provider), +2 `src/electron/branding.test.ts` |
+| `a4ce0d1` (rebrand; runtime made local-only) | 57 | 326 | -7 the previous product's SME client test (deleted with the SME provider), +2 `src/electron/branding.test.ts` |
 
 The reconciliation is arithmetic, not a guess: `331 - 7 + 2 = 326` and `58 - 1 = 57`. Spot check on the
 same tree: `src/lib/ai/generate.test.ts` = 7 cases, `src/features/ai-runtime` = 4 files / 36 cases (both
-together 5 files / 43 cases).
+together 5 files / 43 cases). The deleted file is described instead of named because
+`src/electron/branding.test.ts` fails the suite when the old product name reappears anywhere in the
+project.
 
 Three provenance notes so the evidence above can be reproduced and trusted:
 
 * The whole run above was executed with `GEMINI_API_KEYS`, `GEMINI_API_KEY`, `OPENAI_API_KEY`,
   `GEMINI_MODEL` and `OPENAI_IMAGE_MODEL` exported in the shell (the smoke run needs them), so the
-  green suite also proves the env-independence described at the end of §6.3.
+  green suite also proves the env-independence described at the end of §6.3. Since P3-A0 that
+  independence is enforced rather than observed: the provider key variables are neutralised for the
+  whole run (D-P3-7 of `docs/generate-migration-p3.md`).
 * The smoke script bridges the legacy entry points with `generateStructured` inside a
   **stubbed `globalThis.fetch`** that answers `/chat/completions`, `:generateContent` and
   `/images/generations` from literals, restoring the real `fetch` in a `finally`. A run therefore
