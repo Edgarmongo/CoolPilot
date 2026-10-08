@@ -1,12 +1,12 @@
-# CoolPilot by SMEPost
+# CoolPilot
 
-**CoolPilot** is an open-source social media agent. Full name: **CoolPilot by SMEPost**.
+**CoolPilot** is an open-source social media agent.
 
-Your open-source social media agent — plan, approve, schedule, and publish social campaigns from your own computer, with optional SMEPost campaign and brand integration.
+Your open-source social media agent — plan, approve, schedule, and publish social campaigns from your own computer.
 
 CoolPilot — an AI copilot that helps you manage social media.
 
-CoolPilot is the local/open-source social media agent. SMEPost remains the connected cloud campaign, brand, and content platform. Sign in with SMEPost, sync campaigns from SMEPost, and publish with CoolPilot.
+CoolPilot is a local-first, open-source social media agent. Accounts, content, schedules, publish logs, and browser profiles all live on your own computer.
 
 It combines a desktop Electron app, a Next.js control panel, persistent browser profiles, scheduled social posting, and an AI social media agent that can help create, manage, and run repeatable content workflows.
 
@@ -48,7 +48,7 @@ cd CoolPilot
 - Generate or attach images through configured local image providers.
 - Schedule social posting runs and track run history in local SQLite storage.
 - Use an AI agent workflow to create posts, generate images, open pages, click, type, capture screenshots, and draft or publish Threads posts.
-- Choose local mode with your own LLM/image API keys, or connect SMEPost for cloud-backed agent usage and managed credits.
+- Bring your own LLM and image API keys; provider keys stay in your local settings and every agent step runs on your machine.
 - Browse mainstream vendor model catalogs and manage every model provider in one place under **System → Model Management**.
 - Run a headless account risk check (**Publishing → Accounts**) that verifies each saved profile can still reach its publishing page instead of hitting a login wall, and refuses to launch a browser for an account the check found signed out.
 - Export the whole workspace into one JSON file and restore it later under **System Settings → Backup**, so local data stays portable and owns its own copy.
@@ -131,13 +131,11 @@ the right account without mixing browser profiles.
 
 The chat layer can also turn natural-language timing requests into scheduled Threads posts when a matching site, post context, and publish authorization are available.
 
-## Local Mode, SMEPost Mode, and Subscriptions
+## Local-Only Runtime
 
-CoolPilot can run locally with your own API keys. This is the best path if you want full control over model providers, local data, and browser sessions.
+CoolPilot runs entirely on your own machine with your own API keys. Model providers, local data, and browser sessions all stay under your control.
 
-You can also connect an SMEPost account for cloud-backed agent usage. SMEPost can provide easier setup, managed model credits, image credits, and cloud agent workflows for users who do not want to manage every provider key themselves. Free usage may be available through SMEPost registration, and paid subscription plans can unlock more managed usage without changing your local browser profiles.
-
-The open-source app remains useful without a subscription. SMEPost is an optional acceleration layer, not a requirement for local-first operation.
+There is no cloud runtime, no account requirement, and no managed credit system: configure the model keys you want under **System → Model Management**, and every agent step runs locally against those providers.
 
 ## Supported Providers
 
@@ -155,7 +153,7 @@ Image generation:
 
 Model lists can be loaded from provider APIs when keys are configured. You can also pin model IDs through environment variables or the settings UI.
 
-**System → Model Management** is the single place for model work. The *Available Models* tab lists every model id your model gateway serves (imported from `quanzil.com/api/user/models`, 420 ids at import time) grouped by vendor and capability, with the OpenAI-compatible endpoint for each documented vendor; the *Model Configuration* tab holds the local provider keys, endpoints and model choices plus the cloud (SMEPost) provider status.
+**System → Model Management** is the single place for model work. The *Available Models* tab lists every model id your model gateway serves (imported from `quanzil.com/api/user/models`, 420 ids at import time) grouped by vendor and capability, with the OpenAI-compatible endpoint for each documented vendor; the *Model Configuration* tab holds the local provider keys, endpoints, and model choices.
 
 ### Syncing your own gateway account
 

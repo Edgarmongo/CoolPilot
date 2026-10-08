@@ -208,8 +208,8 @@ New error codes (translated in en / zh-cn / zh-hk): `MODEL_PROVIDER_NOT_FOUND`,
 Four tabs: **可用模型** (bundled/gateway catalog browsing, unchanged) · **模型注册表**
 (what the runtime knows, per-capability defaults, enable/disable, capability chips that
 probe on click, recent syncs) · **供应商与密钥** (provider, protocol, base URL, key, test
-connection) · **模型配置** (the existing local provider form, provider status, cloud card,
-manual gateway sync).
+connection) · **模型配置** (the existing local provider form, provider status, manual
+gateway sync).
 
 Seeding walks the vendor registry: vendors with an OpenAI-compatible endpoint get their own
 provider **and** endpoint (so 通义千问 no longer means "point your OpenAI key at a different

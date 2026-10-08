@@ -17,7 +17,7 @@ function resolveDatabaseUrl() {
   // would incorrectly resolve inside `.next/standalone`. Route those back to the
   // selected runtime data directory instead.
   if (
-    process.env.SMEPOST_ELECTRON === "1" &&
+    process.env.COOLPILOT_ELECTRON === "1" &&
     /^file:(?!\/|[A-Za-z]:[\\/])/.test(configured)
   ) {
     return normalizeFileUrl(defaultUrl);

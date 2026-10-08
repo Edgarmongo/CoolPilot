@@ -4,7 +4,6 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import useSWR from "swr";
 import {
   BarChart3,
   BookOpen,
@@ -14,15 +13,12 @@ import {
   CalendarDays,
   ChevronDown,
   ChevronUp,
-  Cloud,
   Database,
   Globe2,
   History,
   House,
   Library,
   ListChecks,
-  LogIn,
-  LogOut,
   MessageCircle,
   Network,
   Newspaper,
@@ -47,7 +43,6 @@ import {
   WalletCards,
   Workflow,
   Image as ImageIcon,
-  UserCircle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ConsoleHeaderActionsProvider, ConsoleHeaderActionsSlot } from "@/components/ui/console-header-actions";
@@ -55,31 +50,8 @@ import { LogoButton } from "@/components/ui/logo-button";
 import { NavButton } from "@/components/ui/nav-button";
 import { useI18n } from "@/lib/i18n";
 import { localizedPath, stripLocale, type Locale } from "@/lib/i18n-config";
+import { PRODUCT_SHORT_NAME } from "@/lib/product-branding";
 import { cn } from "@/lib/utils";
-import { apiPost, swrFetcher } from "@/lib/api-client";
-
-type AccountState = {
-  connected: boolean;
-  error?: string;
-  auth?: {
-    baseUrl: string;
-    runnerId: string;
-    deviceName: string;
-    userId?: string;
-    connectedAt: number;
-    org: {
-      id: string;
-      name: string;
-      planId: string;
-      imageCredit?: number;
-      llmCredit?: number;
-      planLimits?: {
-        imageCredits: number;
-        llmCredits: number;
-      };
-    };
-  };
-};
 
 type NavEntry = {
   id: string;
@@ -89,18 +61,6 @@ type NavEntry = {
   segment: string;
   children?: NavEntry[];
 };
-
-function formatCreditAmount(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: value % 1 === 0 ? 0 : 1,
-  }).format(value);
-}
-
-function creditPercent(remaining: number, limit: number) {
-  if (limit === -1) return 100;
-  if (limit <= 0) return 0;
-  return Math.max(0, Math.min(100, (remaining / limit) * 100));
-}
 
 function AccountDropdownLink({
   href,
@@ -144,7 +104,6 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
-  const { data: account, mutate: reloadAccount } = useSWR<AccountState>("/api/smepost/account", swrFetcher, { refreshInterval: 40_000 });
 
   const navItems = useMemo<NavEntry[]>(
     () => [
@@ -201,7 +160,7 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
           { id: "calendar", name: t("navContentCalendar"), icon: CalendarDays, href: "/schedules/calendar", segment: "/schedules/calendar" },
           { id: "generations", name: t("navGenerationRecords"), icon: History, href: "/automation/generations", segment: "/automation/generations" },
           { id: "operation-logs", name: t("navOperationLogs"), icon: ScrollText, href: "/automation/logs", segment: "/automation/logs" },
-          { id: "cloud-nodes", name: t("navCloudNodes"), icon: Cloud, href: "/automation/nodes", segment: "/automation/nodes" },
+          { id: "execution-nodes", name: t("navExecutionNodes"), icon: Globe2, href: "/automation/nodes", segment: "/automation/nodes" },
           { id: "runs", name: t("navRuns"), icon: Play, href: "/runs/queue", segment: "/runs" },
         ],
       },
@@ -232,11 +191,6 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
     [t],
   );
 
-  const accountItem = useMemo<NavEntry>(
-    () => ({ id: "account", name: t("navAccount"), icon: UserCircle, href: "/account/smepost", segment: "/account" }),
-    [t],
-  );
-
   function segmentMatches(segment: string) {
     return routePath.startsWith(segment) || (segment === "/dashboard" && routePath === "/");
   }
@@ -262,8 +216,8 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
     const selected = ids
       .map((id) => navItems.find((item) => item.id === id))
       .filter((item): item is NavEntry => Boolean(item));
-    return [...selected, accountItem];
-  }, [navItems, accountItem]);
+    return selected;
+  }, [navItems]);
 
   useEffect(() => {
     const groupContainsActive = (group: NavEntry): boolean =>
@@ -388,18 +342,8 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
     );
   };
 
-  async function logoutSMEPost() {
-    await apiPost("/api/smepost/logout", {});
-    setIsAccountMenuOpen(false);
-    await reloadAccount();
-  }
-
-  const accountName = account?.connected && account.auth ? account.auth.org.name : "SMEPost";
-  const accountPlan = account?.connected && account.auth ? account.auth.org.planId : t("smepostLoginButton");
-  const llmCredits = account?.auth?.org.llmCredit ?? 0;
-  const imageCredits = account?.auth?.org.imageCredit ?? 0;
-  const llmLimit = account?.auth?.org.planLimits?.llmCredits ?? 0;
-  const imageLimit = account?.auth?.org.planLimits?.imageCredits ?? 0;
+  const accountName = PRODUCT_SHORT_NAME;
+  const accountPlan = t("navSettings");
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white md:bg-gradient-to-b md:from-sky-50 md:via-sky-50 md:to-slate-100">
@@ -461,70 +405,12 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
           <div ref={accountMenuRef} className={cn("relative mt-3 w-full border-t border-slate-200 pt-3", isSidebarCollapsed && "flex justify-center")}>
             {isAccountMenuOpen ? (
               <div className="absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-xl">
-                {account?.connected && account.auth ? (
-                  <div className="border-b border-slate-100 px-3 py-2">
-                    <p className="truncate font-semibold text-slate-900">{account.auth.org.name}</p>
-                    <p className="mt-1 text-xs capitalize text-slate-500">{account.auth.org.planId}</p>
-                    <div className="mt-3 space-y-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3 text-xs text-slate-600">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-slate-700">{t("sidebarCreditBalance")}</span>
-                        <span className="text-[11px] text-slate-500">{t("sidebarLlmImageCredits")}</span>
-                      </div>
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5 text-slate-500">
-                            <Sparkles className="size-3.5" />
-                            {t("sidebarLlmCredits")}
-                          </span>
-                          <span className="font-medium tabular-nums text-slate-800">
-                            {llmLimit === -1 ? t("sidebarCreditUnlimited") : `${formatCreditAmount(llmCredits)} / ${formatCreditAmount(llmLimit)}`}
-                          </span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
-                          <div className="h-full rounded-full bg-sky-600" style={{ width: `${creditPercent(llmCredits, llmLimit)}%` }} />
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5 text-slate-500">
-                            <ImageIcon className="size-3.5" />
-                            {t("sidebarImageCredits")}
-                          </span>
-                          <span className="font-medium tabular-nums text-slate-800">
-                            {`${formatCreditAmount(imageCredits)} / ${formatCreditAmount(imageLimit)}`}
-                          </span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
-                          <div className="h-full rounded-full bg-sky-600" style={{ width: `${creditPercent(imageCredits, imageLimit)}%` }} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
                 <AccountDropdownLink href="/system/models" icon={<Boxes className="size-4" />} label={t("navModelManagement")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/permissions" icon={<ShieldCheck className="size-4" />} label={t("settingsTabPermissions")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/language" icon={<Globe2 className="size-4" />} label={t("settingsTabLanguage")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/brand" icon={<WalletCards className="size-4" />} label={t("settingsTabBrand")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/prompt" icon={<MessageCircle className="size-4" />} label={t("settingsTabPrompt")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
                 <AccountDropdownLink href="/settings/backup" icon={<Database className="size-4" />} label={t("settingsTabBackup")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
-                <Link
-                  href={localizedPath(locale, "/account/smepost")}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 transition hover:bg-sky-50 hover:text-slate-950"
-                  onClick={() => setIsAccountMenuOpen(false)}
-                >
-                  {account?.connected ? <WalletCards className="size-4" /> : <LogIn className="size-4" />}
-                  <span>{account?.connected ? t("navAccount") : t("smepostLoginButton")}</span>
-                </Link>
-                {account?.connected ? (
-                  <button
-                    type="button"
-                    onClick={() => void logoutSMEPost()}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 transition hover:bg-sky-50 hover:text-slate-950"
-                  >
-                    <LogOut className="size-4" />
-                    <span>{t("smepostLogout")}</span>
-                  </button>
-                ) : null}
               </div>
             ) : null}
             <button

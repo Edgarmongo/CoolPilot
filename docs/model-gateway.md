@@ -69,7 +69,7 @@ CoolPilot 不做模型，也不做模型供应商；它做的是**本机的 AI �
 | **Model 目录（Registry 雏形）** | 两套来源：① **网关目录**＝快照（420 个 id，`scripts/import-gateway-models.ts` 生成）或用户手动同步结果（`model-gateway-sync.ts` 存 SQLite）② **供应商实时目录**＝调各家 `/models`（Gemini `v1beta/models`、OpenRouter `/models`、OpenAI 兼容 `/models`），1 小时内存缓存，可用 `resolveFirstAvailableModel` 兜底「第一个可用模型」 | `model-gateway-snapshot.ts`、`model-gateway-sync.ts`、`model-catalog.ts` | 目录里**只有 id**（外加少量 created/owned_by）；没有 contextWindow、价格、模态、是否可工具调用 |
 | **Capability** | ① 网关目录：7 类能力（chat / reasoning / code / image / video / audio / embedding），用**模型 id 正则**推断；② 实时目录：只有粗糙的 `text` / `image` 两类 | `model-gateway-catalog.ts` → `classifyGatewayCapability()`、`mainstream-model-catalog.ts` → `mainstreamModelCapabilities`、`model-catalog.ts` → `ModelCapability` | 能力是**展示用标签**，不是可查询的注册表数据；新模型命名一变就要改正则 |
 | **选择与兜底** | `orderedProviders()` 决定 provider 尝试顺序，`generate.ts` 再洗牌多把 key 逐个重试，成功即返回 | `src/lib/ai/generate.ts` → `runWithProviders()` | 只有「文本」走这条路；**按能力选择**、按视觉/工具调用等**需求选择**都还没有 |
-| **UI / API** | 系统 → 模型管理：**可用模型** tab（厂牌分组 + 能力分组 + 状态 + 网关同步卡片）与 **模型配置** tab（key、endpoint、模型选择、云 provider 状态） | `src/components/system/model-management-client.tsx`、`model-config-panel.tsx`、`model-gateway-sync-panel.tsx`；`/api/models/catalog`、`/api/models/gateway`、`/api/settings/ai/models` | 页面展示能力齐了，但**启停、优先级、别名、覆盖能力**这些「管理动作」还没有落点 |
+| **UI / API** | 系统 → 模型管理：**可用模型** tab（厂牌分组 + 能力分组 + 状态 + 网关同步卡片）与 **模型配置** tab（key、endpoint、模型选择、本地 provider 状态） | `src/components/system/model-management-client.tsx`、`model-config-panel.tsx`、`model-gateway-sync-panel.tsx`；`/api/models/catalog`、`/api/models/gateway`、`/api/settings/ai/models` | 页面展示能力齐了，但**启停、优先级、别名、覆盖能力**这些「管理动作」还没有落点 |
 | **持久化** | 全部走 SQLite 的 key-value 表 `app_settings`（JSON 字符串），键名 `local-agent`、`model-gateway` 等；`LocalAgentSettings` 是**扁平字段**（`geminiModel` / `groqModel` / `openAIBaseUrl` / `openAIModel` / `openRouterBaseUrl` / `openRouterModel` / `geminiImageModel` / `openAIImageModel`） | `src/db/repositories/settings.ts`、`src/lib/types.ts` | 每加一个模型字段就要动类型、schema、UI；**不是 provider/model 表结构** |
 
 ### 实测数字（跑 `npx tsx` 调 `buildGatewayVendorGroups()` 得到）
@@ -397,7 +397,7 @@ Adapter            ：openai-compatible / gemini-native / anthropic-native …
 
 - 不做模型训练、微调、模型托管——CoolPilot 站在模型之上，不与模型竞争。
 - 不做模型转售/中转，不成为模型供应商（BYOK 是产品前提，不是过渡方案）。
-- 不让 CoolPilot 服务器变成 AI 代理：云模式（SMEPost）是可选的加速层，不是本地模式的依赖。
+- 不让 CoolPilot 服务器变成 AI 代理：所有模型与图片生成都由本机 provider key 直接发起，不走任何远程代理层。
 - 不在本层写 Agent 编排逻辑：本层只负责「提供可查询的能力 + 统一调用出口」，编排属于 Agent Runtime。
 - 不把「支持 420 个模型」做成卖点——数字会被超过，能用起来的能力才是护城河。
 

@@ -24,7 +24,7 @@ const MAIN_BOARD_TOOL_STATE_KEY = "main_board_tool_state";
 const MAIN_BOARD_PREFERENCE_KEY = "main_board_preference";
 
 localforage.config({
-  name: "MeowusWhiteboard",
+  name: "CoolPilotWhiteboard",
   storeName: "drawnix_store",
   driver: [localforage.INDEXEDDB, localforage.LOCALSTORAGE],
 });

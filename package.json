@@ -1,7 +1,7 @@
 {
   "name": "coolpilot",
   "version": "0.1.0",
-  "description": "CoolPilot by SMEPost — open-source social media agent for local-first multi-account workflows, scheduled posting, and agent-driven browser tasks.",
+  "description": "CoolPilot — open-source social media agent for local-first multi-account workflows, scheduled posting, and agent-driven browser tasks.",
   "license": "MIT",
   "author": "Edgarmongo",
   "repository": {
@@ -23,7 +23,7 @@
     "browser-automation",
     "electron",
     "nextjs",
-    "smepost"
+    "local-first"
   ],
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",

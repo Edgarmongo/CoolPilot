@@ -136,7 +136,7 @@
 | **Electron** | `^42.3.3`（devDep） | `electron/main.cjs`：托盘、窗口、`before-quit`；`electron/server-bootstrap.cjs`：拼 `NODE_PATH` 后 `require` Next standalone |
 | 进程模型 | 自研 | 主进程 `spawn(process.execPath, [bootstrap, server], { env: { ELECTRON_RUN_AS_NODE: "1", … } })`（`main.cjs:110-125`）→ **Next 是独立 Node 子进程**（这条决定 `safeStorage` 的跨进程方案）；窗口 `contextIsolation: true` / `nodeIntegration: false` / `sandbox: true`（**无 preload/IPC**） |
 | 运行期辅助 | 自研 + 测试 | `src/electron/server-runtime.ts`（`resolveElectronAppDataDir` / `createElectronServerRuntime`）+ `server-runtime.test.ts` + `branding.test.ts` |
-| **electron-builder** | `^26.8.1` | `electron-builder.yml`：`appId: io.smepost.meowus`；Windows `dir` + `nsis`；macOS `dmg` + `hardenedRuntime` + entitlements + notarization；`asarUnpack: .next/standalone/**` |
+| **electron-builder** | `^26.8.1` | `electron-builder.yml`：`appId: io.coolpilot.app`；Windows `dir` + `nsis`；macOS `dmg` + `hardenedRuntime` + entitlements + notarization；`asarUnpack: .next/standalone/**` |
 | 微软商店打包 | 自研脚本 | `scripts/build-store-package.ts`（`pnpm electron:build:store` → `.appx`） |
 | 图标生成 | `sharp ^0.34.5` | **仅** `scripts/generate-icons.ts` 使用（`pnpm icons:generate`，被 `pnpm build` 依赖） |
 | 便携数据目录 | 自研 | `web-data/` 与用户目录双路径判定（`main.cjs:48-58`、`server-runtime.ts:12-27`） |
@@ -147,7 +147,7 @@
 
 | 技术 | 用途与证据 |
 | --- | --- |
-| 内部调度端点 + Bearer 鉴权 | `src/app/api/internal/scheduler/tick/route.ts:10-11`（比对 `SMEPOST_SCHEDULER_TOKEN`） |
+| 内部调度端点 + Bearer 鉴权 | `src/app/api/internal/scheduler/tick/route.ts:10-11`（比对 `COOLPILOT_SCHEDULER_TOKEN`） |
 | Electron 主进程轮询 | `electron/main.cjs:17`（`crypto.randomBytes(32)` 生成 token）、`:162-177`（每 10 秒 POST 一次 tick） |
 | 独立 worker 进程 | `src/worker/{worker,scheduler-service,runner,open-profile}.ts`；`pnpm worker` → `tsx src/worker/worker.ts` |
 | 任务持久化 | `schedules` / `runs` / `run_events` 表；`idx_runs_schedule_occurrence(schedule_id, scheduled_for)` 唯一索引做**时间点幂等**（`client.ts:342`） |
@@ -160,7 +160,7 @@
 
 | 技术 | 版本 / 配置 | 用途与证据 |
 | --- | --- | --- |
-| **Vitest** | `^4.1.5` | `vitest.config.ts`：`environment: "node"`（**无 jsdom**）、`include: ["src/**/*.test.ts"]`、alias `@ → ./src`；实测 **52 文件 / 280 用例全绿** |
+| **Vitest** | `^4.1.5` | `vitest.config.ts`：`environment: "node"`（**无 jsdom**）、`include: ["src/**/*.test.ts"]`、alias `@ → ./src`；实测 **57 文件 / 325 用例全绿** |
 | 测试风格 | — | 只测逻辑/仓储/路由 handler（**没有组件渲染测试**，因为没有 jsdom 与 @testing-library）；临时 SQLite 用 `mkdtempSync` + `vi.mock("@/lib/secrets")` 隔离（`model-gateway-sync.test.ts`） |
 | 自研 smoke 脚本 | `tsx` | `scripts/model-management-smoke.ts`、`scripts/whiteboard-smoke.ts`（起 dev server 后用 Playwright 跑）、`scripts/electron-dry-run.ts` |
 | **ESLint** | `^9` flat config + `eslint-config-next 16.2.4` | `eslint.config.mjs`：`core-web-vitals` + `typescript` 两套预设；`globalIgnores` 排除 `.next` / `dist-electron` / `out` / `build` / **`src/whiteboard/**`**；对 `electron/**/*.cjs` 关闭 `no-require-imports`。当前仅 1 条既存 warning（`src/components/agent-chat/chat-conversation.tsx:146`） |
@@ -189,7 +189,6 @@
 
 | 集成 | 配置 / 证据 |
 | --- | --- |
-| **SMEPost 云** | `SMEPOST_API_BASE_URL`（默认 `https://smepost.io`，`.env.example:30`）；`src/lib/smepost-auth.ts`；`/api/smepost/{account, brand/import, commands, commands/[commandId]/result, device/poll, device/start, logout}`；Electron 下注入 `SMEPOST_ELECTRON=1` |
 | **Dify** | `/api/dify/{connections, connections/[id], datasets}` + `dify_connections` 表 + `src/db/repositories/dify-connections.ts` |
 | **AI 供应商** | 4 个可调用（gemini / groq / openai / openrouter）+ 14 家厂商元数据 + 420 条模型目录（快照 + 可选网关同步） |
 | **本地模型** | 通过 OpenAI 兼容 `baseUrl` 接入（设置项 `openAIBaseUrl` / `openRouterBaseUrl`，`provider-registry.ts:65-74`） |

@@ -65,14 +65,14 @@
 **证据**
 
 - `electron/main.cjs:110` 用 `spawn(process.execPath, [findServerBootstrap(), findStandaloneServer()], { env: { …, ELECTRON_RUN_AS_NODE: "1" } })` 启动 Next standalone server —— 这是**独立 Node 进程**，不是 Electron 主进程，因此 `require("electron").safeStorage` 在那里不存在，`app.getPath()` 也不存在。
-- 但仓库里**已经有跨进程鉴权的先例**，照抄即可：主进程生成 `schedulerToken = crypto.randomBytes(32)`（`main.cjs:17`），通过 env `SMEPOST_SCHEDULER_TOKEN` 传给子进程（`main.cjs:121`），子进程侧 `/api/internal/scheduler/tick` 用 `Authorization: Bearer ${expected}` 校验（`src/app/api/internal/scheduler/tick/route.ts:10-11`）。
+- 但仓库里**已经有跨进程鉴权的先例**，照抄即可：主进程生成 `schedulerToken = crypto.randomBytes(32)`（`main.cjs:17`），通过 env `COOLPILOT_SCHEDULER_TOKEN` 传给子进程（`main.cjs:119`），子进程侧 `/api/internal/scheduler/tick` 用 `Authorization: Bearer ${expected}` 校验（`src/app/api/internal/scheduler/tick/route.ts:10-11`）。
 
 **对策：主进程起一个「凭据桥」，方向与调度器相反（主进程做服务端）**
 
 ```
 electron/main.cjs（唯一持有 safeStorage）
   ├─ 启动时监听 127.0.0.1:0（随机端口），生成一次性 bridgeToken
-  ├─ 经 env 把 (SMEPOST_SECRET_BRIDGE_URL, SMEPOST_SECRET_BRIDGE_TOKEN) 传给 Next server
+  ├─ 经 env 把 (COOLPILOT_SECRET_BRIDGE_URL, COOLPILOT_SECRET_BRIDGE_TOKEN) 传给 Next server
   └─ 提供 POST /secrets/{get,set,delete,list}
         └─ safeStorage.encryptString → userData/credentials.bin
            （portable 模式跟随 resolveDataDir() 的 web-data/ 分支，main.cjs:48-58）
@@ -151,7 +151,7 @@ src/lib/credentials/bridge.ts（Next server 侧）
 4. **packaged 手工**：`pnpm electron:pack` → 在打包应用里保存 key → 重启 → 仍可用；对数据目录做 `findstr /s /i "sk-"` 无命中。
 5. 回归：`scripts/model-management-smoke.ts` 仍通过。
 
-**回滚**：读取顺序里保留 env 通道，`MEOWUS_CREDENTIAL_MODE=env` 作为逃生开关，无需回滚代码。
+**回滚**：读取顺序里保留 env 通道，`COOLPILOT_CREDENTIAL_MODE=env` 作为逃生开关，无需回滚代码。
 
 **风险**：Windows 上 `safeStorage` 依赖 DPAPI，在无用户配置文件的服务账户下会抛错 → 桥必须把异常降级为「文件加密模式」并把状态回报给 UI，而不是让保存直接失败。
 
@@ -376,7 +376,7 @@ export function adapterFor(protocol: ModelProtocol): ModelAdapter;
 
 | # | 风险 | 概率 / 影响 | 缓解 |
 | --- | --- | --- | --- |
-| R-A | `safeStorage` 在无用户配置文件/受限权限下抛错，导致保存 key 直接失败 | 中 / 高 | 桥必须**降级**为文件加密模式并把状态回报 UI；`MEOWUS_CREDENTIAL_MODE` 逃生开关 |
+| R-A | `safeStorage` 在无用户配置文件/受限权限下抛错，导致保存 key 直接失败 | 中 / 高 | 桥必须**降级**为文件加密模式并把状态回报 UI；`COOLPILOT_CREDENTIAL_MODE` 逃生开关 |
 | R-B | 打包环境 `Program Files` 只读，写数据目录失败 | 中 / 高 | 数据目录一律走 `APP_DATA_DIR`（`main.cjs:113`）→ `SOCIAL_AUTO_POST_DATA_DIR`（`:114`）→ cwd 兜底；先测安装版再测便携版 |
 | R-C | 能力推断误判（把 text 模型标成 vision，或反之） | 高 / 中 | `source` 区分 `snapshot` / `provider-api` / `manual`；UI 默认只提示「N 个模型能力是推断的」，可人工覆盖 |
 | R-D | 改动 `LocalAgentSettings` 契约导致设置页/agent 连锁失败 | 中 / 高 | P1–P3 全部「只增不改」；旧字段保留，双读一段时间 |
@@ -390,7 +390,7 @@ export function adapterFor(protocol: ModelProtocol): ModelAdapter;
 ## 8. 需要你拍板的三件事（决定后续实现细节）
 
 1. **凭据桥的形态**
-   - (A) 主进程 loopback HTTP 桥（推荐：复用 `SMEPOST_SCHEDULER_TOKEN` 的既有模式，改动局部）
+   - (A) 主进程 loopback HTTP 桥（推荐：复用 `COOLPILOT_SCHEDULER_TOKEN` 的既有模式，改动局部）
    - (B) 主进程提供一次性 CLI，由 Next 进程按需 spawn（无端口，但每次调用有进程开销）
    - (C) 把 Next server 跑进 Electron 主进程（能直接用 `safeStorage`，但 `ELECTRON_RUN_AS_NODE`/standalone 启动方式要大改，风险最高）
 2. **是否允许把新能力暴露在旧 API 上**：保守做法是两个类型并存（本文推荐）；激进做法是直接扩 `ModelCapability` 并同步改旧 API 与设置页（省一层，但会牵动 `src/app/api/settings/ai/models/route.ts` 与设置页 datalist）。

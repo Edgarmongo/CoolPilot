@@ -270,7 +270,7 @@ export type CredentialStatus =
 export type CredentialRecord = {
   id: string;
   endpointId: string;            // 凭据属于**端点**，不属于厂商（见 §0.1）
-  ref: string;                   // 例如 "meowus:credential:<uuid>"；解密入口的唯一句柄
+  ref: string;                   // 例如 "coolpilot:credential:<uuid>"；解密入口的唯一句柄
   label: string;                 // 「主 key」「团队 key」「小号 key」
   masked: string;                // "****1234"（maskKey() 结果，I2）
   tagsJson: string;              // 默认 "[]"；用途标签，如 ["article","vision"]
@@ -318,12 +318,12 @@ export function deleteSecret(ref: string): Promise<void>;
 | --- | --- | --- |
 | `os-encrypted` | Electron 主进程的凭据桥可用（`safeStorage` → Windows DPAPI / macOS Keychain） | 高：绑定当前操作系统用户 |
 | `file-encrypted` | 纯 `pnpm dev` / `next start`（桥不存在） | 中：AES-256-GCM + 数据目录内主密钥（限制文件权限） |
-| `env-only` | 老用户遗留 `.env.local` 或显式 `MEOWUS_CREDENTIAL_MODE=env` | 低：明文，**UI 必须黄色告警** |
+| `env-only` | 老用户遗留 `.env.local` 或显式 `COOLPILOT_CREDENTIAL_MODE=env` | 低：明文，**UI 必须黄色告警** |
 
 **两个硬约束**
 
 - **只写一处**：`setSecret()` 只能写当前 `secretBackend()`，不允许「桥 + 文件」双写（否则解密路径不一致时会出现「有一份能读、一份读不到」的诡异状态）。
-- **迁移只做一次**：老用户首次读取时，把 `.env.local` 里的 `GEMINI_API_KEYS` / `OPENAI_API_KEYS` / `GROQ_API_KEYS` / `OPENROUTER_API_KEYS` / `MODEL_GATEWAY_COOKIE`（`src/lib/secrets.ts:34-45` 的变量名）搬进 store，然后**从文件里删掉这些行**并写入 `MEOWUS_CREDENTIALS_MIGRATED=1` 作为标记，避免反复迁移。
+- **迁移只做一次**：老用户首次读取时，把 `.env.local` 里的 `GEMINI_API_KEYS` / `OPENAI_API_KEYS` / `GROQ_API_KEYS` / `OPENROUTER_API_KEYS` / `MODEL_GATEWAY_COOKIE`（`src/lib/secrets.ts:34-45` 的变量名）搬进 store，然后**从文件里删掉这些行**并写入 `COOLPILOT_CREDENTIALS_MIGRATED=1` 作为标记，避免反复迁移。
 
 ### 5.4 生命周期操作（都要能回滚）
 

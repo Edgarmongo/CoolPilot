@@ -7,7 +7,6 @@ import * as schema from "@/db/schema";
 import {
   BACKUP_FORMAT,
   BACKUP_VERSION,
-  LEGACY_BACKUP_FORMATS,
   backupFileName,
   countBackupRows,
   normalizeBackupCell,
@@ -78,19 +77,14 @@ describe("backup format", () => {
     }
   });
 
-  it("still restores a backup exported under the previous product name", () => {
-    const legacy = JSON.parse(snapshotOf({ accounts: [{ id: "a" }] })) as Record<string, unknown>;
-    legacy.format = LEGACY_BACKUP_FORMATS[0];
-    legacy.app = "Meowus";
+  it("rejects a backup document written by another product", () => {
+    const foreign = JSON.parse(snapshotOf({ accounts: [{ id: "a" }] })) as Record<string, unknown>;
+    foreign.format = "other-product-backup";
 
-    const parsed = parseBackupDocument(JSON.stringify(legacy));
-
-    expect(parsed.ok).toBe(true);
-    // Parsed documents always report the current format, whatever the file said.
-    if (parsed.ok) {
-      expect(parsed.snapshot.format).toBe(BACKUP_FORMAT);
-      expect(parsed.snapshot.tables.accounts).toEqual([{ id: "a" }]);
-    }
+    expect(parseBackupDocument(JSON.stringify(foreign))).toEqual({
+      ok: false,
+      reason: "invalid_document",
+    });
   });
 });
 

@@ -237,7 +237,7 @@ function toAgentRuntimeRun(row: typeof agentRuntimeRuns.$inferSelect): AgentRunt
     threadId: row.threadId ?? undefined,
     accountId: row.accountId ?? undefined,
     status: row.status as AgentRunStatus,
-    mode: row.mode as "local" | "smepost",
+    mode: row.mode as "local",
     input: parseJson<Record<string, unknown>>(row.inputJson, {}),
     state: parseJson<Record<string, unknown>>(row.stateJson, {}),
     pendingApproval: parseJson<Record<string, unknown>>(row.pendingApprovalJson, {}),
@@ -905,7 +905,7 @@ export async function updateAgentToolCall(
 export async function createAgentRuntimeRun(input: {
   threadId?: string;
   accountId?: string;
-  mode?: "local" | "smepost";
+  mode?: "local";
   status?: AgentRunStatus;
   input?: Record<string, unknown>;
   state?: Record<string, unknown>;

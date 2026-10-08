@@ -78,13 +78,3 @@ export function formatAgentChatContext(context?: AgentChatContext) {
 
   return lines.join("\n").slice(0, 6000).trim();
 }
-
-export function buildCloudAgentChatContext(context?: AgentChatContext) {
-  if (!context) return undefined;
-  return {
-    messages: context.messages,
-    latestPostText: context.latestPostText,
-    latestImagePrompt: context.latestImagePrompt,
-    latestImagePath: context.latestImagePath,
-  };
-}

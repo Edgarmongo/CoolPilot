@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentChatContext, buildCloudAgentChatContext, formatAgentChatContext } from "./chat-context";
+import { buildAgentChatContext, formatAgentChatContext } from "./chat-context";
 import type { AgentChatMessageWithTools } from "@/lib/types";
 
 function message(input: Partial<AgentChatMessageWithTools>): AgentChatMessageWithTools {
@@ -60,19 +60,32 @@ describe("agent chat context", () => {
     expect(formatted).not.toContain("internal prompt");
   });
 
-  it("keeps local content linkage out of the cloud context contract", () => {
-    const cloud = buildCloudAgentChatContext({
-      messages: [{ role: "user", content: "Create a post" }],
-      latestPostText: "Post",
-      latestContentItemId: "local-content-id",
-      latestImagePath: "C:/tmp/image.png",
-    });
-    expect(cloud).toEqual({
-      messages: [{ role: "user", content: "Create a post" }],
-      latestPostText: "Post",
-      latestImagePrompt: undefined,
-      latestImagePath: "C:/tmp/image.png",
-    });
-    expect(cloud).not.toHaveProperty("latestContentItemId");
+  it("keeps local content linkage in the chat context contract", () => {
+    const context = buildAgentChatContext([
+      message({
+        role: "user",
+        content: "Create a post",
+        toolCalls: [
+          {
+            id: "tool-1",
+            threadId: "thread",
+            messageId: "message",
+            name: "generate_social_post_draft",
+            status: "completed",
+            input: { topic: "cat" },
+            output: {
+              postReadyText: "Post",
+              itemId: "local-content-id",
+            },
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      }),
+    ]);
+
+    expect(context.latestPostText).toBe("Post");
+    expect(context.latestContentItemId).toBe("local-content-id");
+    expect(context.messages).toEqual([{ role: "user", content: "Create a post" }]);
   });
 });

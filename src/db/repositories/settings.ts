@@ -88,6 +88,8 @@ function parseLocalAgentSettings(value: unknown): LocalAgentSettings {
   return {
     ...defaultLocalAgentSettings,
     ...data,
+    // Only the local runtime remains; legacy stored values resolve to "local".
+    runtimeMode: "local",
     agentPermissions: {
       ...defaultLocalAgentSettings.agentPermissions,
       ...(data.agentPermissions ?? {}),

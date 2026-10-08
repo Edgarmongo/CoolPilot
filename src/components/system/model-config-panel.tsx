@@ -6,13 +6,13 @@ import useSWR from "swr";
 import { Boxes, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConsoleNotice, consoleInputClass } from "@/components/ui/console-surface";
-import { SegmentedControl, SelectField } from "@/components/ui/form-controls";
+import { SelectField } from "@/components/ui/form-controls";
 import { aiProviderOrder, aiProviderRegistry } from "@/features/ai-settings/provider-registry";
 import { ApiClientError, apiPost, swrFetcher } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import type { TranslationKey } from "@/lib/locale-resources";
 import { localizedPath } from "@/lib/i18n-config";
-import type { AgentRuntimeMode, LocalAIProvider, LocalAgentSettings, LocalImageProvider } from "@/lib/types";
+import type { LocalAIProvider, LocalAgentSettings, LocalImageProvider } from "@/lib/types";
 
 export type ModelConfigForm = LocalAgentSettings & {
   geminiKey: string;
@@ -88,14 +88,13 @@ export default function ModelConfigPanel({ showCatalogLink = false }: { showCata
   const { data: initialData, mutate: reloadSettings } = useSWR<ModelConfigForm>("/api/settings/ai", swrFetcher, {
     revalidateOnFocus: false,
   });
-  const modelListEnabled = form?.runtimeMode === "local";
   const { data: textModelData } = useSWR<ModelListResponse>(
-    modelListEnabled ? `/api/settings/ai/models?provider=${form.textProvider}&capability=text` : null,
+    form ? `/api/settings/ai/models?provider=${form.textProvider}&capability=text` : null,
     swrFetcher,
     { revalidateOnFocus: false },
   );
   const { data: imageModelData } = useSWR<ModelListResponse>(
-    modelListEnabled ? `/api/settings/ai/models?provider=${form.imageProvider}&capability=image` : null,
+    form ? `/api/settings/ai/models?provider=${form.imageProvider}&capability=image` : null,
     swrFetcher,
     { revalidateOnFocus: false },
   );
@@ -174,120 +173,49 @@ export default function ModelConfigPanel({ showCatalogLink = false }: { showCata
 
       {form ? (
         <>
-          <SegmentedControl<AgentRuntimeMode>
-            value={form.runtimeMode}
-            options={[
-              { value: "local", label: t("runtimeLocal") },
-              { value: "cloud", label: t("runtimeCloud") },
-            ]}
-            onChange={(runtimeMode) => updateForm({ runtimeMode })}
-          />
+          <div className="w-full space-y-5">
+            <section className="space-y-4 border-b border-border pb-5">
+              <SelectField<LocalAIProvider>
+                label={t("textProvider")}
+                value={form.textProvider}
+                options={aiProviderOrder.map((provider) => ({
+                  value: provider,
+                  label: t(aiProviderRegistry[provider].displayNameKey as TranslationKey),
+                }))}
+                onChange={(textProvider) => updateForm({ textProvider })}
+              />
 
-          {form.runtimeMode === "cloud" ? (
-            <div className="border-l-2 border-sky-300 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-800">
-              {t("cloudRuntimeDescription")}
-            </div>
-          ) : (
-            <div className="w-full space-y-5">
-              <section className="space-y-4 border-b border-border pb-5">
-                <SelectField<LocalAIProvider>
-                  label={t("textProvider")}
-                  value={form.textProvider}
-                  options={aiProviderOrder.map((provider) => ({
-                    value: provider,
-                    label: t(aiProviderRegistry[provider].displayNameKey as TranslationKey),
-                  }))}
-                  onChange={(textProvider) => updateForm({ textProvider })}
-                />
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  {form.textProvider === "gemini" ? (
-                    <>
-                      <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                        <span>{t("geminiKey")}</span>
-                        <input
-                          type="password"
-                          value={form.geminiKey}
-                          onChange={(event) => updateForm({ geminiKey: event.target.value })}
-                          className={`${consoleInputClass} font-mono`}
-                        />
-                      </label>
-                      <ModelInput id="text-models" label={t("textModel")} value={textModelValue()} models={textModelData?.models} onChange={updateTextModel} {...modelInputCopy} />
-                    </>
-                  ) : null}
-                  {form.textProvider === "groq" ? (
-                    <>
-                      <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                        <span>{t("groqKey")}</span>
-                        <input
-                          type="password"
-                          value={form.groqKey}
-                          onChange={(event) => updateForm({ groqKey: event.target.value })}
-                          className={`${consoleInputClass} font-mono`}
-                        />
-                      </label>
-                      <ModelInput id="text-models" label={t("textModel")} value={textModelValue()} models={textModelData?.models} onChange={updateTextModel} {...modelInputCopy} />
-                    </>
-                  ) : null}
-                  {form.textProvider === "openai" ? (
-                    <>
-                      <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                        <span>{t("openAIKey")}</span>
-                        <input
-                          type="password"
-                          value={form.openAIKey}
-                          onChange={(event) => updateForm({ openAIKey: event.target.value })}
-                          className={`${consoleInputClass} font-mono`}
-                        />
-                      </label>
-                      <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                        <span>{t("openAIBaseUrl")}</span>
-                        <input
-                          value={form.openAIBaseUrl}
-                          onChange={(event) => updateForm({ openAIBaseUrl: event.target.value })}
-                          className={consoleInputClass}
-                        />
-                      </label>
-                      <ModelInput id="text-models" label={t("textModel")} value={textModelValue()} models={textModelData?.models} onChange={updateTextModel} {...modelInputCopy} />
-                    </>
-                  ) : null}
-                  {form.textProvider === "openrouter" ? (
-                    <>
-                      <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                        <span>{t("openRouterKey")}</span>
-                        <input
-                          type="password"
-                          value={form.openRouterKey}
-                          onChange={(event) => updateForm({ openRouterKey: event.target.value })}
-                          className={`${consoleInputClass} font-mono`}
-                        />
-                      </label>
-                      <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                        <span>{t("openRouterBaseUrl")}</span>
-                        <input
-                          value={form.openRouterBaseUrl}
-                          onChange={(event) => updateForm({ openRouterBaseUrl: event.target.value })}
-                          className={consoleInputClass}
-                        />
-                      </label>
-                      <ModelInput id="text-models" label={t("openRouterModel")} value={textModelValue()} models={textModelData?.models} onChange={updateTextModel} {...modelInputCopy} />
-                    </>
-                  ) : null}
-                </div>
-              </section>
-
-              <section className="space-y-4">
-                <SelectField<LocalImageProvider>
-                  label={t("imageProvider")}
-                  value={form.imageProvider}
-                  options={(["openai", "gemini"] as LocalImageProvider[]).map((provider) => ({
-                    value: provider,
-                    label: providerLabel(t, provider),
-                  }))}
-                  onChange={(imageProvider) => updateForm({ imageProvider })}
-                />
-                {form.imageProvider === "openai" ? (
-                  <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2">
+                {form.textProvider === "gemini" ? (
+                  <>
+                    <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                      <span>{t("geminiKey")}</span>
+                      <input
+                        type="password"
+                        value={form.geminiKey}
+                        onChange={(event) => updateForm({ geminiKey: event.target.value })}
+                        className={`${consoleInputClass} font-mono`}
+                      />
+                    </label>
+                    <ModelInput id="text-models" label={t("textModel")} value={textModelValue()} models={textModelData?.models} onChange={updateTextModel} {...modelInputCopy} />
+                  </>
+                ) : null}
+                {form.textProvider === "groq" ? (
+                  <>
+                    <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                      <span>{t("groqKey")}</span>
+                      <input
+                        type="password"
+                        value={form.groqKey}
+                        onChange={(event) => updateForm({ groqKey: event.target.value })}
+                        className={`${consoleInputClass} font-mono`}
+                      />
+                    </label>
+                    <ModelInput id="text-models" label={t("textModel")} value={textModelValue()} models={textModelData?.models} onChange={updateTextModel} {...modelInputCopy} />
+                  </>
+                ) : null}
+                {form.textProvider === "openai" ? (
+                  <>
                     <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
                       <span>{t("openAIKey")}</span>
                       <input
@@ -305,34 +233,90 @@ export default function ModelConfigPanel({ showCatalogLink = false }: { showCata
                         className={consoleInputClass}
                       />
                     </label>
-                    <ModelInput id="image-models" label={t("openAIImageModel")} value={imageModelValue()} models={imageModelData?.models} onChange={updateImageModel} {...modelInputCopy} />
-                    <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                      <span>{t("imageSize")}</span>
-                      <input
-                        value={form.openAIImageSize}
-                        onChange={(event) => updateForm({ openAIImageSize: event.target.value })}
-                        className={consoleInputClass}
-                      />
-                    </label>
-                  </div>
+                    <ModelInput id="text-models" label={t("textModel")} value={textModelValue()} models={textModelData?.models} onChange={updateTextModel} {...modelInputCopy} />
+                  </>
                 ) : null}
-                {form.imageProvider === "gemini" ? (
-                  <div className="grid gap-4 md:grid-cols-2">
+                {form.textProvider === "openrouter" ? (
+                  <>
                     <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                      <span>{t("geminiKey")}</span>
+                      <span>{t("openRouterKey")}</span>
                       <input
                         type="password"
-                        value={form.geminiKey}
-                        onChange={(event) => updateForm({ geminiKey: event.target.value })}
+                        value={form.openRouterKey}
+                        onChange={(event) => updateForm({ openRouterKey: event.target.value })}
                         className={`${consoleInputClass} font-mono`}
                       />
                     </label>
-                    <ModelInput id="image-models" label={t("imageModel")} value={imageModelValue()} models={imageModelData?.models} onChange={updateImageModel} {...modelInputCopy} />
-                  </div>
+                    <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                      <span>{t("openRouterBaseUrl")}</span>
+                      <input
+                        value={form.openRouterBaseUrl}
+                        onChange={(event) => updateForm({ openRouterBaseUrl: event.target.value })}
+                        className={consoleInputClass}
+                      />
+                    </label>
+                    <ModelInput id="text-models" label={t("openRouterModel")} value={textModelValue()} models={textModelData?.models} onChange={updateTextModel} {...modelInputCopy} />
+                  </>
                 ) : null}
-              </section>
-            </div>
-          )}
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <SelectField<LocalImageProvider>
+                label={t("imageProvider")}
+                value={form.imageProvider}
+                options={(["openai", "gemini"] as LocalImageProvider[]).map((provider) => ({
+                  value: provider,
+                  label: providerLabel(t, provider),
+                }))}
+                onChange={(imageProvider) => updateForm({ imageProvider })}
+              />
+              {form.imageProvider === "openai" ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                    <span>{t("openAIKey")}</span>
+                    <input
+                      type="password"
+                      value={form.openAIKey}
+                      onChange={(event) => updateForm({ openAIKey: event.target.value })}
+                      className={`${consoleInputClass} font-mono`}
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                    <span>{t("openAIBaseUrl")}</span>
+                    <input
+                      value={form.openAIBaseUrl}
+                      onChange={(event) => updateForm({ openAIBaseUrl: event.target.value })}
+                      className={consoleInputClass}
+                    />
+                  </label>
+                  <ModelInput id="image-models" label={t("openAIImageModel")} value={imageModelValue()} models={imageModelData?.models} onChange={updateImageModel} {...modelInputCopy} />
+                  <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                    <span>{t("imageSize")}</span>
+                    <input
+                      value={form.openAIImageSize}
+                      onChange={(event) => updateForm({ openAIImageSize: event.target.value })}
+                      className={consoleInputClass}
+                    />
+                  </label>
+                </div>
+              ) : null}
+              {form.imageProvider === "gemini" ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                    <span>{t("geminiKey")}</span>
+                    <input
+                      type="password"
+                      value={form.geminiKey}
+                      onChange={(event) => updateForm({ geminiKey: event.target.value })}
+                      className={`${consoleInputClass} font-mono`}
+                    />
+                  </label>
+                  <ModelInput id="image-models" label={t("imageModel")} value={imageModelValue()} models={imageModelData?.models} onChange={updateImageModel} {...modelInputCopy} />
+                </div>
+              ) : null}
+            </section>
+          </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => void handleSave()} loading={saving}>

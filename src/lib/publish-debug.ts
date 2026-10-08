@@ -6,15 +6,15 @@ import { artifactsRoot } from "@/lib/paths";
  * Publish debug logging.
  *
  * Steps are always buffered in memory and returned by `/api/publish/logs`, so the
- * run panel can show/copy the last run. Set the `MEOWUS_PUBLISH_DEBUG` env var
- * (e.g. `MEOWUS_PUBLISH_DEBUG=1`) — or flip the in-app switch via the same route
+ * run panel can show/copy the last run. Set the `COOLPILOT_PUBLISH_DEBUG` env var
+ * (e.g. `COOLPILOT_PUBLISH_DEBUG=1`) — or flip the in-app switch via the same route
  * — to also persist the log + screenshots to `<artifacts>/publish-logs`.
  */
 let runtimeOverride: boolean | null = null;
 
 export function isPublishDebugEnabled(): boolean {
   if (runtimeOverride !== null) return runtimeOverride;
-  const value = (process.env.MEOWUS_PUBLISH_DEBUG ?? "").trim().toLowerCase();
+  const value = (process.env.COOLPILOT_PUBLISH_DEBUG ?? "").trim().toLowerCase();
   return value !== "" && value !== "0" && value !== "false" && value !== "off";
 }
 

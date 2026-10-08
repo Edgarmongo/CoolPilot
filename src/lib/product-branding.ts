@@ -1,6 +1,6 @@
 /** User-facing product branding. Keep separate from persisted paths and OAuth IDs. */
 export const PRODUCT_SHORT_NAME = "CoolPilot";
-export const PRODUCT_FULL_NAME = "CoolPilot by SMEPost";
+export const PRODUCT_FULL_NAME = "CoolPilot";
 export const PRODUCT_DESCRIPTOR_EN = "Open-source social media agent";
 export const PRODUCT_DESCRIPTOR_ZH_CN = "开源 AI 社交媒体代理";
 export const PRODUCT_DESCRIPTOR_ZH_HK = "開源 AI 社交媒體代理";

@@ -1,12 +1,12 @@
-# CoolPilot by SMEPost
+# CoolPilot
 
-**CoolPilot** 是一個開源 AI 社群媒體代理。完整名稱：**CoolPilot by SMEPost**。
+**CoolPilot** 是一個開源 AI 社群媒體代理。
 
-你的開源社群媒體代理 — 在自己的電腦上規劃、核准、排程與發布社群活動，並可選擇串接 SMEPost 的活動與品牌整合。
+你的開源社群媒體代理 — 在自己的電腦上規劃、核准、排程與發布社群活動。
 
 CoolPilot — 陪你一起管理社群媒體的 AI 副駕駛。
 
-CoolPilot 是本機／開源的社群媒體代理；SMEPost 仍是雲端活動、品牌與內容平台。請使用 SMEPost 登入、從 SMEPost 同步活動，並以 CoolPilot 發布。
+CoolPilot 是本機優先的開源社群媒體代理；帳號、內容、排程、發布紀錄與瀏覽器 profiles 全部保存在你自己的電腦上。
 
 它整合 Electron 桌面 app、Next.js 控制台、持久化瀏覽器 profile、排程發文，以及可以協助建立與執行社群任務的 AI social media agent。
 
@@ -48,7 +48,7 @@ cd CoolPilot
 - 透過設定的圖片 provider 生成或附加圖片。
 - 建立 scheduled social posting runs，並在本機 SQLite 中追蹤執行紀錄。
 - 使用 AI agent workflow 建立貼文、生成圖片、開啟頁面、點擊、輸入、截圖，以及在 Threads 草擬或發布貼文。
-- 使用自己的 LLM/image API key 執行 local mode，或連接 SMEPost 使用雲端 agent 與 managed credits。
+- 使用自己的 LLM/image API key；provider key 只保存在本機設定，agent 的每一步都在你的電腦上執行。
 - 在「系統 → 模型管理」瀏覽主流廠商的模型版本清單，並集中管理所有 model provider。
 - 在「Publishing → Accounts」執行靜默帳號風控巡檢，確認每個已儲存的 profile 仍能開啟發佈頁而不是卡在登入牆；巡檢判定未登入的帳號不會再浪費時間啟動瀏覽器。
 - 在「系統設定 → 備份」把整個工作區匯出成單一 JSON 檔案並隨時還原，本機資料可攜、也保有自己的副本。
@@ -131,13 +131,11 @@ the right account without mixing browser profiles.
 
 Chat layer 也能在已有站點、貼文 context 與發布授權時，將自然語言時間要求轉成 scheduled Threads post。
 
-## Local Mode、SMEPost Mode 與訂閱
+## 本機執行模式
 
-CoolPilot 可以使用你自己的 API keys 在本機執行。若你重視模型 provider、本機資料、瀏覽器 session 的控制權，這是最直接的使用方式。
+CoolPilot 完全在你的電腦上執行，並使用你自己的 API key。模型 provider、本機資料與瀏覽器 session 都由你掌控。
 
-你也可以連接 SMEPost 帳號使用雲端 agent。SMEPost 可提供更簡單的設定流程、managed model credits、image credits，以及不想自行維護所有 provider key 的 cloud agent workflows。使用者可透過 SMEPost 註冊取得免費使用額度；付費訂閱則可解鎖更多 managed usage，而且不會改變你的本機瀏覽器 profiles。
-
-這個開源 app 不需要訂閱也能使用。SMEPost 是可選的加速層，不是 local-first operation 的必要條件。
+沒有雲端執行模式、不需要註冊帳號，也沒有 managed credits：在 **系統 → 模型管理** 設定你要用的模型 key，agent 的每一步都會在本機對這些 provider 執行。
 
 ## 支援的 Providers
 
@@ -155,7 +153,7 @@ CoolPilot 可以使用你自己的 API keys 在本機執行。若你重視模型
 
 設定 key 後，app 可從 provider API 載入 model list。你也可以透過環境變數或 settings UI 指定 model ID。
 
-**系統 → 模型管理**是集中處理模型的地方。「可用模型」分頁列出模型網關提供的所有 model id（由 `quanzil.com/api/user/models` 匯入，匯入時為 420 個），按廠商與能力分類，並附上各廠商的 OpenAI-compatible endpoint；「模型配置」分頁則集中設定本機 provider 的 key、endpoint、模型，以及雲端（SMEPost）provider 狀態。
+**系統 → 模型管理**是集中處理模型的地方。「可用模型」分頁列出模型網關提供的所有 model id（由 `quanzil.com/api/user/models` 匯入，匯入時為 420 個），按廠商與能力分類，並附上各廠商的 OpenAI-compatible endpoint；「模型配置」分頁則集中設定本機 provider 的 key、endpoint 與模型。
 
 ### 同步自己的網關帳號
 

@@ -69,7 +69,7 @@ const ZOOM_BUTTON_CLASS =
   "grid size-7 place-items-center rounded-full text-zinc-600 transition hover:bg-sky-50 hover:text-sky-600";
 
 localforage.config({
-  name: "MeowusMindmap",
+  name: "CoolPilotMindmap",
   storeName: "mindmap_store",
   driver: [localforage.INDEXEDDB, localforage.LOCALSTORAGE],
 });

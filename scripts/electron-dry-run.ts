@@ -9,7 +9,7 @@ if (!nextConfigSource.includes('output: "standalone"')) {
   throw new Error("next.config.ts must use output: \"standalone\" for bundled Electron server packaging.");
 }
 
-const appDataDir = mkdtempSync(path.join(tmpdir(), "smepost-auto-post-electron-"));
+const appDataDir = mkdtempSync(path.join(tmpdir(), "coolpilot-electron-"));
 const runtime = createElectronServerRuntime({ appDataDir, port: 3130 });
 
 if (runtime.host !== "127.0.0.1") {

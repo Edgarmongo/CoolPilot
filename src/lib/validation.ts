@@ -185,7 +185,7 @@ export const importUrlSchema = z.object({
 });
 
 export const localAgentSettingsSchema = z.object({
-  runtimeMode: z.enum(["local", "cloud"]).optional(),
+  runtimeMode: z.enum(["local"]).catch("local").optional(),
   textProvider: z.enum(["gemini", "groq", "openai", "openrouter"]).optional(),
   imageProvider: z.enum(["gemini", "openai"]).optional(),
   geminiKey: z.string().optional(),

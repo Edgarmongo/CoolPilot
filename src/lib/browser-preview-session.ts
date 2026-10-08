@@ -30,13 +30,13 @@ import { createPublishLog, isPublishDebugEnabled, type PublishLogger } from "./p
  * "marching-ants" dashed drop zones and pulsing save indicators. A CDP screencast
  * captures every repaint, so those animations surface in the preview as a
  * constant flicker. Freezing animations keeps the mirrored page visually stable
- * without touching layout, content or interaction. Set MEOWUS_PREVIEW_STABILIZE=0
+ * without touching layout, content or interaction. Set COOLPILOT_PREVIEW_STABILIZE=0
  * to opt out.
  */
 const PREVIEW_STABILIZE_CSS = "*,*::before,*::after{animation:none !important;}";
 
 function previewStabilizeEnabled() {
-  return process.env.MEOWUS_PREVIEW_STABILIZE !== "0";
+  return process.env.COOLPILOT_PREVIEW_STABILIZE !== "0";
 }
 
 /** Injects the freeze style into an already-loaded page (no reload needed). */
@@ -45,9 +45,9 @@ async function applyPreviewStabilizer(page: Page) {
   await page
     .evaluate((css) => {
       if (!document.documentElement) return;
-      if (document.querySelector("style[data-meowus-preview-stabilize]")) return;
+      if (document.querySelector("style[data-coolpilot-preview-stabilize]")) return;
       const style = document.createElement("style");
-      style.setAttribute("data-meowus-preview-stabilize", "");
+      style.setAttribute("data-coolpilot-preview-stabilize", "");
       style.textContent = css;
       (document.head ?? document.documentElement).appendChild(style);
     }, PREVIEW_STABILIZE_CSS)
@@ -62,7 +62,7 @@ async function stabilizePreviewContext(context: BrowserContext) {
       const apply = () => {
         if (!document.documentElement) return;
         const style = document.createElement("style");
-        style.setAttribute("data-meowus-preview-stabilize", "");
+        style.setAttribute("data-coolpilot-preview-stabilize", "");
         style.textContent = css;
         (document.head ?? document.documentElement).appendChild(style);
       };
@@ -637,7 +637,7 @@ async function clickFirstVisible(page: Page, selectors: string[]) {
   return (await clickVisibleLogged(page, selectors)).clicked;
 }
 
-/** Saves a debug screenshot (only when MEOWUS_PUBLISH_DEBUG is on). */
+/** Saves a debug screenshot (only when COOLPILOT_PUBLISH_DEBUG is on). */
 async function debugScreenshot(page: Page, scope: string, label: string, log: PublishLogger) {
   if (!isPublishDebugEnabled() || page.isClosed()) return;
   const file = path.join(artifactsRoot(), `${scope}-publish-${label}-${Date.now()}.png`);

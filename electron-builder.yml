@@ -1,4 +1,4 @@
-appId: io.smepost.meowus
+appId: io.coolpilot.app
 productName: CoolPilot
 directories:
   output: dist-electron

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
-import { Download, ExternalLink, ImagePlus, RotateCcw, Save, Trash2 } from "lucide-react";
+import { ImagePlus, RotateCcw, Save, Trash2 } from "lucide-react";
 import type { BrandSettings } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { apiDelete, apiPost, swrFetcher, type ApiResponse } from "@/lib/api-client";
@@ -15,9 +15,6 @@ type PromptResponse = {
   systemPrompt: string;
   defaultSystemPrompt: string;
   usingDefault: boolean;
-};
-type AccountResponse = {
-  connected: boolean;
 };
 
 async function uploadLogo(file: File) {
@@ -42,11 +39,6 @@ export default function BrandPromptSettingsClient({ tab }: { tab: "brand" | "pro
   const { data: promptData, mutate: reloadPrompt } = useSWR<PromptResponse>(
     tab === "prompt" ? "/api/settings/prompt" : null,
     swrFetcher,
-  );
-  const { data: account } = useSWR<AccountResponse>(
-    tab === "brand" ? "/api/smepost/account" : null,
-    swrFetcher,
-    { refreshInterval: 40_000 },
   );
   const [brand, setBrand] = useState<BrandResponse | null>(null);
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -120,20 +112,6 @@ export default function BrandPromptSettingsClient({ tab }: { tab: "brand" | "pro
     }
   }
 
-  async function importBrandFromSMEPost() {
-    setSaving(true);
-    try {
-      const imported = await apiPost<BrandResponse>("/api/smepost/brand/import", {});
-      setBrand(imported);
-      await reloadBrand();
-      showNotice(t("brandImportSuccess"));
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : t("unknownError"), "error");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <div className="space-y-6">
       {notice ? <ConsoleNotice message={notice} tone={noticeTone} onDismiss={() => setNotice("")} /> : null}
@@ -141,31 +119,7 @@ export default function BrandPromptSettingsClient({ tab }: { tab: "brand" | "pro
 
       {tab === "brand" && brand ? (
         <section className="space-y-5">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <p className="text-sm leading-6 text-zinc-500">{t("brandSettingsDescription")}</p>
-            {account?.connected ? (
-              <Button variant="ghost" onClick={() => void importBrandFromSMEPost()} disabled={saving}>
-                <Download size={16} />
-                {t("brandImportFromSMEPost")}
-              </Button>
-            ) : account ? (
-              <a
-                href="https://smepost.io/tools/brand-dna"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-lg border border-sky-100 bg-white px-3 py-2 text-sm font-medium text-sky-700 shadow-sm transition hover:border-sky-200 hover:bg-sky-50"
-              >
-                <ExternalLink size={16} />
-                {t("brandGenerateWithBrandDna")}
-              </a>
-            ) : null}
-          </div>
-          {account && !account.connected ? (
-            <div className="rounded-lg border border-sky-100 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-900">
-              <p>{t("brandDnaGuestDescription")}</p>
-              <p className="mt-1 font-mono text-xs text-sky-700">https://smepost.io/tools/brand-dna</p>
-            </div>
-          ) : null}
+          <p className="text-sm leading-6 text-zinc-500">{t("brandSettingsDescription")}</p>
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
               <span>{t("brandName")}</span>

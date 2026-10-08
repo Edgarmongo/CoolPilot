@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const expected = process.env.SMEPOST_SCHEDULER_TOKEN;
+  const expected = process.env.COOLPILOT_SCHEDULER_TOKEN;
   if (!expected || request.headers.get("authorization") !== `Bearer ${expected}`) return fail("Unauthorized", 401);
   const scheduled = await schedulerTick();
   if (scheduled.processed) return ok(scheduled);

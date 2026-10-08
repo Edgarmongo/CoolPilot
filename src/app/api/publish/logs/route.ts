@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * panel can show/copy what the automation actually did — which selectors
  * matched, which buttons were clicked, how verification polled, and any
  * screenshots. Pass `debug: true|false` to turn on/off persisting the log and
- * screenshots to disk (otherwise gated by the `MEOWUS_PUBLISH_DEBUG` env var).
+ * screenshots to disk (otherwise gated by the `COOLPILOT_PUBLISH_DEBUG` env var).
  */
 export async function POST(request: Request) {
   let accountId = "";

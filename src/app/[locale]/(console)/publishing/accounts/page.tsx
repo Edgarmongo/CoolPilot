@@ -1,14 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import {
   ExternalLink,
   Globe2,
   Layers,
   LogIn,
-  MonitorSmartphone,
   Pencil,
   Plus,
   RefreshCw,
@@ -22,7 +20,6 @@ import {
 import { accountPlatforms, type AccountPlatform, type AccountRecord, type AccountStatus } from "@/lib/types";
 import { apiDelete, apiPatch, apiPost, swrFetcher } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
-import { localizedPath } from "@/lib/i18n-config";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ConsoleNotice, consoleInputClass } from "@/components/ui/console-surface";
@@ -139,8 +136,7 @@ function StatCard({
 }
 
 export default function AccountsPage() {
-  const { t, locale } = useI18n();
-  const router = useRouter();
+  const { t } = useI18n();
   const { data: accounts = [], mutate } = useSWR<AccountRecord[]>("/api/accounts", swrFetcher);
 
   const [platformFilter, setPlatformFilter] = useState("");
@@ -398,14 +394,6 @@ export default function AccountsPage() {
           <Button variant="outline" size="sm" onClick={() => setGroupManagerOpen(true)}>
             <Layers size={14} />
             {t("accountToolbarGroupManage")}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => router.push(localizedPath(locale, "/account/smepost"))}
-          >
-            <MonitorSmartphone size={14} />
-            {t("accountToolbarDesktopAgent")}
           </Button>
           <Button variant="outline" size="sm" loading={batchSyncing} onClick={() => void handleBatchSync()}>
             <RefreshCw size={14} />

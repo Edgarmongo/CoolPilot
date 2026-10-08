@@ -4,42 +4,23 @@ import {
   createAgentChatMessage,
   createAgentToolCall,
   createSchedule,
-  createContentItem,
   getContentItem,
   getAgentChatThread,
   getAccount,
   listAccounts,
   listAgentChatMessages,
-  updateContentItemImage,
-  updateAgentToolCall,
 } from "@/db/repository";
-import { defaultChatThreadTitle, updateChatThreadTitleIfNeeded, userMessagesForTitle } from "@/lib/agent/chat-thread-title";
-import { buildAgentChatContext, buildCloudAgentChatContext, type AgentChatContext } from "@/lib/agent/chat-context";
+import { defaultChatThreadTitle, updateChatThreadTitleIfNeeded } from "@/lib/agent/chat-thread-title";
+import { buildAgentChatContext } from "@/lib/agent/chat-context";
 import { getLocalAgentSettings } from "@/db/repositories/settings";
 import { LangGraphAgentEngine } from "@/lib/agent/langgraph-engine";
-import { generateImageFile } from "@/lib/agent/image-generation";
 import { looksLikeScheduleRequest, resolveScheduleIntent } from "@/lib/agent/schedule-intent";
 import { fail, ok, parseJson } from "@/lib/api";
-import { runSiteBrowserTool, type SiteBrowserToolName } from "@/lib/browser-preview";
 import { localeResources, normalizeLocale } from "@/lib/locale-resources";
-import { callSMEPost, readSMEPostAuth } from "@/lib/smepost-auth";
-import type { AgentCreditType, AgentToolStatus, AccountRecord } from "@/lib/types";
+import type { AccountRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const browserToolNames = [
-  "browser_goto",
-  "browser_snapshot",
-  "browser_click",
-  "browser_type",
-  "browser_press",
-  "browser_tab_control",
-  "browser_screenshot",
-  "threads_create_post",
-  "xiaohongshu_create_post",
-  "configured_create_post",
-] as const;
 
 const schema = z.object({
   message: z.string().trim().min(1),
@@ -48,311 +29,6 @@ const schema = z.object({
   params: z.record(z.string(), z.unknown()).optional().default({}),
   locale: z.string().trim().optional(),
 });
-
-type IncomingToolCall = {
-  id?: string;
-  name: string;
-  status?: AgentToolStatus | "queued";
-  input?: Record<string, unknown>;
-  args?: Record<string, unknown>;
-  output?: Record<string, unknown>;
-  commandId?: string;
-  creditType?: AgentCreditType;
-  creditCost?: number;
-};
-
-type CloudToolRequest = {
-  name: "browser_goto" | "browser_snapshot" | "generate_image";
-  input?: Record<string, unknown>;
-};
-
-type CloudBrowserCommand = {
-  id: string;
-  type: "browser_goto" | "browser_snapshot";
-  payload?: Record<string, unknown>;
-};
-
-function isBrowserTool(name: string): name is SiteBrowserToolName {
-  return (browserToolNames as readonly string[]).includes(name);
-}
-
-function wantsCloudImage(message: string) {
-  return /\b(image|picture|photo|generate.*visual|create.*visual|illustration|nano\s*banana|nanobanana|圖|圖片|相|插圖)\b/i.test(message);
-}
-
-function wantsCloudBrowser(message: string, site?: AccountRecord) {
-  return Boolean(site) && (
-    /\b(browser|profile|open|snapshot|visit|threads|post|draft|publish|navigate|control)\b/i.test(message) ||
-    /瀏覽器|開啟|截圖|快照|發佈|發布|貼文|草稿|控制/.test(message)
-  );
-}
-
-function buildCloudToolRequests(input: {
-  message: string;
-  site?: AccountRecord;
-  chatContext?: AgentChatContext;
-}): CloudToolRequest[] {
-  const requests: CloudToolRequest[] = [];
-
-  if (wantsCloudBrowser(input.message, input.site)) {
-    requests.push({
-      name: "browser_goto",
-      input: { url: input.site?.url || "https://www.threads.net/" },
-    });
-    if (/\b(snapshot|screenshot|read|inspect|check)\b/i.test(input.message) || /截圖|快照|讀取|檢查/.test(input.message)) {
-      requests.push({ name: "browser_snapshot", input: {} });
-    }
-  }
-
-  if (wantsCloudImage(input.message)) {
-    requests.push({
-      name: "generate_image",
-      input: {
-        prompt: input.chatContext?.latestPostText
-          ? `Create an image for this post: ${input.chatContext.latestPostText}`
-          : `Create a social media image for this request: ${input.message}`,
-      },
-    });
-  }
-
-  return requests.slice(0, 5);
-}
-
-async function runBackendAgent(input: {
-  message: string;
-  locale: ReturnType<typeof normalizeLocale>;
-  site?: AccountRecord;
-  titleMessages?: string[];
-  chatContext?: AgentChatContext;
-}) {
-  const auth = await readSMEPostAuth();
-  if (!auth) return null;
-
-  const result = await callSMEPost<{
-    mode: "smepost";
-    assistant: string;
-    threadTitle?: string;
-    toolCalls?: IncomingToolCall[];
-    credits?: Record<string, unknown>;
-  }>(auth, "/api/auto-post/agent/chat", {
-    method: "POST",
-    body: JSON.stringify({
-      runnerId: auth.runnerId,
-      message: input.message,
-      locale: input.locale,
-      titleMessages: input.titleMessages,
-      chatContext: buildCloudAgentChatContext(input.chatContext),
-      toolRequests: buildCloudToolRequests(input),
-      site: input.site
-        ? {
-            id: input.site.id,
-            name: input.site.name,
-            platform: input.site.platform,
-            url: input.site.url,
-            account: input.site.account,
-            status: input.site.status,
-          }
-        : undefined,
-    }),
-  });
-
-  const item = await createContentItem({
-    title: input.message.slice(0, 80),
-    body: result.assistant,
-    postReadyText: result.assistant,
-    sourceUrls: [],
-    metadata: {
-      provider: "smepost",
-      model: "smepost-cloud",
-      generationType: "smepost_agent_chat",
-    },
-    status: "ready",
-  });
-
-  return {
-    ...result,
-    mode: "smepost" as const,
-    item,
-    toolCalls: (result.toolCalls ?? []).map((tool) =>
-      tool.name === "generate_image"
-        ? {
-            ...tool,
-            input: {
-              ...(tool.input ?? {}),
-              contentItemId: item.id,
-              prompt: typeof tool.input?.prompt === "string" && tool.input.prompt.trim()
-                ? tool.input.prompt
-                : `Create an image for this post: ${result.assistant}`,
-            },
-          }
-        : tool
-    ),
-  };
-}
-
-async function claimCloudBrowserCommand(commandId: string) {
-  const auth = await readSMEPostAuth();
-  if (!auth) throw new Error("SMEPost runner is not connected.");
-  const result = await callSMEPost<{ commands?: CloudBrowserCommand[] }>(
-    auth,
-    `/api/auto-post/runners/${encodeURIComponent(auth.runnerId)}/commands?limit=10`,
-  );
-  const commands = Array.isArray(result.commands) ? result.commands : [];
-  const command = commands.find((candidate) => candidate.id === commandId);
-  if (!command) {
-    throw new Error(`SMEPost browser command ${commandId} was not claimed.`);
-  }
-  return { auth, command };
-}
-
-async function completeCloudBrowserCommand(input: {
-  runnerId: string;
-  commandId: string;
-  ok: boolean;
-  result?: Record<string, unknown>;
-  error?: string;
-}) {
-  const auth = await readSMEPostAuth();
-  if (!auth) throw new Error("SMEPost runner is not connected.");
-  return callSMEPost(auth, `/api/auto-post/runners/${encodeURIComponent(input.runnerId)}/commands/${encodeURIComponent(input.commandId)}/result`, {
-    method: "POST",
-    body: JSON.stringify({
-      ok: input.ok,
-      result: input.result,
-      error: input.error,
-    }),
-  });
-}
-
-async function executeCloudToolCalls(input: {
-  threadId: string;
-  assistantMessageId: string;
-  site?: AccountRecord;
-  toolCalls: IncomingToolCall[];
-}) {
-  const executed = [];
-
-  for (const tool of input.toolCalls) {
-    const toolInput = tool.input ?? tool.args ?? {};
-    const stored = await createAgentToolCall({
-      threadId: input.threadId,
-      messageId: input.assistantMessageId,
-      name: tool.name,
-      status: "running",
-      accountId: input.site?.id,
-      input: toolInput,
-      output: tool.output ?? {},
-      creditType: tool.creditType,
-      creditCost: tool.creditCost,
-    });
-
-    if (tool.name === "generate_image") {
-      try {
-        const prompt = typeof toolInput.prompt === "string" && toolInput.prompt.trim()
-          ? toolInput.prompt
-          : "Create a social media image for this post.";
-        const image = await generateImageFile({ prompt });
-        const output = { ...tool.output, ...image, prompt };
-        const itemId = typeof toolInput.contentItemId === "string" ? toolInput.contentItemId : undefined;
-        if (itemId) {
-          await updateContentItemImage({
-            itemId,
-            imagePath: image.path,
-            imagePrompt: prompt,
-            provider: image.provider,
-            model: image.model,
-          });
-        }
-        const completed = await updateAgentToolCall(stored.id, {
-          status: "completed",
-          output,
-          creditType: tool.creditType,
-          creditCost: tool.creditCost,
-        });
-        executed.push(completed ?? stored);
-      } catch (error) {
-        const failed = await updateAgentToolCall(stored.id, {
-          status: "failed",
-          output: { error: error instanceof Error ? error.message : String(error) },
-          creditType: tool.creditType,
-          creditCost: tool.creditCost,
-        });
-        executed.push(failed ?? stored);
-      }
-      continue;
-    }
-
-    if (!isBrowserTool(tool.name)) {
-      const completed = await updateAgentToolCall(stored.id, {
-        status: tool.status === "failed" ? "failed" : "completed",
-        output: tool.output ?? {},
-        creditType: tool.creditType,
-        creditCost: tool.creditCost,
-      });
-      executed.push(completed ?? stored);
-      continue;
-    }
-
-    if (!input.site) {
-      const failed = await updateAgentToolCall(stored.id, {
-        status: "failed",
-        output: { error: "Mention a site with @ before using browser tools." },
-        creditType: tool.creditType,
-        creditCost: tool.creditCost,
-      });
-      executed.push(failed ?? stored);
-      continue;
-    }
-
-    try {
-      let commandInput = toolInput;
-      const commandId = tool.commandId;
-      let runnerId: string | undefined;
-      if (commandId) {
-        const claimed = await claimCloudBrowserCommand(commandId);
-        runnerId = claimed.auth.runnerId;
-        commandInput = claimed.command.payload ?? toolInput;
-      }
-      const output = await runSiteBrowserTool(input.site, { name: tool.name, args: commandInput });
-      if (commandId && runnerId) {
-        await completeCloudBrowserCommand({
-          runnerId,
-          commandId,
-          ok: true,
-          result: output,
-        });
-      }
-      const completed = await updateAgentToolCall(stored.id, {
-        status: "completed",
-        output: { ...output, loginRequired: input.site.status === "needs_login" },
-        creditType: tool.creditType,
-        creditCost: tool.creditCost,
-      });
-      executed.push(completed ?? stored);
-    } catch (error) {
-      if (tool.commandId) {
-        const auth = await readSMEPostAuth();
-        if (auth) {
-          await completeCloudBrowserCommand({
-            runnerId: auth.runnerId,
-            commandId: tool.commandId,
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          }).catch(() => undefined);
-        }
-      }
-      const failed = await updateAgentToolCall(stored.id, {
-        status: "failed",
-        output: { error: error instanceof Error ? error.message : String(error) },
-        creditType: tool.creditType,
-        creditCost: tool.creditCost,
-      });
-      executed.push(failed ?? stored);
-    }
-  }
-
-  return executed;
-}
 
 async function persistLocalToolCalls(input: {
   threadId: string;
@@ -421,7 +97,6 @@ export async function POST(request: Request) {
       metadata: site ? { accountName: site.name, siteStatus: site.status } : {},
     });
     const messagesAfterUser = await listAgentChatMessages(thread.id);
-    const titleMessages = userMessagesForTitle(messagesAfterUser);
     const chatContext = buildAgentChatContext(messagesAfterUser);
 
     if (looksLikeScheduleRequest(parsed.data.message)) {
@@ -462,7 +137,7 @@ export async function POST(request: Request) {
           role: "assistant",
           content: assistantText,
           accountId: intent.site.id,
-          mode: settings.runtimeMode === "cloud" ? "smepost" : "local",
+          mode: "local",
           metadata: { userMessageId: userMessage.id, scheduleRequest: true },
         });
         await createAgentToolCall({
@@ -487,57 +162,14 @@ export async function POST(request: Request) {
           role: "assistant",
           content: assistantText,
           accountId: site?.id,
-          mode: settings.runtimeMode === "cloud" ? "smepost" : "local",
+          mode: "local",
           metadata: { userMessageId: userMessage.id, scheduleRequest: true, failed: true },
         });
       }
       return ok({
-        mode: settings.runtimeMode === "cloud" ? "smepost" : "local",
+        mode: "local",
         assistant: assistantText,
         thread,
-        messages: await listAgentChatMessages(thread.id),
-      });
-    }
-
-    const useCloud = settings.runtimeMode === "cloud";
-
-    if (useCloud) {
-      const backend = await runBackendAgent({
-        message: parsed.data.message,
-        locale,
-        site: site ?? undefined,
-        titleMessages,
-        chatContext,
-      });
-      if (!backend) {
-        return fail("SMEPost runner is not connected. Switch runtime mode to local or login to SMEPost.", 401);
-      }
-      const assistant = await createAgentChatMessage({
-        threadId: thread.id,
-        role: "assistant",
-        content: backend.assistant,
-        accountId: site?.id,
-        mode: "smepost",
-        metadata: { userMessageId: userMessage.id, itemId: backend.item?.id, targetSiteName: site?.name },
-      });
-      await executeCloudToolCalls({
-        threadId: thread.id,
-        assistantMessageId: assistant.id,
-        site: site ?? undefined,
-        toolCalls: backend.toolCalls ?? [],
-      });
-      const responseThread = await updateChatThreadTitleIfNeeded({
-        thread,
-        messages: messagesAfterUser,
-        locale,
-        jobDone: true,
-        preferredTitle: backend.threadTitle,
-      });
-      return ok({
-        mode: "smepost",
-        assistant: backend.assistant,
-        item: backend.item,
-        thread: responseThread,
         messages: await listAgentChatMessages(thread.id),
       });
     }

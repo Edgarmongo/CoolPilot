@@ -17,7 +17,7 @@ const executionModes: Array<{
   { id: "edge", icon: Server, titleKey: "executorEdge", descKey: "executorEdgeDesc", available: false },
 ];
 
-export default function CloudNodesPage() {
+export default function ExecutionNodesPage() {
   const { t } = useI18n();
 
   return (

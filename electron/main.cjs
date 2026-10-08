@@ -6,8 +6,8 @@ const net = require("node:net");
 const path = require("node:path");
 
 const PRODUCT_SHORT_NAME = "CoolPilot";
-/** Legacy folder so existing installs keep DB/auth after productName change. */
-const LEGACY_USER_DATA_FOLDER = "SMEPost Auto Post";
+/** Branded userData folder: one folder per brand, no legacy aliasing. */
+const USER_DATA_FOLDER = PRODUCT_SHORT_NAME;
 
 let serverProcess = null;
 let mainWindow = null;
@@ -16,8 +16,8 @@ let isQuitting = false;
 let schedulerTimer = null;
 const schedulerToken = crypto.randomBytes(32).toString("hex");
 
-// Pin userData before ready so productName "CoolPilot" does not orphan prior data.
-app.setPath("userData", path.join(app.getPath("appData"), LEGACY_USER_DATA_FOLDER));
+// Pin userData before ready so dev and packaged builds share one folder name.
+app.setPath("userData", path.join(app.getPath("appData"), USER_DATA_FOLDER));
 
 function findStandaloneServer() {
   const candidates = [
@@ -100,7 +100,7 @@ function findAvailablePort(preferredPort, host) {
 
 async function startServer() {
   const host = "127.0.0.1";
-  const requestedPort = Number(process.env.SMEPOST_SERVER_PORT || 3130);
+  const requestedPort = Number(process.env.COOLPILOT_SERVER_PORT || 3130);
   const port = await findAvailablePort(Number.isFinite(requestedPort) ? requestedPort : 3130, host);
   const dataDir = resolveDataDir();
   const serverLogPath = path.join(dataDir, "electron-server.log");
@@ -113,12 +113,11 @@ async function startServer() {
       APP_DATA_DIR: app.getPath("userData"),
       SOCIAL_AUTO_POST_DATA_DIR: dataDir,
       SOCIAL_AUTO_POST_DB_URL: `file:${path.join(dataDir, "social-auto-post.db")}`,
-      SMEPOST_API_BASE_URL: process.env.SMEPOST_API_BASE_URL || "https://smepost.io",
-      SMEPOST_ELECTRON: "1",
+      COOLPILOT_ELECTRON: "1",
       ELECTRON_RUN_AS_NODE: "1",
       HOSTNAME: host,
       PORT: String(port),
-      SMEPOST_SCHEDULER_TOKEN: schedulerToken,
+      COOLPILOT_SCHEDULER_TOKEN: schedulerToken,
     },
     stdio: ["ignore", logFd, logFd],
     windowsHide: true,

@@ -175,7 +175,7 @@ export const publishRecordMethods = ["manual", "scheduled", "auto"] as const;
 
 export type PublishRecordMethod = (typeof publishRecordMethods)[number];
 
-export const publishRecordTerminals = ["local", "cloud"] as const;
+export const publishRecordTerminals = ["local"] as const;
 
 export type PublishRecordTerminal = (typeof publishRecordTerminals)[number];
 
@@ -267,10 +267,12 @@ export interface UsageSummary {
 }
 
 export type AgentChatRole = "user" | "assistant" | "system" | "tool";
-export type AgentChatMode = "local" | "smepost";
+/** Only the local runtime remains; chat messages are always produced locally. */
+export type AgentChatMode = "local";
 export type AgentToolStatus = "pending" | "running" | "completed" | "failed";
 export type AgentCreditType = "llm" | "image";
-export type AgentRuntimeMode = "local" | "cloud";
+/** Only the local runtime remains; stored settings always resolve to "local". */
+export type AgentRuntimeMode = "local";
 export type AgentRunStatus = "queued" | "running" | "paused" | "success" | "failed" | "cancelled";
 export type LocalAIProvider = "gemini" | "groq" | "openai" | "openrouter";
 export type LocalImageProvider = "gemini" | "openai";

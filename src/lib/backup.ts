@@ -11,12 +11,6 @@ import { z } from "zod";
  */
 
 export const BACKUP_FORMAT = "coolpilot-backup";
-/**
- * Formats this build still restores. A file exported under the previous product name stays
- * importable, and `parseBackupDocument` rewrites it to `BACKUP_FORMAT` so callers only ever
- * see the current value.
- */
-export const LEGACY_BACKUP_FORMATS = ["meowus-backup"] as const;
 export const BACKUP_VERSION = 1;
 /** Upload cap for `/api/backup/restore`; text-heavy workspaces stay well below this. */
 export const BACKUP_MAX_RESTORE_BYTES = 64 * 1024 * 1024;
@@ -62,11 +56,14 @@ export type BackupRestoreReport = {
 
 const backupCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
-/** Shape of a backup document as read from disk. Unknown tables are kept for reporting. */
+/**
+ * Shape of a backup document as read from disk. Unknown tables are kept for reporting.
+ *
+ * `format` must equal the current `BACKUP_FORMAT`: a document written by another product is
+ * rejected as `invalid_document` instead of being half-imported.
+ */
 export const backupSnapshotSchema = z.object({
-  // A file written under the previous product name stays importable: the value is accepted and
-  // normalised on read, so everything downstream only ever sees `BACKUP_FORMAT`.
-  format: z.enum([BACKUP_FORMAT, ...LEGACY_BACKUP_FORMATS]).transform((): typeof BACKUP_FORMAT => BACKUP_FORMAT),
+  format: z.literal(BACKUP_FORMAT),
   version: z.number().int().min(1),
   createdAt: z.string(),
   app: z.string().optional().default(""),

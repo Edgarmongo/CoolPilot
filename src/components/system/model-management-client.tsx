@@ -1,9 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import useSWR from "swr";
-import { Boxes, Check, Cloud, Copy, ExternalLink, Inbox, Search, Server, SlidersHorizontal } from "lucide-react";
+import { Boxes, Check, Copy, ExternalLink, Inbox, Search, Server, SlidersHorizontal } from "lucide-react";
 import { ConsoleCard, ConsoleNotice } from "@/components/ui/console-surface";
 import ModelConfigPanel from "@/components/system/model-config-panel";
 import ModelGatewaySyncPanel from "@/components/system/model-gateway-sync-panel";
@@ -19,10 +18,9 @@ import {
 } from "@/features/ai-settings/mainstream-model-catalog";
 import { swrFetcher } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
-import { localizedPath } from "@/lib/i18n-config";
 import type { TranslationKey } from "@/lib/locale-resources";
 import { cn } from "@/lib/utils";
-import type { AgentRuntimeMode, LocalAIProvider } from "@/lib/types";
+import type { LocalAIProvider } from "@/lib/types";
 
 export type ModelManagementTab = "catalog" | "registry" | "providers" | "config";
 
@@ -51,22 +49,9 @@ type CatalogResponse = {
   source: string;
   capturedAt: string;
   total: number;
-  runtimeMode: AgentRuntimeMode;
   providers: CatalogProvider[];
   capabilities: Array<{ id: MainstreamModelCapability; count: number }>;
   vendors: CatalogVendor[];
-};
-
-type AccountState = {
-  connected: boolean;
-  auth?: {
-    org: {
-      name: string;
-      planId: string;
-      imageCredit?: number;
-      llmCredit?: number;
-    };
-  };
 };
 
 const statusTone: Record<MainstreamProviderStatus, string> = {
@@ -75,11 +60,6 @@ const statusTone: Record<MainstreamProviderStatus, string> = {
   "missing-key": "border-zinc-200 bg-zinc-50 text-zinc-500",
   external: "border-indigo-200 bg-indigo-50 text-indigo-600",
 };
-
-function creditText(value: number | undefined) {
-  if (value === undefined) return "-";
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: value % 1 === 0 ? 0 : 1 }).format(value);
-}
 
 async function copyText(value: string) {
   try {
@@ -372,55 +352,6 @@ function ProviderStatusCard({ providers }: { providers: CatalogProvider[] }) {
   );
 }
 
-function CloudConfigCard({ runtimeMode }: { runtimeMode: AgentRuntimeMode | undefined }) {
-  const { t, locale } = useI18n();
-  const { data: account } = useSWR<AccountState>("/api/smepost/account", swrFetcher, { refreshInterval: 40_000 });
-  const org = account?.auth?.org;
-
-  const rows = [
-    { key: "runtime", label: t("runtimeMode"), value: runtimeMode === "cloud" ? t("runtimeCloud") : t("runtimeLocal") },
-    { key: "connection", label: t("smepostAccountTitle"), value: account?.connected ? t("smepostConnected") : t("smepostNotConnected") },
-    { key: "plan", label: t("smepostPlan"), value: org?.planId ?? "-" },
-    { key: "llm", label: t("sidebarLlmCredits"), value: creditText(org?.llmCredit) },
-    { key: "image", label: t("sidebarImageCredits"), value: creditText(org?.imageCredit) },
-  ];
-
-  return (
-    <ConsoleCard>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-indigo-500 to-sky-600 text-white">
-            <Cloud className="size-5" aria-hidden />
-          </span>
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-zinc-950">{t("modelMgmtCloudTitle")}</h2>
-            <p className="mt-1 text-xs leading-5 text-zinc-500">{t("modelMgmtCloudDescription")}</p>
-          </div>
-        </div>
-        {!account?.connected ? (
-          <Link
-            href={localizedPath(locale, "/account/smepost")}
-            className="inline-flex items-center gap-2 rounded-2xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700"
-          >
-            {t("smepostLoginButton")}
-          </Link>
-        ) : null}
-      </div>
-      <dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {rows.map((row) => (
-          <div key={row.key} className="rounded-2xl border border-sky-100 bg-white p-4">
-            <dt className="text-xs text-zinc-500">{row.label}</dt>
-            <dd className="mt-1 truncate text-sm font-semibold text-zinc-900">{row.value}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="mt-4 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-900">
-        {t("modelMgmtCloudHint")}
-      </p>
-    </ConsoleCard>
-  );
-}
-
 export default function ModelManagementClient({ initialTab = "catalog" }: { initialTab?: ModelManagementTab }) {
   const { t } = useI18n();
   const [tab, setTab] = useState<ModelManagementTab>(initialTab);
@@ -482,7 +413,6 @@ export default function ModelManagementClient({ initialTab = "catalog" }: { init
             </div>
           </ConsoleCard>
           <ProviderStatusCard providers={data?.providers ?? []} />
-          <CloudConfigCard runtimeMode={data?.runtimeMode} />
         </div>
       ) : null}
     </div>
