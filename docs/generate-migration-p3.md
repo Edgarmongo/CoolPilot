@@ -307,3 +307,71 @@ the seven routes of A3-2/A3-3 and `lib/agent/image-generation.ts` (B); nothing e
   `components/agent-chat/chat-conversation.tsx`, unchanged), `node_modules\.bin\vitest.cmd run` =
   **60 files / 345 tests, all pass** - A2's 59 / 339 plus exactly this batch's 1 file / 6 tests. No case
   was deleted anywhere, which is also the check that the harnesses did not disturb the A1 suite.
+
+### P3-A3-2.1 - `api/ai-writing/generate`
+
+The first of the five remaining structured routes, and the richest one: the model call is a small part of a
+route that also assembles a prompt from three tables (positioning, product library, knowledge base), copies
+the product photo into the artifacts directory, stores the article and books a usage row. Only the call
+boundary moved.
+
+| Field | Before | After |
+| --- | --- | --- |
+| Call | `generateStructured({ prompt, systemPrompt, schema: postDraftSchema })` | `aiRuntime.chatStructured({ messages: [{ role: "user", content: prompt }], systemPrompt, schema: postDraftSchema })` |
+| Article | `result.data` -> `title` / `body` | `response.data` - unchanged |
+| Provider / model | `result.provider`, `result.model` (item metadata, usage row, response) | `response.providerId`, `response.model` |
+| Usage | `result.usage?.inputTokens` / `outputTokens` / `totalTokens` | `response.usage?.*` - unchanged field names |
+| Failure | `fail(error.message, 502)` -> 502, code `UNKNOWN_ERROR` | `failFromError(error, "AI_PROVIDER_FAILED", 502)`: an `AppError` keeps the runtime's code *and* status, anything else keeps this route's 502 |
+| Legacy import | `generateStructured` from `@/lib/ai/generate` | none - `@/lib/ai/schemas` was already the schema's source |
+
+Kept, because this batch migrates a boundary rather than a business: the positioning lookup
+(`config.positioningId ? getPosition(...) : getDefaultPosition()`), the material assembly (the topics, the
+products selected from `productIds`, the free text), `selectKnowledgeReferences()` under
+`knowledgeMode === "position"`, both prompt builders, `toPositioning()`'s eight fields, the title trim with
+its `topics[0]?.title` / free-text / `未命名文章` fallbacks, `resolveArticleImages()` (product photo,
+`og:image`, best-effort AI), the `title\n\nbody` post text, the content item's metadata, the usage row, the
+201 envelope `{ item, images, provider, model }` and the `INVALID_PAYLOAD` 400.
+
+The one deliberate contract change is the status of an AI exception, and it is D-P3-3's: a missing credential
+is no longer a 502 built from `MissingAIKeyError`'s message but a 400 `MODEL_CREDENTIAL_MISSING`, a cooled
+down pool a 429, and an upstream 5xx a 502 carrying the upstream status in `details.status`. The fallback for
+a non-`AppError` stays this route's long-standing 502; only its code becomes `AI_PROVIDER_FAILED` instead of
+`UNKNOWN_ERROR`. The console reads neither:
+`components/creation/ai-writing/ai-writing-step-output.tsx` shows one generic failure, so nothing downstream
+branches on the difference.
+
+Tests (`src/app/api/ai-writing/generate/route.test.ts`, 5 cases - the runtime is *not* mocked, the route
+handler is called for real, and only the transport is stubbed):
+
+1. Success: HTTP 201, the stored item (trimmed title, `title\n\nbody`, `sourceUrls` from the topic URL), the
+   product photo really copied into the artifacts directory (`fs.stat` on the returned path, and `imagePath`
+   is that copy), `provider`/`model` in the response *and* in the item's metadata, one structured call with
+   JSON mode on the wire, a system turn byte-identical to `buildArticleSystemPrompt()` for this positioning,
+   and a user turn that starts with the prompt this config/materials/knowledge must produce (rebuilt in the
+   test from the same tables, so the case pins the route's *assembly*) plus the schema instruction the
+   runtime appends. The usage row carries the runtime's token report and the stored body's character count.
+2. A removed credential: HTTP **400**, code `MODEL_CREDENTIAL_MISSING`, a message that is no longer
+   `Missing qwen API key`, no provider call, and neither an article nor a usage row written - the failure
+   lands before anything is persisted. This is the case the batch exists for.
+3. A provider 5xx: HTTP **502**, code `MODEL_UPSTREAM_FAILED`, `details.status` = 503, one attempt, nothing
+   stored.
+4. The guard is untouched: a payload without `config` and an out-of-range `wordCount` are both 400
+   `INVALID_PAYLOAD`, with no request on the wire at all.
+5. The runtime's structured contract is live: a first answer that omits `body` is rejected, the route answers
+   201 from the *corrected* second answer (four turns on the retry, the route's prompt still the prefix), the
+   usage row reports both attempts merged (22 / 14 / 36), and a run that selects no product stores no image.
+
+The file mocks `@/lib/ai` and `@/lib/ai/generate` with throwing factories. `@/lib/ai/compat` is deliberately
+left real here, unlike A3-1: this route reaches `lib/agent/image-generation.ts` through
+`lib/article-images.ts`, and that module imports compat on purpose until batch P3-B migrates it, so a
+throwing factory would fail on a legitimate import rather than on a leftover facade call. The business rows
+(one positioning, one knowledge entry, one product with a photo on disk) are created once in `beforeAll`,
+because `resetRuntime()` resets the runtime's own tables, not these.
+
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .`
+  exit 0 with 0 errors (the same single pre-existing `react-hooks/exhaustive-deps` warning),
+  `node_modules\.bin\vitest.cmd run` = **61 files / 350 tests, all pass** - A3-1's 60 / 345 plus exactly this
+  batch's 1 file / 5 tests. `git grep "generateStructured" -- src` now finds, in production code, the four
+  remaining routes (`content/generate`, `content/[id]/translate`, `knowledge-base/ai-parse`,
+  `positions/generate`), the facade itself and its own test - one route per commit, so the count is the
+  batch's progress bar.
