@@ -539,3 +539,91 @@ empty body) are created once in `beforeAll`, because `resetRuntime()` resets the
   batch's 1 file / 7 tests. `git grep "generateStructured" -- src` now finds, in production code, the two
   remaining routes (`knowledge-base/ai-parse`, `positions/generate`), the facade itself and its own test:
   **4 -> 3 (A3-2.2) -> 2**.
+
+### P3-A3-2.4 - `api/knowledge-base/ai-parse`
+
+The "Smart import" route: one paste in, one knowledge entry out. It is one of the two routes §2.1 lists as
+"catch -> deterministic local fallback" (row 4), and that fallback is what shapes this batch - the call boundary
+moves, and the catch does not.
+
+| Field | Before | After |
+| --- | --- | --- |
+| Call | `generateStructured({ prompt, systemPrompt, schema: aiKnowledgeSchema })` | `aiRuntime.chatStructured({ messages: [{ role: "user", content: prompt }], systemPrompt, schema: aiKnowledgeSchema })` |
+| Entry | `result.data` -> title / content / category / weight / tags | `response.data` - unchanged |
+| Provider / model | `result.provider`, `result.model` (usage row, 201 envelope) | `response.providerId`, `response.model` |
+| Usage | `result.usage?.inputTokens` / `outputTokens` / `totalTokens` | `response.usage?.*` - unchanged field names |
+| Schema | the route's own local `aiKnowledgeSchema` | unchanged: no import moves here, because `@/lib/ai/schemas` was never this route's source (unlike A3-2.1..2.3) |
+| Failure | `catch {}` -> `parseKnowledgeFromRawText()` -> 201 `source: "fallback"` | the same `catch {}` - see below |
+| Legacy import | `generateStructured` from `@/lib/ai/generate` | none: this route now imports nothing from `@/lib/ai` at all |
+
+Kept, because this batch migrates a boundary rather than a business: the prompt
+(`请把以下原始内容整理成一条知识条目：`) and its 8000-character cap, the six-line `systemPrompt` literal, the payload
+guard, the four answer fields, the normalisation chain (`isKnowledgeBaseCategory` or `guessKnowledgeCategory()` of
+what the model *did* answer, `isKnowledgeBaseWeight` or `"medium"`,
+`data.title.trim() || parseKnowledgeFromRawText(raw).title`, `data.content.trim() || raw.trim()`, tags trimmed and
+emptied out and sliced to 8), the `{ ...draft, origin: "ai", positionId }` write, the usage row
+(`kind: "knowledge"`, the runtime's tokens, the character count of the answer) and the 201 envelope
+`{ item, source: "ai", provider, model }`.
+
+**The deliberate difference from A3-2.1..2.3 is the error contract: this route does not adopt D-P3-3.**
+
+| Runtime outcome | A3-2.1..2.3 | `knowledge-base/ai-parse` |
+| --- | --- | --- |
+| `MODEL_CREDENTIAL_MISSING` (no usable key) | 400, the runtime's code | **201** `source: "fallback"` |
+| `MODEL_CREDENTIAL_UNAVAILABLE` (pool exhausted) | 429 + `details.reasons` | **201** `source: "fallback"` |
+| `MODEL_UPSTREAM_FAILED` (provider 5xx) | 502 + `details.status` | **201** `source: "fallback"` |
+| `AI_STRUCTURED_OUTPUT_INVALID` (both attempts) | 502 | **201** `source: "fallback"` |
+| `MODEL_NOT_CONFIGURED` / `MODEL_CAPABILITY_UNAVAILABLE` | 503 / 409 | **201** `source: "fallback"` |
+| `INVALID_PAYLOAD` (this route's own guard) | 400 | 400 - unchanged |
+
+`failFromError` appears nowhere in the file, and the envelope grows no `code`. The dialog
+(`components/smart-config/knowledge-base/knowledge-smart-dialog.tsx`) knows only success or `kbSmartFailed`, and the
+whole point of the fallback is that a paste never dies with the key: an "AI provider failed" answer would have been a
+business change wearing a boundary's clothes. The runtime's vocabulary still buys something - `source` says which path
+answered, so a local parse is never mistaken for a model's work - but it is not allowed to decide the HTTP status here.
+This is also why losing the legacy shim costs this route nothing: `withLegacyCompatibility()` used to turn an unroutable
+install into a key-without-models retry, and D-P3-1 moved that pass into the seed, where it belongs.
+
+Tests (`src/app/api/knowledge-base/ai-parse/route.test.ts`, 9 cases - the runtime is *not* mocked, the route handler is
+called for real, and only the transport is stubbed):
+
+1. Success: HTTP 201, `source: "ai"`, an envelope whose keys are exactly `item` / `source` / `provider` / `model`, the
+   normalised entry (trimmed title and body, trimmed non-empty tags, `origin: "ai"`, `enabled: true`, the `positionId`
+   it was given), the model's title *and not* the paste's first line, the row `getKnowledgeBase(id)` returns, one
+   structured call with JSON mode on the wire, a system turn byte-identical to this route's literal, a user turn that
+   starts with `请把以下原始内容整理成一条知识条目：` plus the paste and carries the runtime's schema instruction, and
+   one usage row holding the runtime's tokens (11/7/18) plus the character count of the *answer* - asserted to differ
+   from the paste's.
+2. The cap: an 8400-character paste with a marker beyond 8000 - the prompt keeps exactly `slice(0, 8000)`, the marker is
+   in neither the prompt nor the stored entry, and the entry is still the model's.
+3. A badly-behaved answer is normalised rather than stored verbatim: `category: "misc"`, `weight: "urgent"`, a blank body
+   and twelve junk tags become `guessKnowledgeCategory()` of the model's own title (`product`), `medium`, the paste as the
+   body and eight trimmed tags; the second answer instead leaves the title blank and answers `faq` / `low` - the
+   deterministic local title is used and the vocabulary is kept.
+4. Nothing configured: HTTP **201**, `source: "fallback"`, keys exactly `item` / `source`, the entry equal to
+   `parseKnowledgeFromRawText(raw)` (first line as title, `origin: "ai"`), exactly one row written, no provider call at
+   all and no usage row.
+5. A credential revoked after the model was configured (`MODEL_CREDENTIAL_MISSING`, the 400 of every other route in this
+   batch): still **201** `source: "fallback"`, no chat call, no usage row, and no `code` anywhere in the body.
+6. A provider 5xx: exactly one attempt, then the same 201 fallback, nothing billed, and the stored entry is the local one.
+7. An answer `aiKnowledgeSchema` rejects twice: two calls (the runtime's corrective retry), then the fallback, and the
+   rejected title is nowhere in the entry.
+8. The guards: `{}`, a whitespace-only `content` and a body that is not JSON are all 400 `INVALID_PAYLOAD` /
+   `Invalid payload` with an empty transport and no row written. Validation runs before the call, so an unusable payload
+   can never reach the fallback - the one answer this route words itself.
+9. No capability default: `prepareModel()` (a credential and one enabled model, but no `chat` / `structured_output`
+   default) still answers `source: "ai"`, from the capability the runtime infers for `qwen3-max`, in one call.
+
+The file mocks `@/lib/ai`, `@/lib/ai/generate` and `@/lib/ai/compat` with throwing factories. The shim mock is safe for
+the same reason as A3-2.3 and was not safe in A3-2.1/A3-2.2: the only production importer of `@/lib/ai/compat` is
+`lib/agent/image-generation.ts`, reached through `lib/article-images.ts`, and neither is on this route's graph. No
+business fixture is needed at all - the paste comes from the request - and the cases that must prove "nothing was
+written" diff the knowledge-base and usage ids instead of counting rows, because the earlier cases' rows are still in
+these tables (`resetRuntime()` resets the runtime's own tables, not the business ones).
+
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .` exit 0 with
+  0 errors (the same single pre-existing `react-hooks/exhaustive-deps` warning), `node_modules\.bin\vitest.cmd run` =
+  **64 files / 372 tests, all pass** - A3-2.3's 63 / 363 plus exactly this batch's 1 file / 9 tests.
+  `git grep "generateStructured" -- src` now finds, in production code, **one** remaining route
+  (`positions/generate`), the facade itself and its own test: **4 -> 3 (A3-2.2) -> 2 (A3-2.3) -> 1 (A3-2.4)**. One route
+  left before the facade has no production caller at all.
