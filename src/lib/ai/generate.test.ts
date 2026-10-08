@@ -5,25 +5,23 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The legacy facades on top of the runtime (phase P2 of `docs/generate-migration.md`).
+ * The image facade on top of the runtime (`src/lib/agent/image-generation.ts`).
  *
- * What these tests are really about: `generateText`, `generateStructured` and
- * `generateImageFile` no longer contain a single line of provider logic - every call must
- * reach `aiRuntime`, with routing, key rotation, model failover and usage coming from there.
- * The transport is always stubbed, so no test touches a real endpoint and no key from
- * `.env.local` can reach one either. Rotation / failover / pinning are asserted in
- * `src/features/ai-runtime/runtime.test.ts`; here the facade contract is what matters.
+ * What these tests are really about: `generateImageFile` no longer contains a single line of
+ * provider logic - every call must reach `aiRuntime`, with routing, key rotation, model failover
+ * and usage coming from there. The transport is always stubbed, so no test touches a real
+ * endpoint and no key from `.env.local` can reach one either. Rotation / failover / pinning are
+ * asserted in `src/features/ai-runtime/runtime.test.ts`; here the facade contract is what matters.
  *
- * The two facades are not equally legacy any more: P3-B-3 cut `image-generation.ts` off the compat shim, so
- * `generateImageFile` surfaces the runtime's own routing errors and triggers no discovery, while
- * `generateText` / `generateStructured` still run through `lib/ai/compat.ts` - deleting that shim is P4's,
- * not this batch's.
+ * P4 deleted the text half of this suite together with the legacy text facade
+ * (`src/lib/ai/generate.ts` and the `src/lib/ai/compat.ts` shim behind it), so only the image
+ * cases are left. The file name is historical: it still sits where the facade used to live, and
+ * its subject is now `@/lib/agent/image-generation`.
  */
 const dataDir = mkdtempSync(path.join(tmpdir(), "coolpilot-legacy-facade-"));
 process.env.SOCIAL_AUTO_POST_DB_URL = `file:${path.join(dataDir, "facade.db").replace(/\\/g, "/")}`;
 process.env.SOCIAL_AUTO_POST_DATA_DIR = dataDir;
 
-const facade = await import("./generate");
 const imageFacade = await import("@/lib/agent/image-generation");
 const registry = await import("@/features/ai-runtime/registry");
 const runtimeSync = await import("@/features/ai-runtime/sync");
@@ -31,7 +29,6 @@ const repository = await import("@/db/repositories/ai-runtime");
 const credentials = await import("@/lib/credentials");
 const { AppError } = await import("@/lib/app-errors");
 const { aiProviderOrder, aiProviderRegistry } = await import("@/features/ai-settings/provider-registry");
-const { postDraftSchema } = await import("./schemas");
 const { keylessAppEnvValue } = await import("@/test/app-env");
 
 /**
@@ -94,41 +91,13 @@ type RequestBody = {
   model?: string;
   prompt?: string;
   size?: string;
-  temperature?: number;
-  response_format?: unknown;
-  messages?: Array<{ role: string; content: string }>;
 };
 
 function bodyOf(call: { init?: RequestInit }) {
   return JSON.parse(String(call.init?.body)) as RequestBody;
 }
 
-function chatReply(text: string, usage = { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }) {
-  return jsonResponse({ choices: [{ message: { content: text } }], usage });
-}
-
-function geminiReply(text: string) {
-  return jsonResponse({
-    candidates: [{ content: { parts: [{ text }] } }],
-    usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 2, totalTokenCount: 5 },
-  });
-}
-
-const qwenCatalog = () => jsonResponse({ data: [{ id: "qwen3-max" }] });
-const openAItextCatalog = () => jsonResponse({ data: [{ id: "gpt-4o-mini" }] });
 const openAIImageCatalog = () => jsonResponse({ data: [{ id: "gpt-image-1" }] });
-const geminiTextCatalog = () =>
-  jsonResponse({
-    models: [
-      {
-        name: "models/gemini-2.5-flash",
-        baseModelId: "gemini-2.5-flash",
-        displayName: "Gemini 2.5 Flash",
-        supportedGenerationMethods: ["generateContent"],
-        inputTokenLimit: 1048576,
-      },
-    ],
-  });
 const geminiImageCatalog = () =>
   jsonResponse({
     models: [
@@ -177,7 +146,7 @@ async function prepareModel(providerId: string, modelId: string, secret: string)
   return target;
 }
 
-describe("legacy AI facade on aiRuntime", () => {
+describe("image facade on aiRuntime", () => {
   beforeEach(async () => {
     vi.unstubAllGlobals();
     await resetRuntime();
@@ -185,111 +154,6 @@ describe("legacy AI facade on aiRuntime", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-  });
-
-  it("answers through the runtime and reports the provider that really ran (D2)", async () => {
-    const calls = stubFetch([
-      { match: (url) => url.includes("dashscope") && url.endsWith("/models"), respond: qwenCatalog },
-      { match: (url) => url.includes("/chat/completions"), respond: () => chatReply("pong-from-runtime") },
-    ]);
-    const row = await prepareModel("qwen", "qwen3-max", "sk-stub-qwen");
-    await registry.setModelDefaultForCapability("chat", row?.id ?? "");
-
-    const result = await facade.generateText({ prompt: "ping" });
-
-    expect(result.text).toBe("pong-from-runtime");
-    // `qwen` is not part of the legacy provider union at all - only the runtime can answer this.
-    expect(result.provider).toBe("qwen");
-    expect(result.model).toBe("qwen3-max");
-    expect(result.usage).toEqual({ inputTokens: 3, outputTokens: 2, totalTokens: 5 });
-    expect(result.keyLabel.endsWith("qwen")).toBe(true);
-    expect(result.keyLabel).not.toContain("sk-stub-qwen");
-
-    const [chatCall] = calls.filter((call) => call.url.includes("/chat/completions"));
-    // The legacy call shape survives: one user turn, temperature 0.7.
-    expect(bodyOf(chatCall)).toMatchObject({ model: "qwen3-max", temperature: 0.7 });
-    expect(bodyOf(chatCall).messages?.at(-1)).toEqual({ role: "user", content: "ping" });
-  });
-
-  it("resolves a model on demand when the registry was never populated (legacy discovery)", async () => {
-    process.env.GEMINI_API_KEYS = "sk-stub-gemini";
-    const calls = stubFetch([
-      // The chat URL also contains `/models/<id>`, so the catalog pattern must be precise.
-      { match: (url) => url.includes(":generateContent"), respond: () => geminiReply("pong-from-gemini") },
-      { match: (url) => url.includes("/v1beta/models?"), respond: geminiTextCatalog },
-    ]);
-
-    const result = await facade.generateText({ prompt: "ping" });
-
-    expect(result.text).toBe("pong-from-gemini");
-    expect(result.provider).toBe("gemini");
-    expect(result.model).toBe("gemini-2.5-flash");
-    // Nothing was callable before the call: the facade discovered the catalog first.
-    expect(calls[0]?.url).toContain("/v1beta/models?");
-    expect(calls.filter((call) => call.url.includes(":generateContent"))).toHaveLength(1);
-  });
-
-  it("treats the legacy provider argument as a preference, not a pin (G1)", async () => {
-    const calls = stubFetch([
-      { match: (url) => url.includes("api.openai.com") && url.endsWith("/models"), respond: openAItextCatalog },
-      { match: (url) => url.includes("dashscope") && url.endsWith("/models"), respond: qwenCatalog },
-      { match: (url) => url.includes("api.openai.com") && url.includes("/chat/completions"), respond: offline },
-      {
-        match: (url) => url.includes("dashscope") && url.includes("/chat/completions"),
-        respond: () => chatReply("pong-from-qwen"),
-      },
-    ]);
-    await prepareModel("qwen", "qwen3-max", "sk-stub-qwen");
-    await prepareModel("openai", "gpt-4o-mini", "sk-stub-openai");
-
-    const result = await facade.generateText({ prompt: "ping", provider: "openai" });
-
-    const chatCalls = calls.filter((call) => call.url.includes("/chat/completions"));
-    // Preferred provider first...
-    expect(chatCalls[0]?.url).toContain("api.openai.com");
-    // ...but its failure still falls over, which a pin would not have done (D2).
-    expect(result.provider).toBe("qwen");
-    expect(result.text).toBe("pong-from-qwen");
-  });
-
-  it("delegates structured output to the runtime's JSON retry path (G5)", async () => {
-    const replies = [
-      chatReply("not json at all", { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 }),
-      chatReply('{"title":"t","body":"b"}', { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 }),
-    ];
-    const calls = stubFetch([
-      { match: (url) => url.includes("dashscope") && url.endsWith("/models"), respond: qwenCatalog },
-      { match: (url) => url.includes("/chat/completions"), respond: () => replies.shift() ?? chatReply("{}") },
-    ]);
-    await prepareModel("qwen", "qwen3-max", "sk-stub-qwen");
-
-    const result = await facade.generateStructured({ prompt: "draft a post", schema: postDraftSchema });
-
-    expect(result.data).toEqual({ title: "t", body: "b" });
-    // Both calls are billed, so the facade reports the merged usage.
-    expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 4, totalTokens: 16 });
-
-    const bodies = calls.filter((call) => call.url.includes("/chat/completions")).map(bodyOf);
-    expect(bodies).toHaveLength(2);
-    const firstPrompt = bodies[0]?.messages?.at(-1)?.content ?? "";
-    expect(firstPrompt).toContain("Return ONLY a single valid JSON object");
-    expect(firstPrompt).toContain("JSON schema:");
-    expect(bodies[0]?.response_format).toEqual({ type: "json_object" });
-    // The retry appends the rejected answer plus the correction; the schema stays in the prompt.
-    const retry = bodies[1]?.messages ?? [];
-    expect(retry.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
-    expect(retry.at(-1)?.content).toContain("could not be used");
-    expect(retry.at(-1)?.content).not.toContain("JSON schema:");
-  });
-
-  it("keeps the legacy missing-key contract when no provider holds a key (G4)", async () => {
-    stubFetch([{ match: () => true, respond: offline }]);
-
-    const error: unknown = await facade.generateText({ prompt: "ping" }).catch((thrown: unknown) => thrown);
-
-    expect(error).toBeInstanceOf(facade.MissingAIKeyError);
-    // The legacy message named the configured text provider, which is still the default.
-    expect((error as Error).message).toBe("Missing gemini API key");
   });
 
   it("generates an image through the runtime and writes the artifact file (G3)", async () => {
@@ -331,9 +195,9 @@ describe("legacy AI facade on aiRuntime", () => {
       .generateImageFile({ prompt: "a cat on a keyboard" })
       .catch((thrown: unknown) => thrown);
 
-    // P3-B-3 cut `image-generation.ts -> compat.ts`, so the facade now surfaces the runtime's own routing
-    // error (`MissingAIKeyError` survives only on the text facade until P4) - and with the shim went the
-    // on-demand discovery pass, which is why the pinned provider's catalog was never read here.
+    // P3-B-3 cut `image-generation.ts -> compat.ts`, so the facade surfaces the runtime's own routing
+    // error - and with the shim went the on-demand discovery pass, which is why the pinned provider's
+    // catalog was never read here.
     expect(error).toBeInstanceOf(AppError);
     const failure = error as InstanceType<typeof AppError>;
     expect(failure.code).toBe("MODEL_NOT_CONFIGURED");

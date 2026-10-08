@@ -32,21 +32,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * pool, provider adapter - and only the *transport* is stubbed. Nothing here asserts that a mock was
  * called.
  *
- * `@/lib/ai`, `@/lib/ai/generate` and `@/lib/ai/compat` are mocked with throwing factories: this route is
- * on the image side of the app, so a surviving facade import anywhere under the handler fails the whole
- * file instead of a packaged build. The compat factory is P3-B-3's own guard - it was impossible before
- * this batch (the domain service was the shim's only production importer, which is exactly the edge the
- * batch cut), so it now proves the cut instead of documenting it.
+ * P4 deleted the three legacy modules this file used to mock with a throwing factory (`@/lib/ai`,
+ * `@/lib/ai/generate`, `@/lib/ai/compat`). The guard is structural now: reviving one of them fails
+ * `tsc` and module resolution instead of a single test file (`docs/generate-migration-p3.md`, P4).
  */
-vi.mock("@/lib/ai", () => {
-  throw new Error("api/images must not import the legacy facade (@/lib/ai)");
-});
-vi.mock("@/lib/ai/generate", () => {
-  throw new Error("api/images must not import the legacy facade (@/lib/ai/generate)");
-});
-vi.mock("@/lib/ai/compat", () => {
-  throw new Error("api/images must not import the compat shim (@/lib/ai/compat)");
-});
 
 /**
  * The harness pins the temp database and the keyless env before anything that reads them loads

@@ -242,15 +242,17 @@ disk, multi-key parsing/order/deduplication, masked-placeholder handling, env fa
 
 ## 9. Deliberately not done yet
 
-- **`@/lib/ai/generate.ts` still uses its own provider loop.** It resolves the same keys and
-  endpoints but calls providers directly instead of `aiRuntime.chat()`. The migration is
-  planned phase by phase in `docs/generate-migration.md` (inventory, parity matrix, gaps,
-  and the decision that runtime provider identity is `providerId`). Prerequisites already in
-  place: the key pool rotates several keys with cooldowns (P1, this doc §5.1),
-  `preferProviderId` reproduces the legacy "prefer, still fail over" semantics,
+- ~~**`@/lib/ai/generate.ts` still uses its own provider loop.**~~ **Done - P4 deleted it.** The
+  legacy text facade, its `src/lib/ai/compat.ts` shim and the `src/lib/ai/index.ts` barrel are gone;
+  every consumer now calls `aiRuntime.chat()` / `chatStructured()` / `generateImage()` and imports
+  schemas from `src/lib/ai/schemas.ts`. The migration is recorded phase by phase in
+  `docs/generate-migration.md` and `docs/generate-migration-p3.md` (inventory, parity matrix, gaps,
+  the decision that runtime provider identity is `providerId`, and the P4 deletion with its gates).
+  The pieces it relied on are all still here: the key pool rotates several keys with cooldowns (P1,
+  this doc §5.1), `preferProviderId` reproduces the legacy "prefer, still fail over" semantics,
   `chatStructured()` owns the JSON-schema retry loop, and `importLegacyAiSettings()` brings
-  `LocalAgentSettings` / `*_MODEL` into the registry once so a configured model stays the
-  one that answers.
+  `LocalAgentSettings` / `*_MODEL` into the registry once so a configured model stays the one that
+  answers.
 - Streaming (`streamChat`) — no consumer yet, so no SSE plumbing was added.
 - **Cost routing / `ai_model_pricing`**: no writer and no consumer, so the table was not
   created. Add it together with the price sync that fills it.

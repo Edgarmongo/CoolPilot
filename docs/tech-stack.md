@@ -104,11 +104,11 @@
 
 | 技术 | 版本 | 用途与证据 |
 | --- | --- | --- |
-| **直连 REST（自研调用层）** | 无 SDK | `src/lib/ai/providers.ts`：`callGemini()`（Gemini native `generateContent`）+ `callOpenAICompatible()`（`/chat/completions`）+ `callProvider()` 分派；`generate.ts` 提供 `generateText` / `generateStructured` |
+| **直连 REST（自研调用层）** | 无 SDK | `src/features/ai-runtime/adapters.ts`：按 endpoint 协议分派 —— Gemini native `generateContent` 与 OpenAI 兼容 `/chat/completions`；唯一出口是 `src/features/ai-runtime/runtime.ts` 的 `aiRuntime.chat()` / `chatStructured()` / `generateImage()`（P4 已删除 `src/lib/ai/providers.ts`、`generate.ts` 与 `compat.ts`） |
 | **LangGraph** | `@langchain/langgraph ^1.3.2`（8 处） | `src/lib/agent/langgraph-engine.ts` + `/api/agent/chat` + `/api/agent/runs/[id]/resume`：agent 的图形化编排引擎 |
 | 自研 Agent 层 | — | `src/lib/agent/*`（19 个文件）：`tool-registry.ts`、`local-tools.ts`、`system-prompt.ts`、`chat-context.ts`、`schedule-intent.ts`、`playwright-session.ts`、`image-generation.ts`、`contracts.ts` |
-| **结构化输出** | Zod + 提示词约束 | `generateStructured({ prompt, schema })`（11 处调用），schema 在 `src/lib/ai/schemas.ts`；解析逻辑 `generate.ts:98 parseStructured` |
-| 图片生成 | 直连 fetch（自研） | `src/lib/agent/image-generation.ts`：Gemini `inlineData` 解析与 OpenAI `images/generations` 两条分支（**这就是 `docs/model-layer-spec.md` §8 要收编的路径**） |
+| **结构化输出** | Zod + 提示词约束 | `aiRuntime.chatStructured({ messages, systemPrompt, schema })`（10 处调用），schema 在 `src/lib/ai/schemas.ts`；JSON 指令、解析与单次纠错重试在 `src/features/ai-runtime/runtime.ts`（`parseStructured()` / `chatStructured()`） |
+| 图片生成 | 直连 fetch（自研） | `src/lib/agent/image-generation.ts` 现在只做 artifacts 落盘 / 文件命名 / 空图守卫；Gemini `inlineData` 解析与 OpenAI `images/generations` 两条分支在 `src/features/ai-runtime/adapters.ts`（`aiRuntime.generateImage()`） |
 | 模型目录 | 快照 + 可选同步 | `src/features/ai-settings/model-gateway-snapshot.ts`（420 条模型 / 22 个厂商组）+ `model-gateway-sync.ts`（用户 cookie 手动同步）+ `model-gateway-catalog.ts`（分类器：7 个能力） |
 | 供应商元数据 | 自研注册表 | `provider-registry.ts`（4 个可调用 provider）+ `mainstream-model-catalog.ts`（14 家厂商：docsUrl / apiKeyUrl / OpenAI 兼容入口 / 本地可达 provider） |
 

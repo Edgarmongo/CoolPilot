@@ -74,10 +74,10 @@ async function main() {
     `legacy defs   ${legacy.defaults.map((entry) => `${entry.capability}=${entry.modelId}(${entry.action})`).join(", ") || "none"}`,
   );
 
-  // P2: the legacy entry points (`lib/ai/generate`, `lib/agent/image-generation`) are facades
-  // over the runtime now. First the routes they imply - text passes the configured text
-  // provider as a *preference*, image pins the configured image provider - then the real
-  // facade calls against a stubbed transport, so this costs no tokens and needs no network.
+  // The legacy entry point `lib/agent/image-generation` is a facade over the runtime now: first
+  // the routes the legacy settings imply - text passes the configured text provider as a
+  // *preference*, image pins the configured image provider - then a real facade call against a
+  // stubbed transport, so this costs no tokens and needs no network.
   const settings = await import("../src/db/repositories/settings");
   const localSettings = await settings.getLocalAgentSettings();
   const { requirementForIntent } = await import("../src/features/ai-runtime/contracts");
@@ -105,28 +105,16 @@ async function main() {
     );
   }
 
-  const facade = await import("../src/lib/ai/generate");
   const imageFacade = await import("../src/lib/agent/image-generation");
-  const { z } = await import("zod");
   const realFetch = globalThis.fetch;
   const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
-    const body = typeof init?.body === "string" ? init.body : "";
-    // A schema request asks for JSON (`json_object` / `responseMimeType`); answer in kind so the
-    // structured facade can parse on the first attempt - exactly what a real provider would do.
-    const wantsJson = /json_object|application\/json/.test(body);
+    // Only the image endpoints are driven below: OpenAI-compatible installs post to
+    // `/images/generations`, a gemini-pinned one to `:generateContent`.
     const payload = url.includes("/images/generations")
       ? { data: [{ b64_json: pngBase64 }] }
-      : url.includes(":generateContent")
-        ? {
-            candidates: [{ content: { parts: [{ text: wantsJson ? '{"reply":"smoke"}' : "smoke reply" }] } }],
-            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
-          }
-        : {
-            choices: [{ message: { content: wantsJson ? '{"reply":"smoke"}' : "smoke reply" } }],
-            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-          };
+      : { candidates: [{ content: { parts: [{ text: "smoke reply" }] } }] };
     return {
       ok: true,
       status: 200,
@@ -135,25 +123,6 @@ async function main() {
       arrayBuffer: async () => new ArrayBuffer(0),
     } as unknown as Response;
   }) as typeof fetch;
-  try {
-    const text = await facade.generateText({ prompt: "ping" });
-    console.log(
-      `facade text   ${text.provider}/${text.model} key=${text.keyLabel || "-"} usage=${JSON.stringify(text.usage ?? {})} reply="${text.text}"`,
-    );
-  } catch (error) {
-    console.log(`facade text   unavailable: ${(error as Error).message}`);
-  }
-  try {
-    const structured = await facade.generateStructured({
-      prompt: "ping",
-      schema: z.object({ reply: z.string() }),
-    });
-    console.log(
-      `facade struct ${structured.provider}/${structured.model} key=${structured.keyLabel || "-"} usage=${JSON.stringify(structured.usage ?? {})} data=${JSON.stringify(structured.data)}`,
-    );
-  } catch (error) {
-    console.log(`facade struct unavailable: ${(error as Error).message}`);
-  }
   try {
     const image = await imageFacade.generateImageFile({ prompt: "smoke: one pixel" });
     const { rm } = await import("node:fs/promises");

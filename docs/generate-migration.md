@@ -191,6 +191,13 @@ later test. Tests must stub the transport; the key pool is stateful by design.
 | Image facade | `generateImageFile` calls `aiRuntime.generateImage({ prompt, providerId, size })` and keeps only what is not model-layer work: the artifacts directory, file naming, mime → extension, and the `MODEL_UPSTREAM_NO_CONTENT` guard for an empty `data[]`. | The image provider is a **pin**, unlike text: the legacy code never fell over from `settings.imageProvider` to the other provider, and `requirementForIntent("image-generation", { providerId })` encodes exactly that. |
 | Deleted | `src/lib/ai/providers.ts` — `askGemini`, `askOpenAICompatible`, `resolveFirstAvailableModel` and the provider loop are gone with it. `aiProviderOrder` / `orderedProviders` were **not** touched: they live in `features/ai-settings/provider-registry.ts` and are still used by the model-config UI, the legacy import (G2) and the new compat shims. | `TokenUsage` / `ProviderResult` are still exported (from `generate.ts`), so `index.ts` changed two lines and no call site changed at all. |
 
+> **P4 note (added after the fact).** Everything this section calls a "facade" or a "shim" is gone.
+> P4 deleted `src/lib/ai/compat.ts` (117 lines), `src/lib/ai/generate.ts` (102 lines) and the
+> `src/lib/ai/index.ts` barrel, so the 19 call sites below now call `aiRuntime` directly (or import
+> `@/lib/ai/schemas`), and `MissingAIKeyError` no longer exists. The numbers in this section are the
+> P2 record, left as measured; the current ones are in the P4 section of
+> `docs/generate-migration-p3.md`.
+
 **Call-site audit (19 sites, 0 edits).** A `grep` for `@/lib/ai`, `@/lib/ai/generate` and
 `@/lib/agent/image-generation` resolves to exactly these symbols, every one of which the new
 facade still exports:

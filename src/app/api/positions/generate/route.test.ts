@@ -16,23 +16,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * The chain under test is the real one - route handler, runtime, registry, router, key pool, provider
  * adapter - and only the *transport* is stubbed.
  *
- * The two text facades and the compatibility shim are mocked with throwing factories, because this is the
- * file that used to import `generateStructured` from `@/lib/ai/generate`: one such import anywhere in this
- * route's graph fails the whole file instead of a single case quietly keeping the old behaviour alive. The
- * shim mock is safe here for the same reason it is safe in A3-2.3/A3-2.4 and was not in A3-2.1/A3-2.2 -
- * `lib/article-images.ts`, which is how `@/lib/ai/compat` is reached in production (through
- * `lib/agent/image-generation.ts`), is imported by those two routes and not by this one, whose imports are
- * `@/db/repository`, `@/lib/api`, `@/lib/positions`, `@/lib/usage`, `@/lib/validation` and the runtime.
+ * P4 deleted the three legacy modules this file used to mock with a throwing factory (`@/lib/ai`,
+ * `@/lib/ai/generate`, `@/lib/ai/compat`). The guard is structural now: reviving one of them fails
+ * `tsc` and module resolution instead of a single test file (`docs/generate-migration-p3.md`, P4).
  */
-vi.mock("@/lib/ai", () => {
-  throw new Error("api/positions/generate must not import the legacy facade (@/lib/ai)");
-});
-vi.mock("@/lib/ai/generate", () => {
-  throw new Error("api/positions/generate must not import the legacy facade (@/lib/ai/generate)");
-});
-vi.mock("@/lib/ai/compat", () => {
-  throw new Error("api/positions/generate must not import the compat shim (@/lib/ai/compat)");
-});
 
 /**
  * The harness pins the temp database and the keyless env before any of this loads

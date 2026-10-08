@@ -9,19 +9,10 @@ import { AppError } from "@/lib/app-errors";
  * cases pin is D-P3-3 end to end - the runtime decides the code *and* the HTTP status, and the route
  * passes both through without a local error taxonomy of its own.
  *
- * The legacy facade is not an option on this path any more. If the route - or anything it imports -
- * still asked for `generateStructured` / `generateText` / `MissingAIKeyError`, the factories below
- * throw and this whole file fails, rather than one case quietly keeping the old behaviour alive.
+ * P4 deleted the three legacy modules this file used to mock with a throwing factory (`@/lib/ai`,
+ * `@/lib/ai/generate`, `@/lib/ai/compat`). The guard is structural now: reviving one of them fails
+ * `tsc` and module resolution instead of a single test file (`docs/generate-migration-p3.md`, P4).
  */
-vi.mock("@/lib/ai", () => {
-  throw new Error("api/metrics/insights must not import the legacy facade (@/lib/ai)");
-});
-vi.mock("@/lib/ai/generate", () => {
-  throw new Error("api/metrics/insights must not import the legacy facade (@/lib/ai/generate)");
-});
-vi.mock("@/lib/ai/compat", () => {
-  throw new Error("api/metrics/insights must not import the compat shim (@/lib/ai/compat)");
-});
 
 /**
  * The harness pins the temp database and the keyless env before any of this loads

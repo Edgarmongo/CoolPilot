@@ -1374,3 +1374,72 @@ D1 and D2 are not the same kind of problem, and they were decided separately:
 * Importer counters, unchanged by this batch: `@/lib/ai/compat` **0**, `from "./compat"` ->
   `lib/ai/generate.ts` only, `@/lib/ai/generate` **0**, the barrel `@/lib/ai` **0**. P4 is still the batch that
   deletes them.
+
+---
+
+## P4 - the legacy text facade and its shim are deleted
+
+P4 adds no code. It removes what every P3 batch left standing, and the removal is what closes the
+migration. Each step was gated by the command named next to it; a failing gate stopped the batch.
+
+| Step | Change | Gate (actual result on this tree) |
+| --- | --- | --- |
+| 1 | `src/lib/ai/index.ts` deleted - the barrel, 10 lines, **0** code importers | `vitest run` = **70 files / 446 passed** plus one failure: `runtime.test.ts`'s 5s timeout inside `ensureModelRuntimeSeeded()`. That file holds no `lib/ai` reference and passes when run alone, so it is the known flaky seeding case, not a resolution error - and no `vi.mock("@/lib/ai")` factory in any of the nine files reported a missing module. Vitest 4 registers such a factory and never matches it, so a factory on a deleted module is silently inert: dead guard, not guard |
+| 2 | `src/lib/ai/generate.test.ts` cut from 7 cases to the 2 image ones; the `facade` import and the `./schemas` import went with the 5 text cases | **70 files / 442 tests** (447 - 5, as predicted) |
+| 3 | `src/lib/ai/generate.ts` deleted (102 lines) | `tsc --noEmit` **failed with exactly one error**: `scripts/ai-runtime-smoke.ts(108,31): error TS2307: Cannot find module '../src/lib/ai/generate'`. That lone error is the machine proof of §1's claim - one production importer, the dev smoke script, and nothing else |
+| 4 | `scripts/ai-runtime-smoke.ts` made image-only: the `../src/lib/ai/generate` import, the `generateText` / `generateStructured` blocks and the `zod` import they used are gone, and the stubbed transport answers only the endpoints the image facade can reach (`/images/generations` for an OpenAI-compatible install, `:generateContent` for a gemini-pinned one) | `tsc --noEmit` and `eslint .` exit 0 again, and the script runs end to end with every key variable neutralised (the `,` sentinel of `src/test/app-env.ts`, so the seed stays off the network): both `route(legacy ...)` lines print, `facade image  unavailable: No model is configured for this request` is the runtime's own answer for a keyless install, and `key rotation  qwen: tried=2 signed=yes` shows the later sections still work |
+| 5 | `src/lib/ai/compat.ts` deleted (117 lines): `MissingAIKeyError`, `withLegacyCompatibility()`, `preferredTextProvider()`, `preferredImageProvider()`, `legacyProviderOrder`, `credentialFailureCodes`, `isCredentialFailure()`, `isUnroutable()`, `hasAnyKey()`, `LegacyProvider` and the shim's discovery call all leave with it | `tsc --noEmit` exit **0** - a 117-line module disappears without a single type error, which is the same claim as step 3 from the other direction |
+| 6 | The **27** throwing `vi.mock` factories on `@/lib/ai`, `@/lib/ai/generate` and `@/lib/ai/compat` (3 each, in 9 test files) deleted, together with the docblock paragraph that explained them | `vitest run` = **70 files / 442 tests**, the same numbers as before the deletion; `tsc --noEmit` / `eslint .` exit 0 |
+
+### The guard moved down a level instead of disappearing
+
+This document called those factories "the cut's own proof". P4 deletes them and replaces the proof
+with something stronger, because a mock can only fire when *something resolves the path*:
+
+```
+P3 guard                                  P4 guard
+a route importing the facade              the module does not exist
+  -> the factory throws at import           -> the specifier cannot be resolved
+  -> one test file goes red                 -> tsc fails, the build fails,
+                                               for every importer, test or not
+```
+
+Each of the nine files keeps the reason in one sentence: the guard is structural now.
+
+### Still deliberately open after P4
+
+* **D2-b** - `lib/scraper.ts` propagating `AppError` instead of `AI rewrite failed: ...`, plus the
+  worker / runner `errorMessage` path. Frozen in P3-C, untouched here.
+* **The client half of D-P3-3** - `src/components/creation/images/page.tsx` still branches on `err.code`.
+* **`discoverProviderCatalogs()`** stays: it is defined in `src/features/ai-runtime/sync.ts`,
+  re-exported by the runtime barrel and called at seed time from
+  `src/features/ai-runtime/registry.ts` (D-P3-1). Only the shim's *caller* was deleted.
+* **`LocalAIProvider`** stays in `src/lib/types.ts` as the legacy UI identity (D4).
+* **`src/lib/ai/schemas.ts`** stays - which is why P4 deleted the barrel and not the directory. It has
+  seven production consumers, every one importing it directly: `lib/scraper.ts`,
+  `lib/agent/chat-thread-title.ts`, `lib/agent/langgraph-engine.ts`, `lib/agent/local-tools.ts`,
+  `api/ai-writing/generate`, `api/content/generate` and `api/metrics/insights`.
+* **Comment sweep** - `registry.ts`, `lib/agent/image-generation.ts`, `lib/scraper.ts`,
+  `api/content/mindmap/route.ts`, `api/metrics/insights/route.ts`, `src/test/route-harness.ts` and
+  `features/ai-runtime/cold-start.test.ts` mention the facade in prose. Each of those is a true
+  statement about the past, and rewriting them here would mix a documentation pass into a deletion
+  commit, so P4 leaves them to a separate batch.
+
+### Verification on this tree (the P4 baseline)
+
+```
+node_modules\.bin\tsc.cmd --noEmit      -> exit 0
+node_modules\.bin\eslint.cmd .          -> exit 0 (0 errors, the same one pre-existing
+                                           react-hooks/exhaustive-deps warning in
+                                           src/components/agent-chat/chat-conversation.tsx)
+node_modules\.bin\vitest.cmd run        -> 70 files / 442 tests passed
+tsx scripts/ai-runtime-smoke.ts         -> all sections print; the facade block is image-only
+```
+
+Importer counters, all zero: `@/lib/ai` **0**, `@/lib/ai/generate` **0**, `@/lib/ai/compat` **0**,
+`from "./compat"` **0** (the file is gone), `generateText` **0**, `generateStructured` **0** in
+production code, `MissingAIKeyError` **0**, `preferredImageProvider` **0**. Two searches still match
+names that are *not* the deleted ones, and both are live code: `registry.ts`'s `legacyProviderNames` /
+`seedLegacyProviders()` (the runtime's own provider display-name seed) and `lib/scraper.ts`'s local
+`isCredentialFailure()` helper, defined in that file and unrelated to the shim's export of the same
+name.

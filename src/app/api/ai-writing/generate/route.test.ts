@@ -9,22 +9,10 @@ import type { PositionRecord, ProductRecord } from "@/lib/types";
  * adapter - and only the *transport* is stubbed. Nothing here asserts that a mock was called: the
  * runtime is asked for real, and the cases pin what this route answers.
  *
- * The two text facades are mocked with throwing factories, because this is the file that used to import
- * `generateStructured` from `@/lib/ai/generate`: if the route - or anything it imports - still reached
- * for a facade, the whole file fails instead of one case quietly keeping the old behaviour alive.
- * `@/lib/ai/compat` is mocked the same way since P3-B-3: this route reaches
- * `lib/agent/image-generation.ts` through `lib/article-images.ts`, and that module was the shim's only
- * production importer until the batch cut the edge - so the factory is now the proof that it is gone.
+ * P4 deleted the three legacy modules this file used to mock with a throwing factory (`@/lib/ai`,
+ * `@/lib/ai/generate`, `@/lib/ai/compat`). The guard is structural now: reviving one of them fails
+ * `tsc` and module resolution instead of a single test file (`docs/generate-migration-p3.md`, P4).
  */
-vi.mock("@/lib/ai", () => {
-  throw new Error("api/ai-writing/generate must not import the legacy facade (@/lib/ai)");
-});
-vi.mock("@/lib/ai/generate", () => {
-  throw new Error("api/ai-writing/generate must not import the legacy facade (@/lib/ai/generate)");
-});
-vi.mock("@/lib/ai/compat", () => {
-  throw new Error("api/ai-writing/generate must not reach the compat shim (@/lib/ai/compat)");
-});
 
 /**
  * The harness pins the temp database and the keyless env before anything that reads them loads
