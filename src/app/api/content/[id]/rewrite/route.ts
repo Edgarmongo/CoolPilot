@@ -1,5 +1,5 @@
 import { createUsageRecord, getContentItem } from "@/db/repository";
-import { generateText } from "@/lib/ai/generate";
+import { aiRuntime } from "@/features/ai-runtime";
 import { industryDomainPrompt } from "@/lib/ai-writing";
 import { htmlToPlainText, plainTextToHtml } from "@/lib/article-themes";
 import { fail, ok, parseJson } from "@/lib/api";
@@ -28,6 +28,15 @@ const strengthInstruction: Record<ArticleRewriteStrength, string> = {
 /**
  * Rewrites an existing article with AI. Shared by the article editor's “AI 改写”
  * dialog so polish / platform / risk / tone passes run through one pipeline.
+ *
+ * The model call goes straight to `aiRuntime` (batch P3-A3 of `docs/generate-migration-p3.md`): provider
+ * order, model choice, key rotation, failover and cold-start catalog discovery are the runtime's business,
+ * while reading the article by `[id]`, the source assembly and its cap, the rewrite instructions and
+ * everything after the call (the trim, the guard, the usage row, the envelope) stay this route's. The answer
+ * is read through the runtime's own names (`providerId`, `model`, `usage`), and a failure keeps the flat 502
+ * this route has always answered with: this batch moves the call boundary and deliberately leaves D-P3-3's
+ * error vocabulary to the routes that adopted it, so the `[id]` guard, the payload guard and the
+ * empty-source guard are still the only answers this route words itself.
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -55,29 +64,36 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   ].filter(Boolean);
 
   try {
-    const result = await generateText({
+    const response = await aiRuntime.chat({
+      messages: [{ role: "user", content: `${instructions.join("\n")}\n\n原文：\n${source}` }],
       systemPrompt: "你是一位资深中文编辑，擅长在不改变原意的前提下改写文章。",
-      prompt: `${instructions.join("\n")}\n\n原文：\n${source}`,
     });
-    const bodyText = result.text.trim();
+    const bodyText = response.text.trim();
     if (!bodyText) return fail("EMPTY_RESULT", 502);
 
     await createUsageRecord({
-      provider: result.provider,
-      model: result.model,
+      provider: response.providerId,
+      model: response.model,
       kind: "article",
       status: "success",
-      inputTokens: result.usage?.inputTokens,
-      outputTokens: result.usage?.outputTokens,
-      totalTokens: result.usage?.totalTokens,
+      inputTokens: response.usage?.inputTokens,
+      outputTokens: response.usage?.outputTokens,
+      totalTokens: response.usage?.totalTokens,
       wordCount: countTextCharacters(bodyText),
       contentItemId: id,
     });
 
     // The editor shows a diff first and only persists the body once the user
     // confirms, so nothing is written to the article here.
-    return ok({ text: bodyText, html: plainTextToHtml(bodyText), provider: result.provider, model: result.model });
+    return ok({
+      text: bodyText,
+      html: plainTextToHtml(bodyText),
+      provider: response.providerId,
+      model: response.model,
+    });
   } catch (error) {
+    // D-P3-3 is not applied here yet: the runtime's code and status are flattened into the flat 502 this
+    // route has always answered with, exactly as the legacy facade's failures were.
     return fail(error instanceof Error ? error.message : "Rewrite failed", 502);
   }
 }

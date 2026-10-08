@@ -848,3 +848,120 @@ migration).
   it still has a production caller until A3-3.2 lands.
 
 
+### P3-A3-3.2 - `api/content/[id]/rewrite`
+
+The second and last `generateText` route (section 1: `api/content/[id]/rewrite:58`), and the batch that closes
+P3-A3's text surface. It is the article editor's “AI 改写” dialog on the server side: the dialog posts the
+article id plus a mode (`polish` / `platform` / `risk` / `tone`) and a handful of optional instructions, reads
+`text` / `html` / `provider` / `model` back, shows the user a diff and persists the body itself. So the route owns
+real business - reading the article, assembling the source and its cap, the instruction table, the trim, the usage
+row - while the model call is the runtime's. It is also the only text route of this batch whose call shape changes
+*shape*: `generateText` took a flat `prompt`, `aiRuntime.chat()` takes turns.
+
+| Field | Before | After |
+| --- | --- | --- |
+| Call | `generateText({ prompt, systemPrompt })` | `aiRuntime.chat({ messages: [{ role: "user", content: prompt }], systemPrompt })` |
+| Answer | `result.text` -> trimmed -> `{ text, html }` | `response.text` -> the same trim -> the same envelope | 
+| Provider / model | `result.provider` / `result.model` | `response.providerId` / `response.model` - same values, the runtime's own names |
+| Usage | `result.usage?.inputTokens` / `outputTokens` / `totalTokens` | `response.usage?.*` - unchanged, the runtime's single report |
+| Token spend | the shim's merged total for the whole call | the runtime's report for the one attempt `chat()` makes (no schema, so no corrective retry) |
+| Preference | no `provider` argument | no `preferProviderId`: the runtime's configured text model applies (this route never asked for a vendor) |
+| Failure | `fail(error.message, 502)` | `fail(error.message, 502)` - **unchanged on purpose**, see below |
+| Legacy import | `generateText` from `@/lib/ai/generate` | none: `@/db/repository`, the runtime, `@/lib/ai-writing`, `@/lib/article-themes`, `@/lib/api`, `@/lib/usage`, `@/lib/validation` |
+
+Kept, because this batch moves a boundary rather than a business: the `[id]` read and its 404, the
+`contentRewriteSchema` guard and its 400, the `htmlToPlainText(existing.body).slice(0, 8000)` source (cap included)
+and the `EMPTY_CONTENT` 400 for an article with nothing in it, the mode/strength tables, `行业领域` / `风格特征` /
+`标题需自然包含以下关键词` / `补充要求` / `禁止出现以下词语` and the `filter(Boolean)` that drops the unset ones,
+the `你是一位资深中文编辑…` system turn, the trim, the `EMPTY_RESULT` guard, the usage row
+(`kind: "article"`, `wordCount: countTextCharacters(bodyText)` - the *answer*, not the source), the
+`{ text, html, provider, model }` envelope, and the fact that **nothing is written to the article**: the editor
+PATCHes the body after the user confirms the diff.
+
+**This route does not adopt D-P3-3.** A3-2.1..2.3 and A3-3.1 pass the runtime's code *and* status on;
+`knowledge-base/ai-parse` and `positions/generate` keep a deterministic fallback. `rewrite` is a third, simpler
+choice: the call moves, the error contract does not.
+
+| Runtime outcome | Runtime status | This route answers |
+| --- | --- | --- |
+| nothing configured (`MODEL_NOT_CONFIGURED`) | 503 | **502** `UNKNOWN_ERROR`, `No model is configured for this request` |
+| credential missing (`MODEL_CREDENTIAL_MISSING`) | 400 | **502** `UNKNOWN_ERROR`, the routing reason |
+| every key cooling / rejected (`MODEL_CREDENTIAL_UNAVAILABLE`) | 429 / 400 | **502** `UNKNOWN_ERROR`, `No usable credential key for …` |
+| provider 5xx (`MODEL_UPSTREAM_FAILED`) | 502 | **502** `UNKNOWN_ERROR`, `… HTTP 503: {…}` |
+| blank completion (`MODEL_UPSTREAM_NO_CONTENT`) | 502 | **502** `UNKNOWN_ERROR`, `… returned no text` |
+| answer with no text at all (route-level `EMPTY_RESULT`) | - | **502** `UNKNOWN_ERROR`, `EMPTY_RESULT` |
+
+Two consequences are worth stating plainly, because "keep the old behaviour" is only half true here:
+
+1. **The message changes for the two families the shim used to mask.** The old `Missing gemini API key` /
+   `Missing qwen API key` text came out of `lib/ai/compat.ts`, whose `MissingAIKeyError` no longer sits on this
+   path at all. Status (502) and code (`UNKNOWN_ERROR`) are preserved; the sentence is now the runtime's routing
+   explanation, which is strictly more useful. The cases pin both halves, so a future D-P3-3 commit for this route
+   is a conscious change rather than a surprise.
+2. **`fail()` drops `details`.** The upstream status, the provider id and the retry-after hint the runtime attaches
+   are therefore not in the body. That is the price of the flat 502, and it is why the route keeps *its own* two
+   guards (404 / 400) worded as before: those are the only answers it still words itself.
+
+
+
+`EMPTY_RESULT` stays, and it is not dead code. There are two empty-handling layers and they cover different
+shapes: the adapter refuses a completion with neither text nor tool calls (`MODEL_UPSTREAM_NO_CONTENT`, raised
+below the route), while a **tool-call-only** answer passes the adapter untouched and arrives as `text: ""`. That
+is the one path on which the route's own guard fires, and it must: an empty rewrite must never reach the dialog as
+a “diff”. Nothing is recorded on that path either - the guard sits before `createUsageRecord`, exactly where it
+was before the migration.
+
+The cold-start question this route raises is answered outside it. Pasting a fresh key into 系统 / 模型管理 still
+self-heals the very next request, because `ensureModelRuntimeSeeded()` runs on every routing attempt
+(`resolveRoute()` -> registry) and the catalog discovery it performs deliberately sits outside the seed marker -
+the property A0 built, and the reason no route needs a retry loop of its own. Nothing in this migration touches
+that path.
+
+The file (`src/app/api/content/[id]/rewrite/route.test.ts`) is the batch's largest test file - 1 file / 12 tests,
+none deleted - because this is the only A3-3 route with fixtures and a usage row to protect:
+
+1. The 200: the reply is trimmed into `text`, `html` is `plainTextToHtml(text)`, `provider` / `model` come from the
+   runtime, and the wire carries `model: qwen3-max`, roles `[system, user]`, the route's literal system turn and a
+   user turn *equal* to the prompt rebuilt from the payload (mode, strength, four optional instructions, cap,
+   source) - plus the two things that make this the plain channel: no `response_format`, no `JSON schema:`. The
+   adapter's `temperature: 0.7` default is asserted, which is how “this route passes no sampling overrides” is
+   visible on the wire. One usage row, filed under the article, and the article byte-identical before/after.
+2. `[id]` steered the read: the prompt carries this article's flattened body, no `<p>` / `<h1>` survives, the
+   neighbouring article is absent, and the stored *title* is absent too - the dialog owns the title.
+3. The cap: a body whose flattened form is longer than 8000 characters produces exactly the `slice(0, 8000)` as the
+   tail of the prompt - the dropped remainder (“第3段结束。”) is asserted to be gone, while what fits is intact.
+4. `wordCount` counts the *answer*: an 8000-character source whose reply came back short records the reply's count,
+   asserted not to equal the source's.
+5. The 400s this route still words itself: no `mode`, an unknown `mode`, a body that is not JSON, and an article
+   with an empty body (`EMPTY_CONTENT`, whose non-`AppErrorCode` code is `UNKNOWN_ERROR` - the long-standing wart,
+   pinned so a cleanup stays deliberate). The transport is empty, so nobody was asked.
+6. 404 for an unknown article, before the payload is parsed, with no provider call and no usage row.
+7. Credential revoked after the model was configured: **502** `UNKNOWN_ERROR` (`MODEL_CREDENTIAL_MISSING` and its
+   400 are *not* passed on), the message no longer contains `Missing qwen API key`, `error` mirrors `message`, no
+   chat call, no usage row, article untouched.
+8. Every stored key out of rotation: the pool's `MODEL_CREDENTIAL_UNAVAILABLE` (a 429 in the runtime) still leaves
+   as **502**, with the pool's own words and no `sk-` fragment in the body.
+9. Nothing configured: **502**, `No model is configured for this request`, and neither `Missing` nor `API key`
+   anywhere in the body.
+10. Provider 5xx: **502** with `HTTP 503` in the message after exactly one attempt, and `details` asserted to be
+    `undefined` - the counterpart of case 7's D-P3-3 trade on the routes that do pass the runtime on.
+11. Blank completion: **502**, `returned no text`, one attempt, no usage row, article untouched.
+12. Tool-call-only answer: the route's own **502** `EMPTY_RESULT`, one attempt (no corrective turn - `chat()` has no
+    schema to retry against), no usage row, article untouched.
+
+The file mocks `@/lib/ai`, `@/lib/ai/generate` and `@/lib/ai/compat` with throwing factories, so a surviving
+`import { generateText } from "@/lib/ai"` anywhere under the handler fails the whole file instead of a packaged
+build. The shim mock is safe for the same reason as A3-2.3..3.1: the only production importer of
+`@/lib/ai/compat` is `lib/agent/image-generation.ts` (reached through `lib/article-images.ts`), and this route
+touches neither.
+
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .` exit 0,
+  `node_modules\.bin\vitest.cmd run` = **67 files / 403 tests, all pass** - A3-3.1's 66 / 391 plus exactly this
+  batch's 1 file / 12 tests. `git grep "generateText" -- src` finds **no production call site** any more: the
+  facade's `generateText` surface went **2 -> 1 (A3-3.1) -> 0 (A3-3.2)**, which closes P3-A3's text half.
+  `generateImageFile` is untouched and is batch B's - and its three call sites (`api/images`,
+  `lib/article-images`, `lib/agent/local-tools`) import the *domain service* `lib/agent/image-generation.ts`
+  rather than the facade. That module is now the compat shim's only production importer, so neither file is
+  deleted here (D-P3-4). The facade itself has **no production importer left at all** after this commit: its
+  remaining references are its own definition, the `lib/ai/index.ts` barrel and `lib/ai/generate.test.ts`, and
+  what keeps it in the tree is the D-P3-4 decision plus that test - not a caller.
