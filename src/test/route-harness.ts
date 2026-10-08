@@ -57,6 +57,10 @@ const keyEnvVars = [...new Set(aiProviderOrder.flatMap((provider) => credentials
 /**
  * Blank slate: no key in the process, no vault entry, no callable model, no capability default left
  * over from an earlier case (a default outranks the provider order a case may reason about).
+ *
+ * `image_generation` is cleared for the same reason as the two text capabilities, even though only
+ * the B-1 file asks for it today (`src/app/api/images/route.test.ts`): a leftover image default
+ * would outrank the provider order a case reasons about, exactly like a leftover `chat` default.
  */
 export async function resetRuntime() {
   for (const name of keyEnvVars) {
@@ -72,6 +76,7 @@ export async function resetRuntime() {
   }
   await runtime.setModelDefaultForCapability("chat", null);
   await runtime.setModelDefaultForCapability("structured_output", null);
+  await runtime.setModelDefaultForCapability("image_generation", null);
 }
 
 /** Makes one provider/model pair really callable: one credential, one enabled model. */
@@ -95,6 +100,18 @@ export async function prepareChatModel(providerId: string, modelId: string, secr
   const row = await prepareModel(providerId, modelId, secret);
   await runtime.setModelDefaultForCapability("chat", row?.id ?? "");
   await runtime.setModelDefaultForCapability("structured_output", row?.id ?? "");
+  return row;
+}
+
+/**
+ * The image counterpart of `prepareChatModel` (batch P3-B-1): one credential, one enabled
+ * `image_generation` model and the capability default - which is the layer `importLegacyAiSettings()`
+ * would have set from the legacy form, so a case can choose between "the configured image provider"
+ * and "the other one is callable too" without touching the registry by hand.
+ */
+export async function prepareImageModel(providerId: string, modelId: string, secret: string) {
+  const row = await prepareModel(providerId, modelId, secret);
+  await runtime.setModelDefaultForCapability("image_generation", row?.id ?? "");
   return row;
 }
 

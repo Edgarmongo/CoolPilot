@@ -965,3 +965,116 @@ touches neither.
   deleted here (D-P3-4). The facade itself has **no production importer left at all** after this commit: its
   remaining references are its own definition, the `lib/ai/index.ts` barrel and `lib/ai/generate.test.ts`, and
   what keeps it in the tree is the D-P3-4 decision plus that test - not a caller.
+
+
+### P3-B-1 - `api/images` (frozen, not migrated)
+
+`src/app/api/images/route.ts` had nothing to migrate. It has called `generateImageFile()` from
+`lib/agent/image-generation.ts` since P2, and that module *is* the domain service over
+`aiRuntime.generateImage()` (D-P3-2) - so the batch freezes the route's contract instead of moving it,
+and the route carries a comment saying exactly that:
+
+```
+API route                                  HTTP only: payload, envelope, file name -> URL
+  -> lib/agent/image-generation.ts         where it lands: artifacts dir, naming, extension
+       -> aiRuntime.generateImage()        how it is produced: provider pin, model, key rotation
+```
+
+The service underneath was already covered (`src/lib/ai/generate.test.ts`, G3); what had no guard at all
+was the route's own half - the 201 envelope, the bytes on disk, the provider that really answered, the
+flat 500 it words itself, and the library half (`GET`/`DELETE`) that never touches a provider. That is
+what the new file pins, case by case:
+
+| Fact | Where it comes from in production | Case that pins it |
+| --- | --- | --- |
+| The image provider is a **hard pin**, not a preference: `settings.imageProvider` (default `openai`) reaches the runtime as `providerId`. | `preferredImageProvider()` -> `generateImage({ providerId })` -> `candidateChain()`'s `slice(0, 1)`, so cross-provider failover is structurally impossible. | Gemini configured *and* callable while the settings still name OpenAI: no `:generateContent` call, no images call, `Missing openai API key`. |
+| **No caller chooses a model**; the router resolves it (the `image_generation` capability default first, then provider order, default endpoint, `model_type: image`, model id). | `resolveRoute()` + `importLegacyAiSettings()`'s image default. | The 201 case reports `provider` / `model` from the runtime, not from the request. |
+| `size` comes from `settings.openAIImageSize` (default `1024x1024`) and **never** from the request. | `imageGenerateSchema` is `{ prompt }`; the service reads the setting. | A request carrying `size: "4096x4096"` still puts `512x512` on the wire after the setting is changed. |
+| The gemini adapter has no field for that setting, and the service passes it on this path anyway. | `size` is handed to `generateImage()` for both providers; the gemini body is `contents` + `responseModalities` only. | The gemini case asserts the exact body and that `1024x1024` appears nowhere in it. |
+| `prompt` is trimmed by the schema and nothing else from the body reaches the provider. | `z.string().trim().min(1)`, non-strict object. | `"  …  "` plus `quality` / `n` in the body produce a three-key wire body. |
+| Every AI failure leaves as **one** shape: 500, `code: "UNKNOWN_ERROR"`, `error` mirroring `message`, `details` dropped. | `fail(error.message, 500)` - the runtime's status and code are not passed on. | Six cases: no credential at all, revoked key, 401, 503, empty `data`, empty base64. |
+| The service's own `MODEL_UPSTREAM_NO_CONTENT` guard is reachable, not dead code. | The adapter accepts a link answer whose download is 200 but empty (base64 `""`), so only the service can refuse it. | The message is the service's lowercase `openai returned no image data`, not the adapter's `OpenAI …`, and no file is written. |
+| `GET`/`DELETE` are pure filesystem operations. | `lib/image-library.ts` + `artifactImageUrl()`. | Listing filters by extension and sorts by name descending; a delete reduces names to basenames and keeps the whitelist. |
+
+The error mapping this batch freezes, in one table:
+
+
+| Failure below the route | Runtime status / code | This route answers |
+| --- | --- | --- |
+| keyless install, nothing routable | `MODEL_NOT_CONFIGURED` (503), then the shim's `MissingAIKeyError` | **500** `UNKNOWN_ERROR`, `Missing openai API key` |
+| model configured, credential revoked | `MODEL_CREDENTIAL_MISSING` (400), then `MissingAIKeyError` | **500** `UNKNOWN_ERROR`, `Missing openai API key` |
+| provider rejects the key | `MODEL_CREDENTIAL_INVALID` (502) | **500** `UNKNOWN_ERROR`, `Image generation HTTP 401: {…}` |
+| provider down | `MODEL_UPSTREAM_FAILED` (502) | **500** `UNKNOWN_ERROR`, `Image generation HTTP 503: {…}` |
+| answer without image data (adapter guard) | `MODEL_UPSTREAM_NO_CONTENT` (502) | **500** `UNKNOWN_ERROR`, `OpenAI returned no image data` |
+| answer whose download was empty (service guard) | `MODEL_UPSTREAM_NO_CONTENT` (502) | **500** `UNKNOWN_ERROR`, `openai returned no image data` |
+| body the schema rejects / not JSON | - | **400** `INVALID_PAYLOAD`, cause in `details` (the `AppError`'s code for a non-JSON body) |
+
+Two things the first test run produced that the write-up has to record, because the tree's behaviour won
+the argument in both cases:
+
+1. **A rejected key is remembered by fingerprint, for the life of the process.** The pool stores key health
+   in SQLite keyed by SHA-256, and `invalid` has no cooldown, while `resetRuntime()` clears the *vault*
+   (`clearCredential`) and not those rows - so a case that lets the provider answer 401 poisons that exact
+   key string for every later case in the same file (`prepareModel()` then fails before the route is even
+   reached). The 401 case therefore signs with `sk-stub-openai-rejected` of its own. Nothing in production
+   changed here; it is a test-isolation fact worth knowing before writing the next key-rotation case.
+2. **`deleted` also lists a name that was never there.** `deleteArtifactImageFiles()` calls
+   `fs.rm(…, { force: true })`, which does not report a missing file, so the name is echoed back. The case
+   pins the envelope as it is (`["gone.jpg", "missing.png"]`) rather than "fixing" a delete contract in a
+   batch about the AI boundary.
+
+
+What is deliberately *not* in this batch:
+
+* **D-P3-3 stays P3-C's.** The flat 500, the dropped `details` and the message change between "the compat
+  shim said it" and "the runtime said it" are all frozen as they are - this route is now the third error
+  shape of P3 (after A3-2.1..2.3/A3-3.1's pass-through and `rewrite`'s flat 502), and unifying them is one
+  conscious commit, not a side effect.
+* **`lib/agent/image-generation.ts` is untouched**, because it is already the target boundary; its
+  `image-generation.ts -> compat.ts` edge is what P3-B-3 cuts, and changing it here would merge B-1 with B-3.
+* `lib/article-images.ts` (B-2), `lib/agent/local-tools.ts` (B-3's second caller), `lib/ai/generate.ts`,
+  `lib/ai/compat.ts` and the runtime itself: untouched, so a revert of this commit takes the test file and
+  two additive helpers with it and nothing else.
+* No observed behaviour was repaired: the trim, the hard pin, the OpenAI-shaped `size` reaching a gemini
+  call that ignores it, the `force` delete envelope and the flat 500 are all documented as found.
+
+Counters after this commit: `generateImageFile` still has **3** call sites (`api/images` - frozen here -
+plus `lib/article-images` and `lib/agent/local-tools`), `lib/ai/compat.ts` still has exactly **1**
+production importer (`lib/agent/image-generation.ts`), and `lib/ai/generate.ts` still has **0**. P3-B is a
+three-commit batch precisely so that number only reaches 0 at B-3.
+
+The file (`src/app/api/images/route.test.ts`) is 1 file / 16 tests, and it mocks the two text facades with
+throwing factories while leaving `@/lib/ai/compat` alone - the third factory is B-3's edit. Its cases:
+
+1. The 201 contract: the `fileName` shape, `url` = `artifactImageUrl(fileName)`, `provider` / `model` from
+   the runtime, the decoded bytes on disk, the artifact directory holding exactly that one file, one signed
+   `POST /images/generations` with `{ model, prompt, size }`, and no chat call anywhere.
+2. The prompt is trimmed and the extra request fields are dropped - the wire body has three keys.
+3. `settings.openAIImageSize` beats a `size` in the request.
+4. The pin: gemini callable, settings naming openai -> 500, `Missing openai API key`, no gemini call.
+5. The gemini path: `:generateContent?key=…`, the exact gemini body, `.jpg` from the inline mime type, and
+   no size on the wire.
+6. The three 400s, with an empty transport behind them (nobody was asked).
+7. No credential at all -> the flat 500 and the shim's message.
+8. Credential revoked after configuration -> the same flat 500.
+9. Provider 401 -> 500, `HTTP 401`, one attempt, no `sk-` in the body.
+10. Provider 503 -> 500, `HTTP 503`, one attempt.
+11. Empty `data` -> 500, `returned no image data`, no file.
+12. Link answer with an empty download -> 500, the *service's* guard message, no file.
+13. Two identical requests -> two distinct files with their own bytes.
+14. `GET` lists images only, newest name first, with the library's URLs.
+15. `DELETE` removes the named image, skips a traversal attempt, a non-image and a missing name, and leaves
+    the file one directory up alone.
+16. The three delete 400s (empty array, blank name, over the 200-name cap).
+
+* Supporting changes: `src/test/route-harness.ts` gained `prepareImageModel()` (the image counterpart of
+  `prepareChatModel()`) and one line in `resetRuntime()` clearing the `image_generation` capability default
+  - a leftover default outranks the provider order a case reasons about, exactly like the two text
+  capabilities already cleared there. Both additive, and the eight existing route files that call
+  `resetRuntime()` cannot notice. `src/app/api/images/route.ts` gained a comment naming the three layers
+  and nothing else - no line of logic, so the suite above pins behaviour this commit provably leaves alone.
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .`
+  exit 0 (the one pre-existing `react-hooks/exhaustive-deps` warning in
+  `src/components/agent-chat/chat-conversation.tsx` is unchanged), `node_modules\.bin\vitest.cmd run` =
+  **68 files / 419 tests, all pass** - A3-3.2's 67 / 403 plus exactly this batch's 1 file / 16 tests.
+

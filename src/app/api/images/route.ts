@@ -16,6 +16,16 @@ export async function GET() {
   return ok({ images });
 }
 
+/**
+ * `POST` generates one image and files it as a library entry; `GET`/`DELETE` only read and prune the
+ * artifacts directory, and never talk to a provider (batch P3-B-1 of `docs/generate-migration-p3.md`).
+ *
+ * The boundary this handler keeps - and the reason batch B needed no migration here: the route owns HTTP
+ * (payload, status envelope, file name -> URL) and nothing else. `lib/agent/image-generation.ts` owns
+ * *where* the image lands (artifacts directory, naming, extension), and `aiRuntime.generateImage()` owns
+ * *how* it is produced (the provider pin, model resolution, key rotation, failover). No provider,
+ * endpoint, key or model name belongs in this file.
+ */
 export async function POST(request: Request) {
   const parsed = await parseJson(request, imageGenerateSchema);
   if (parsed.error) return fail("INVALID_PAYLOAD", 400, parsed.error);
