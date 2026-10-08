@@ -1,6 +1,6 @@
 import path from "node:path";
 import { generateImageFile } from "@/lib/agent/image-generation";
-import { fail, ok, parseJson } from "@/lib/api";
+import { fail, failFromError, ok, parseJson } from "@/lib/api";
 import { artifactImageUrl } from "@/lib/artifact-image-url";
 import { deleteArtifactImageFiles, listArtifactImageFiles } from "@/lib/image-library";
 import { imageDeleteSchema, imageGenerateSchema } from "@/lib/validation";
@@ -25,6 +25,12 @@ export async function GET() {
  * *where* the image lands (artifacts directory, naming, extension), and `aiRuntime.generateImage()` owns
  * *how* it is produced (the provider pin, model resolution, key rotation, failover). No provider,
  * endpoint, key or model name belongs in this file.
+ *
+ * P3-C (D1-b) converged the error shape B-1 had frozen: a failure now leaves with the runtime's own code
+ * *and* status instead of a flat 500 `UNKNOWN_ERROR`, so a client can tell "no credential is stored"
+ * (400) from "the provider is down" (502) from "this provider has no image model" (409) without matching
+ * on a sentence. The image path itself is unchanged: the pin, the model resolution, the settings the
+ * domain service reads and the file it writes are all exactly what B-1 pinned.
  */
 export async function POST(request: Request) {
   const parsed = await parseJson(request, imageGenerateSchema);
@@ -37,7 +43,11 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Image generation failed", 500);
+    // D-P3-3 applied here by P3-C: the runtime decides the code *and* the HTTP status (`MODEL_CREDENTIAL_*`
+    // 400/429, `MODEL_NOT_CONFIGURED` 503, `MODEL_CAPABILITY_UNAVAILABLE` 409, upstream/no-content 502), and
+    // this route passes both on. `UNKNOWN_ERROR`/500 stays for a failure that carries no runtime code -
+    // including this route's own `INVALID_PAYLOAD` guard, which returns before the call and never lands here.
+    return failFromError(error, "UNKNOWN_ERROR", 500);
   }
 }
 

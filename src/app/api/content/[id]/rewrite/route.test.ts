@@ -9,12 +9,15 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  * text became the source and how the cap cut it, what the instructions looked like on the wire, that the
  * answer was trimmed rather than passed through, and what was recorded about it.
  *
- * A3-2.1..2.5 handed D-P3-3 (the runtime's code *and* status reach HTTP) to the routes migrated there. This
- * one does not: `P3-A3-3.2` moves the call boundary and nothing else, so every failure below still expects
- * the flat 502 with the `UNKNOWN_ERROR` code the facade produced. What could *not* be kept is the message of
- * the two families `lib/ai/compat.ts` used to mask behind `MissingAIKeyError` (“Missing qwen API key”): the
- * runtime answers with its routing reason instead. These cases pin that too, so applying D-P3-3 here later
- * is a conscious change instead of a surprise.
+ * A3-2.1..2.5 handed D-P3-3 (the runtime's code *and* status reach HTTP) to the routes migrated there, and
+ * A3-3.2 left this one out on purpose: it moved the call boundary and kept the flat 502 with the
+ * `UNKNOWN_ERROR` code the facade produced. **P3-C applies D-P3-3 here**, so every failure below now arrives
+ * with the runtime's own code *and* status - credentials 400, a cooled-down pool 429, nothing configured 503,
+ * upstream 502 - and the flat 502 survives only for a failure that is not an `AppError` at all. What could
+ * *not* be kept, and was already gone before this batch, is the message of the two families
+ * `lib/ai/compat.ts` used to mask behind `MissingAIKeyError` (“Missing qwen API key”): the runtime answers
+ * with its routing reason instead. The route's own guards are untouched by all of this: `[id]` 404, payload
+ * 400, `EMPTY_CONTENT` 400 and the `EMPTY_RESULT` 502 it still words itself.
  *
  * The chain under test is the real one - route handler, runtime, registry, router, key pool, provider
  * adapter - and only the *transport* is stubbed. Nothing here asserts that a mock was called.
@@ -377,7 +380,7 @@ describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
     expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
   });
 
-  it("keeps the flat 502 when the model has no credential, and writes nothing", async () => {
+  it("answers the runtime's own 400 MODEL_CREDENTIAL_MISSING when the model has no credential", async () => {
     const calls = stubFetch([
       { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
     ]);
@@ -390,23 +393,26 @@ describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
     const response = await rewrite(fixture.target.id, rewritePayload());
     const payload = await response.json();
 
-    // The runtime names this `MODEL_CREDENTIAL_MISSING` and sets 400. This route does not pass either on
-    // (D-P3-3 is not applied here): the status stays the flat 502 it has always answered with, and the code
-    // stays whatever `fail()` makes of a plain message.
-    expect(response.status).toBe(502);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    // The runtime names this `MODEL_CREDENTIAL_MISSING` and sets 400; P3-C passes both on, where A3-3.2
+    // flattened them into the flat 502 (`UNKNOWN_ERROR`) the dialog used to read.
+    expect(response.status).toBe(400);
+    expect(payload.code).toBe("MODEL_CREDENTIAL_MISSING");
     // The one thing the migration could not preserve: the shim used to raise `MissingAIKeyError` here, whose
     // message ("Missing qwen API key") this route echoed. The runtime explains the routing instead.
     expect(payload.message).not.toContain("Missing qwen API key");
     expect(payload.message).toContain("credential");
     expect(payload.error).toBe(payload.message);
+    // ...and its diagnosis travels with it now: the routing reason the resolver recorded, which is what makes
+    // "fix the key, do not retry" readable by a client (D-P3-3).
+    expect(payload.details.reason).toBe("credential-missing");
+    expect(payload.details.requirement.capability).toBe("chat");
     // The pool refuses before a request exists, so nothing was sent and no key label could leak.
     expect(chatCalls(calls)).toEqual([]);
     expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
     expect(await getContentItem(fixture.target.id)).toEqual(before);
   });
 
-  it("keeps the flat 502 when every stored key is out of rotation", async () => {
+  it("answers the pool's own 429 MODEL_CREDENTIAL_UNAVAILABLE when every stored key is out of rotation", async () => {
     const calls = stubFetch([
       { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
     ]);
@@ -428,19 +434,22 @@ describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
     const response = await rewrite(fixture.target.id, rewritePayload());
     const payload = await response.json();
 
-    // A cooling pool would be a 429 for the client if this route passed the runtime's status on; it does not,
-    // so the client still sees the flat 502 - and the diagnosis does not leak into the body.
-    expect(response.status).toBe(502);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    // A cooling pool is a 429 for the client (D-P3-3 applied by P3-C): the pool's status and code reach HTTP,
+    // where A3-3.2 turned them into the flat 502 - and the diagnosis stays as safe as it was before, because
+    // the message carries the reference and the reasons, never a key.
+    expect(response.status).toBe(429);
+    expect(payload.code).toBe("MODEL_CREDENTIAL_UNAVAILABLE");
     expect(payload.message).toContain("No usable credential key for credential://qwen/default");
     expect(payload.message).toContain("cooling-down");
     expect(payload.message).not.toContain("sk-");
+    // Both reasons travel in `details`, so a client can explain why nothing was tried instead of guessing.
+    expect(payload.details.reasons).toEqual(expect.arrayContaining(["cooling-down", "invalid"]));
     expect(chatCalls(calls)).toEqual([]);
     expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
     expect(await getContentItem(fixture.target.id)).toEqual(before);
   });
 
-  it("keeps the flat 502 when nothing is configured at all", async () => {
+  it("answers the runtime's own 503 MODEL_NOT_CONFIGURED when nothing is configured at all", async () => {
     const calls = stubFetch([]);
     const before = await getContentItem(fixture.target.id);
     const usageBefore = (await listUsageRecords({ limit: 500 })).length;
@@ -449,8 +458,9 @@ describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
     const response = await rewrite(fixture.target.id, rewritePayload());
     const payload = await response.json();
 
-    expect(response.status).toBe(502);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    // "Nothing is configured" is a server-side state, not a bad request, and the client reads it as such now.
+    expect(response.status).toBe(503);
+    expect(payload.code).toBe("MODEL_NOT_CONFIGURED");
     expect(payload.message).toBe("No model is configured for this request");
     expect(JSON.stringify(payload)).not.toContain("Missing");
     expect(JSON.stringify(payload)).not.toContain("API key");
@@ -459,7 +469,7 @@ describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
     expect(await getContentItem(fixture.target.id)).toEqual(before);
   });
 
-  it("keeps the flat 502 when the provider itself fails, with the runtime's diagnosis in the message", async () => {
+  it("answers the runtime's own 502 MODEL_UPSTREAM_FAILED when the provider itself fails", async () => {
     const calls = stubFetch([
       { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
       { match: (target) => target.includes("/chat/completions"), respond: unavailable },
@@ -471,20 +481,21 @@ describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
     const response = await rewrite(fixture.target.id, rewritePayload());
     const payload = await response.json();
 
-    // `MODEL_UPSTREAM_FAILED` is the one runtime code the legacy shim never masked, so this case is parity:
-    // same 502, one attempt for one enabled model and one key. The upstream status and the provider/model it
-    // happened to are *not* in the body - flattening a message into `fail()` drops `details`, which is the
-    // price this route pays for skipping D-P3-3.
+    // `MODEL_UPSTREAM_FAILED` is the one runtime code the legacy shim never masked, so the status is parity -
+    // same 502, one attempt for one enabled model and one key. What P3-C adds is the code itself and the
+    // diagnosis behind it: the upstream status and the endpoint it happened to, where the flat 502 dropped
+    // both (the price A3-3.2 paid for skipping D-P3-3).
     expect(response.status).toBe(502);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    expect(payload.code).toBe("MODEL_UPSTREAM_FAILED");
     expect(payload.message).toContain("HTTP 503");
-    expect(payload.details).toBeUndefined();
+    expect(payload.details.status).toBe(503);
+    expect(JSON.stringify(payload)).not.toContain("sk-");
     expect(chatCalls(calls)).toHaveLength(1);
     expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
     expect(await getContentItem(fixture.target.id)).toEqual(before);
   });
 
-  it("keeps the flat 502 when the model answers without any text, and records nothing", async () => {
+  it("answers the runtime's own 502 MODEL_UPSTREAM_NO_CONTENT when the model answers without any text", async () => {
     const calls = stubFetch([
       { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
       { match: (target) => target.includes("/chat/completions"), respond: () => textReply("   ") },
@@ -497,10 +508,12 @@ describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
     const payload = await response.json();
 
     // The adapter trims the completion and refuses a blank one, so the route never sees an empty answer from
-    // this shape - `MODEL_UPSTREAM_NO_CONTENT` is raised below it, and the legacy flat 502 covers it.
+    // this shape - `MODEL_UPSTREAM_NO_CONTENT` is raised below it (a 502 in the runtime), so P3-C changes the
+    // code and adds the model the runtime failed on, not the status.
     expect(response.status).toBe(502);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    expect(payload.code).toBe("MODEL_UPSTREAM_NO_CONTENT");
     expect(payload.message).toContain("returned no text");
+    expect(payload.details.model).toBe("qwen3-max");
     expect(chatCalls(calls)).toHaveLength(1);
     expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
     expect(await getContentItem(fixture.target.id)).toEqual(before);
@@ -520,7 +533,9 @@ describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
 
     // The guard the route owns, kept verbatim: a tool-call turn has no text to rewrite, and an empty
     // rewrite must never reach the dialog as a "diff". `chat()` has no schema to validate against, so the
-    // runtime makes exactly one attempt - no corrective second turn - and nothing is recorded.
+    // runtime makes exactly one attempt - no corrective second turn - and nothing is recorded. P3-C leaves
+    // it exactly as it is: `EMPTY_RESULT` is this route's own protocol error, not a runtime code, so it keeps
+    // its flat 502 the way `EMPTY_CONTENT` keeps its 400.
     expect(response.status).toBe(502);
     expect(payload.code).toBe("UNKNOWN_ERROR");
     expect(payload.message).toBe("EMPTY_RESULT");

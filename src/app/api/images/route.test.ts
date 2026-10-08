@@ -13,17 +13,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * the file left on disk, the provider that really answered, the flat 500 it words itself) had no
  * regression guard at all.
  *
- * Two frozen decisions, both pinned here rather than changed:
+ * One frozen decision and one the batch after it converged, both pinned here:
  *
  *  1. **The image provider is a hard pin, not a preference.** `settings.imageProvider` (default
  *     `openai`) reaches the runtime as `providerId`, so the candidate chain is one provider: no model
  *     failover, no cross-provider fallback, only key rotation inside that endpoint. The pin case below
- *     is the route-level counterpart of G3.
- *  2. **Every AI failure leaves as the same flat 500.** `fail(error.message, 500)` drops the runtime's
- *     status *and* its code (`MODEL_CREDENTIAL_MISSING`'s 400, `MODEL_UPSTREAM_NO_CONTENT`'s 502 and
- *     `MODEL_NOT_CONFIGURED`'s 503 all arrive as `UNKNOWN_ERROR`); what survives is the runtime's own
- *     sentence, because P3-B-3 cut `image-generation.ts -> compat.ts` and took the shim's
- *     `Missing openai API key` with it. D-P3-3 is P3-C's commit, not this one.
+ *     is the route-level counterpart of G3. Still frozen - P3-C changed no line of the image path.
+ *  2. **The error envelope was a flat 500 and is now the runtime's own.** B-1 froze
+ *     `fail(error.message, 500)`, which dropped the runtime's status *and* code (`MODEL_CREDENTIAL_MISSING`'s
+ *     400, `MODEL_UPSTREAM_NO_CONTENT`'s 502 and `MODEL_NOT_CONFIGURED`'s 503 all arrived as `UNKNOWN_ERROR`)
+ *     while keeping the runtime's own sentence, because P3-B-3 cut `image-generation.ts -> compat.ts` and took
+ *     the shim's `Missing openai API key` with it. **P3-C (D1-b) applied D-P3-3 here**: every failure below now
+ *     carries the runtime's code and status, which is also what lets a client branch on
+ *     `MODEL_CAPABILITY_UNAVAILABLE` instead of on a sentence. The 201 cases, the pin, the size and the
+ *     file on disk are untouched.
  *
  * The chain under test is the real one - route handler, domain service, runtime, registry, router, key
  * pool, provider adapter - and only the *transport* is stubbed. Nothing here asserts that a mock was
@@ -53,6 +56,7 @@ const {
   credentials,
   jsonRequest,
   jsonResponse,
+  prepareChatModel,
   prepareImageModel,
   resetRuntime,
   routeTestDataDir,
@@ -253,19 +257,50 @@ describe("POST /api/images on aiRuntime", () => {
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    expect(response.status).toBe(503);
+    expect(payload.code).toBe("MODEL_NOT_CONFIGURED");
     // The runtime's routing sentence, not the shim's `Missing openai API key` (P3-B-3). The pin is why the
     // callable gemini model was not used instead, and why no other provider was asked: the candidate chain
     // is one provider wide.
     expect(payload.message).toBe("No model is configured for this request");
     expect(payload.message).not.toContain("Missing");
     expect(payload.error).toBe(payload.message);
-    expect(payload.details).toBeUndefined();
+    // The diagnosis travels with it now (D1-b): which capability failed, and which provider the requirement
+    // had already narrowed the search to - the pin, visible in the error as well as in the wire.
+    expect(payload.details.requirement.capability).toBe("image_generation");
+    expect(payload.details.requirement.providerId).toBe("openai");
     expect(generateContentCalls(calls)).toHaveLength(0);
     expect(imageCalls(calls)).toHaveLength(0);
     // ...and why nothing was sent at all: routing never makes a request of its own, and the shim's one
     // exception to that - an on-demand discovery pass for the pinned provider - is what B-3 removed.
+    expect(calls).toHaveLength(prepared);
+    expect(await artifacts()).toEqual([]);
+  });
+
+  it("answers the runtime's own 409 MODEL_CAPABILITY_UNAVAILABLE when the pinned provider has no image model", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.endsWith("/models"), respond: () => jsonResponse({ data: [{ id: "gpt-4o-mini" }] }) },
+      { match: () => true, respond: offline },
+    ]);
+    // OpenAI is configured and callable - but only for text. `prepareChatModel` enables what its catalog
+    // lists as a chat model, so the provider has an endpoint, a key and a model, and yet nothing it holds
+    // provides `image_generation`. This is the state `creation/images` used to guess at with its
+    // `/No image models returned/` string test - a sentence the runtime never produced, so the guess could
+    // only ever fail. P3-C (D1-b) is what makes the code behind it readable instead.
+    await prepareChatModel("openai", "gpt-4o-mini", "sk-stub-openai-text-only");
+    const prepared = calls.length;
+
+    const response = await postImage({ prompt: "a cat on a keyboard" });
+    const payload = await response.json();
+
+    // The runtime's 409, not a flat 500: "this provider cannot make images" is now distinguishable from
+    // "the provider is broken" (502) and from "nothing is configured" (503) by a code, not by wording.
+    expect(response.status).toBe(409);
+    expect(payload.code).toBe("MODEL_CAPABILITY_UNAVAILABLE");
+    expect(payload.details.requirement.capability).toBe("image_generation");
+    expect(payload.details.reason).toBe("capability-missing");
+    // Nothing was generated, and nothing was fetched while routing either.
+    expect(imageCalls(calls)).toHaveLength(0);
     expect(calls).toHaveLength(prepared);
     expect(await artifacts()).toEqual([]);
   });
@@ -333,19 +368,20 @@ describe("POST /api/images on aiRuntime", () => {
     expect(await artifacts()).toEqual([]);
   });
 
-  it("still answers the legacy flat 500 when the install has no credential at all", async () => {
+  it("answers the runtime's own 503 MODEL_NOT_CONFIGURED when the install has no credential at all", async () => {
     const calls = stubFetch([{ match: () => true, respond: offline }]);
     // Nothing is prepared: no key, no callable model, no image capability default.
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
-    // The runtime's 503 reason is what a keyless install reads now (P3-B-3 cut the shim that used to word
-    // this as `Missing openai API key`); the route still flattens its status and code away.
+    // "Nothing is configured" is a 503, and the sentence a keyless install reads is the runtime's (P3-B-3 cut
+    // the shim that used to word this as `Missing openai API key`) - status, code and sentence all pass on.
+    expect(response.status).toBe(503);
+    expect(payload.code).toBe("MODEL_NOT_CONFIGURED");
     expect(payload.message).toBe("No model is configured for this request");
     expect(payload.message).not.toContain("sk-");
-    expect(payload.details).toBeUndefined();
+    expect(payload.details.requirement.capability).toBe("image_generation");
+    expect(Array.isArray(payload.details.missing)).toBe(true);
     // Nothing on the wire either - no model call and no catalog read: an empty registry is not discovered
     // on demand any more.
     expect(calls).toHaveLength(0);
@@ -367,14 +403,14 @@ describe("POST /api/images on aiRuntime", () => {
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    expect(response.status).toBe(503);
+    expect(payload.code).toBe("MODEL_NOT_CONFIGURED");
     expect(payload.message).toBe("No model is configured for this request");
     expect(calls).toHaveLength(0);
     expect(await artifacts()).toEqual([]);
   });
 
-  it("answers the same flat 500 when the key is revoked after the model was configured", async () => {
+  it("answers the runtime's own 400 MODEL_CREDENTIAL_MISSING when the key is revoked after the model was configured", async () => {
     const calls = stubFetch([
       { match: (target) => target.endsWith("/models"), respond: openAIImageCatalog },
       { match: (target) => target.includes("/images/generations"), respond: () => openAIImageReply() },
@@ -385,12 +421,14 @@ describe("POST /api/images on aiRuntime", () => {
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
 
-    // A configured model with no usable key is `MODEL_CREDENTIAL_MISSING` (a 400 in the runtime), and the
-    // runtime's sentence for it is all that survives this route's one failure shape - the shim's
-    // `MissingAIKeyError` is gone from this path (P3-B-3).
-    expect(response.status).toBe(500);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    // A configured model with no usable key is `MODEL_CREDENTIAL_MISSING` (a 400 in the runtime), and P3-C
+    // passes that status on where the flat 500 used to hide it - the sentence underneath is still the
+    // runtime's, because the shim's `MissingAIKeyError` is gone from this path (P3-B-3).
+    expect(response.status).toBe(400);
+    expect(payload.code).toBe("MODEL_CREDENTIAL_MISSING");
     expect(payload.message).toBe("No configured model has a usable credential for this request");
+    expect(payload.details.reason).toBe("credential-missing");
+    expect(payload.message).not.toContain("sk-");
     expect(imageCalls(calls)).toHaveLength(0);
     expect(await artifacts()).toEqual([]);
   });
@@ -408,18 +446,19 @@ describe("POST /api/images on aiRuntime", () => {
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
 
-    // `MODEL_CREDENTIAL_INVALID` is a 502 in the runtime and the upstream body is in its message; the
-    // route passes neither on - one attempt (one model, one key), no file, no `details`.
-    expect(response.status).toBe(500);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    // `MODEL_CREDENTIAL_INVALID` is a 502 in the runtime and the upstream body is in its message; P3-C passes
+    // both the code and the status on - one attempt (one model, one key), no file - and the diagnosis behind
+    // it (the upstream status) travels in `details`, without ever echoing the key.
+    expect(response.status).toBe(502);
+    expect(payload.code).toBe("MODEL_CREDENTIAL_INVALID");
     expect(payload.message).toContain("HTTP 401");
     expect(payload.message).not.toContain("sk-");
-    expect(payload.details).toBeUndefined();
+    expect(payload.details.status).toBe(401);
     expect(imageCalls(calls)).toHaveLength(1);
     expect(await artifacts()).toEqual([]);
   });
 
-  it("keeps the flat 500 when the provider is down", async () => {
+  it("answers the runtime's own 502 MODEL_UPSTREAM_FAILED when the provider is down", async () => {
     const calls = stubFetch([
       { match: (target) => target.endsWith("/models"), respond: openAIImageCatalog },
       { match: (target) => target.includes("/images/generations"), respond: unavailable },
@@ -429,15 +468,15 @@ describe("POST /api/images on aiRuntime", () => {
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    expect(response.status).toBe(502);
+    expect(payload.code).toBe("MODEL_UPSTREAM_FAILED");
     expect(payload.message).toContain("HTTP 503");
-    expect(payload.details).toBeUndefined();
+    expect(payload.details.status).toBe(503);
     expect(imageCalls(calls)).toHaveLength(1);
     expect(await artifacts()).toEqual([]);
   });
 
-  it("keeps the flat 500 when the provider answers without any image data", async () => {
+  it("answers the runtime's own 502 MODEL_UPSTREAM_NO_CONTENT when the provider answers without any image data", async () => {
     const calls = stubFetch([
       { match: (target) => target.endsWith("/models"), respond: openAIImageCatalog },
       { match: (target) => target.includes("/images/generations"), respond: () => jsonResponse({ data: [] }) },
@@ -447,11 +486,12 @@ describe("POST /api/images on aiRuntime", () => {
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
 
-    // The adapter's own `MODEL_UPSTREAM_NO_CONTENT` (a 502) is the failure here, and it leaves as the
-    // same 500: the route never turns a runtime code into an HTTP code on this path.
-    expect(response.status).toBe(500);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    // The adapter's own `MODEL_UPSTREAM_NO_CONTENT` (a 502) is the failure here, and it now leaves as itself:
+    // same status, the runtime's code, and the model it failed on in `details`.
+    expect(response.status).toBe(502);
+    expect(payload.code).toBe("MODEL_UPSTREAM_NO_CONTENT");
     expect(payload.message).toContain("returned no image data");
+    expect(payload.details.model).toBe("gpt-image-1");
     expect(imageCalls(calls)).toHaveLength(1);
     expect(await artifacts()).toEqual([]);
   });
@@ -472,11 +512,14 @@ describe("POST /api/images on aiRuntime", () => {
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(payload.code).toBe("UNKNOWN_ERROR");
+    expect(response.status).toBe(502);
+    expect(payload.code).toBe("MODEL_UPSTREAM_NO_CONTENT");
     // Lowercase `openai`, not the adapter's `OpenAI`: that is the domain service refusing to name a
     // file after an empty payload, which is what keeps `writeBase64Image` from writing a 0-byte image.
     expect(payload.message).toBe("openai returned no image data");
+    // The service words its own `details`, so the code is the runtime's vocabulary while the sentence is the
+    // domain's - both reach the client now (D1-b), and neither carries a key.
+    expect(payload.details.providerId).toBe("openai");
     expect(await artifacts()).toEqual([]);
   });
 

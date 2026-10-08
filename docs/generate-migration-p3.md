@@ -1268,3 +1268,109 @@ Test-side changes - five files, all of them guards this cut makes possible:
   `src/components/agent-chat/chat-conversation.tsx` is unchanged), `node_modules\.bin\vitest.cmd run` =
   **69 files / 440 tests, all pass** - B-2's 439 plus exactly this batch's 1 new case.
 
+### P3-C - one error vocabulary at the HTTP boundary (M1, M2, D1-b; D2-a deferred)
+
+P3-A put the business layer on the runtime and P3-B cut the image path off the shim, but both left the *error
+answer* of three surfaces exactly where they found it. §2 ended with three shapes side by side:
+
+| Shape | Surface | What the client received |
+| --- | --- | --- |
+| pass-through | `ai-writing/generate`, `content/generate`, `content/[id]/translate`, `content/mindmap`, `metrics/insights`, `ai/chat` (A3) | the runtime's code *and* its status |
+| flat 502 | `content/[id]/rewrite` (A3-3.2) | `UNKNOWN_ERROR` 502, message only, `details` dropped |
+| flat 500 | `images` POST (B-1, frozen deliberately) | `UNKNOWN_ERROR` 500, message only, `details` dropped |
+| **no shape at all** | `content/import-url` (never migrated, never tested) | an exception out of the handler, so `apiPost` parsed no envelope and could only report `Request failed with 500` |
+
+P3-C is the single commit that converges them. It changes no runtime line, no image-path line, no business
+fallback and no shim file - each surface gets one decision:
+
+* **M1 - `content/[id]/rewrite`**: `fail(error.message, 502)` ->
+  `failFromError(error, "AI_PROVIDER_FAILED", 502)`. The route's own guards keep being worded by the route
+  (`NOT_FOUND` 404, `INVALID_PAYLOAD` 400, `EMPTY_CONTENT` 400, `EMPTY_RESULT` 502).
+* **M2 - `content/import-url`**: the handler gains its first `try`/`catch` and answers
+  `failFromError(error, "UNKNOWN_ERROR", 500)`. The `importUrlSchema` guard is unchanged, message-only
+  `fail("Invalid URL import payload", 400, …)` included.
+* **D1-b - `api/images` POST**: `fail(error.message, 500)` -> `failFromError(error, "UNKNOWN_ERROR", 500)`, so
+  B-1's frozen flat 500 retires. The production diff is that one line plus the doc comment: the pin, the model
+  resolution, the settings the domain service reads and the file it writes are untouched.
+
+The same three surfaces, before and after:
+
+| Failure | M1 `rewrite` before | M1 after | D1-b `images` before | D1-b after |
+| --- | --- | --- | --- | --- |
+| Configured model, no usable credential | 502 `UNKNOWN_ERROR` | **400** `MODEL_CREDENTIAL_MISSING` | 500 `UNKNOWN_ERROR` | **400** `MODEL_CREDENTIAL_MISSING` |
+| Every stored key cooling down / rejected | 502 `UNKNOWN_ERROR` | **429** `MODEL_CREDENTIAL_UNAVAILABLE` | 500 `UNKNOWN_ERROR` | **429** `MODEL_CREDENTIAL_UNAVAILABLE` |
+| Nothing configured / nothing routable | 502 `UNKNOWN_ERROR` | **503** `MODEL_NOT_CONFIGURED` | 500 `UNKNOWN_ERROR` | **503** `MODEL_NOT_CONFIGURED` |
+| Callable, but no model for this capability | 502 `UNKNOWN_ERROR` | **409** `MODEL_CAPABILITY_UNAVAILABLE` | 500 `UNKNOWN_ERROR` | **409** `MODEL_CAPABILITY_UNAVAILABLE` |
+| Provider rejected the key | 502 `UNKNOWN_ERROR` | 502 `MODEL_CREDENTIAL_INVALID` (status same, code + `details` new) | 500 `UNKNOWN_ERROR` | 502 `MODEL_CREDENTIAL_INVALID` |
+| Provider 5xx | 502 `UNKNOWN_ERROR` | 502 `MODEL_UPSTREAM_FAILED` + `details.status` | 500 `UNKNOWN_ERROR` | 502 `MODEL_UPSTREAM_FAILED` + `details.status` |
+| Empty completion / empty payload | 502 `UNKNOWN_ERROR` | 502 `MODEL_UPSTREAM_NO_CONTENT` + `details.model` | 500 `UNKNOWN_ERROR` | 502 `MODEL_UPSTREAM_NO_CONTENT` |
+
+Every number is the runtime's own (`runtime.ts:83,90,97`, `key-pool.ts:221`, `adapters.ts:128,136,279`), which is
+the point of the batch: no route invents a status any more, and `details` - the routing reason, the upstream
+status, the model that answered - reaches the client on all three surfaces.
+
+#### Why D1-b and not D2-b (the batch's one conscious scope cut)
+
+D1 and D2 are not the same kind of problem, and they were decided separately:
+
+* **D1 is an HTTP-boundary question.** `api/images` sat at the edge of the app and dropped a vocabulary the
+  runtime had already computed. Converging it costs one line and one assertion per case, and it is what lets
+  `creation/images/page.tsx` branch on `MODEL_CAPABILITY_UNAVAILABLE` instead of on `/No image models
+  returned/i` - a legacy sentence the runtime never produces, so that UI hint could only ever fail. The new
+  409 case in `src/app/api/images/route.test.ts` is that path, pinned.
+* **D2 is a cross-layer propagation question.** `lib/scraper.ts` normalises *its callers'* error contract
+  (`isCredentialFailure()` passes the credential family through, everything else becomes
+  `new Error("AI rewrite failed: …")`), which is a decision about the service boundary, not about HTTP. Making
+  the runtime's `AppError` canonical app-wide would change what `worker/runner.ts` writes into a run's
+  `errorMessage` and what every future caller of `rewriteArticle`/`generateTopicPost` sees. **D2-a keeps the
+  wrapper in P3-C**; the question ("scraper normalises, runtime is canonical, or the runtime stops at the
+  service boundary") is recorded as P3-C's follow-up, to be decided from source rather than by momentum.
+  `content/import-url`'s provider-5xx case pins the current shape (500 `UNKNOWN_ERROR`, message
+  `AI rewrite failed: … HTTP 503`) precisely so that decision has a failing test in front of it.
+
+#### What this batch deliberately leaves alone
+
+| Left as it is | Why |
+| --- | --- |
+| `knowledge-base/ai-parse` (201 + `source: "fallback"`) and `positions/generate` (200 + `source: "fallback"` + `reason`) | They answer a *product* promise, not an error: a first run with no key still has to come back as a usable draft. `failFromError` appears in neither file, and P3-C did not add it. |
+| `lib/agent/chat-thread-title.ts` (silent title fallback) and `lib/agent/langgraph-engine.ts` (default plan after a failed plan call, `status: "failed"` tool result, paused run) | The agent layer already turns an AI failure into something a user can read, so the outer `catch` in `api/agent/chat` never sees a runtime error; that route's flat 500 is out of scope. |
+| `lib/article-images.ts` (skip/break in all three stages) | Its whole error vocabulary is "fewer images" - there is nothing to converge. |
+| `lib/scraper.ts`'s wrapper (**D2-a**) and `worker/runner.ts`'s run-status channel | The scraper normalises its callers' contract on purpose (see above); the worker has no HTTP boundary at all, it records `updateRunStatus(failed, message)`. |
+| `lib/ai/compat.ts`, `lib/ai/generate.ts`, `lib/ai/index.ts`, `preferredImageProvider()` | Still P4's deletions (D-P3-6). The repo-wide search still finds **0** production importers for each, and P3-C changes neither the files nor that number. |
+| The `MODEL_*` statuses themselves | The runtime already computed them (`runtime.ts:83,90,97`, `key-pool.ts:221`, `adapters.ts`); P3-C only stopped three routes from discarding them. No runtime line changed. |
+
+#### Test changes (three files, one of them new)
+
+1. `src/app/api/content/[id]/rewrite/route.test.ts` (12 cases, unchanged count): the five flat-502 failure cases
+   became the runtime's own answers - `credential-missing` 400 + `details.reason`, pool-exhausted 429 +
+   `details.reasons`, nothing-configured 503, provider-5xx 502 + `details.status`, blank answer 502
+   `MODEL_UPSTREAM_NO_CONTENT` + `details.model` - while the sixth keeps its flat 502 on purpose, because
+   `EMPTY_RESULT` is the route's own guard and not a runtime code. The header now names both shapes.
+2. `src/app/api/images/route.test.ts` (17 -> **18**): all eight flat-500 cases assert the runtime's status, code
+   and `details` now (including the domain service's own `MODEL_UPSTREAM_NO_CONTENT` for an empty payload), and
+   the new case constructs the state B-1 never had - a pinned provider that is callable for text and holds no
+   image model - and pins the **409 `MODEL_CAPABILITY_UNAVAILABLE`**, the code `creation/images` needs to replace
+   its dead `/No image models returned/` string test.
+3. `src/app/api/content/import-url/route.test.ts` (**new file, 6 cases**): the first test this route ever had. It
+   pins both 201 contracts (with and without a rewrite, including the `local` / `none` provider pair and the
+   absent usage row), the failure that used to escape (500 `UNKNOWN_ERROR` with `HTTP 404` in the envelope), the
+   credential pass-through (400 `MODEL_CREDENTIAL_MISSING` + `details.reason`), D2-a's wrapper (500
+   `UNKNOWN_ERROR` + `AI rewrite failed: … HTTP 503`) and the message-only 400 guard. All three throwing facade
+   factories are on it too.
+4. Untouched, because they were already converged or are fallbacks: `ai-writing/generate`, `content/generate`,
+   `content/[id]/translate`, `content/mindmap`, `metrics/insights`, `ai/chat`, `knowledge-base/ai-parse`,
+   `positions/generate`.
+
+#### Verification on this tree
+
+* `node_modules\.bin\tsc.cmd --noEmit` exit **0**; `node_modules\.bin\eslint.cmd .` exit **0** (the same one
+  pre-existing `react-hooks/exhaustive-deps` warning in `src/components/agent-chat/chat-conversation.tsx` is
+  unchanged); `node_modules\.bin\vitest.cmd run` = **70 files / 447 tests, all pass** - B-3's 69 / 440 baseline
+  plus this batch's 1 new file / 6 cases and 1 new images case.
+* After the batch, no route handler that talks to `aiRuntime` words an AI failure itself: the only
+  `fail(error.message, …)` calls left in `src/app/api` are on paths that never reach the runtime -
+  `agent/chat`, `agent/chat/threads`, `agent/runs/[id]/resume`, `browser-profiles/[accountId]/input`,
+  `dify/datasets`, `hot-topics`, `images/from-url`, `images/search`, `publish/draft`.
+* Importer counters, unchanged by this batch: `@/lib/ai/compat` **0**, `from "./compat"` ->
+  `lib/ai/generate.ts` only, `@/lib/ai/generate` **0**, the barrel `@/lib/ai` **0**. P4 is still the batch that
+  deletes them.

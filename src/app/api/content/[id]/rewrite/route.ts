@@ -2,7 +2,7 @@ import { createUsageRecord, getContentItem } from "@/db/repository";
 import { aiRuntime } from "@/features/ai-runtime";
 import { industryDomainPrompt } from "@/lib/ai-writing";
 import { htmlToPlainText, plainTextToHtml } from "@/lib/article-themes";
-import { fail, ok, parseJson } from "@/lib/api";
+import { fail, failFromError, ok, parseJson } from "@/lib/api";
 import { countTextCharacters } from "@/lib/usage";
 import { contentRewriteSchema, type ArticleRewriteMode, type ArticleRewriteStrength } from "@/lib/validation";
 
@@ -33,10 +33,15 @@ const strengthInstruction: Record<ArticleRewriteStrength, string> = {
  * order, model choice, key rotation, failover and cold-start catalog discovery are the runtime's business,
  * while reading the article by `[id]`, the source assembly and its cap, the rewrite instructions and
  * everything after the call (the trim, the guard, the usage row, the envelope) stay this route's. The answer
- * is read through the runtime's own names (`providerId`, `model`, `usage`), and a failure keeps the flat 502
- * this route has always answered with: this batch moves the call boundary and deliberately leaves D-P3-3's
- * error vocabulary to the routes that adopted it, so the `[id]` guard, the payload guard and the
- * empty-source guard are still the only answers this route words itself.
+ * is read through the runtime's own names (`providerId`, `model`, `usage`).
+ *
+ * A3-3.2 moved the call boundary and deliberately left D-P3-3 to the routes that had adopted it, so this
+ * file was the last text surface answering a flat 502. P3-C converged it: a failure now keeps the runtime's
+ * own code *and* its HTTP status (credentials 400, a cooled-down pool 429, nothing configured 503, upstream
+ * 502), which is what `failFromError` passed on from the day this route was migrated - the flat 502 was the
+ * one thing that did not. The three answers this route still words itself are unchanged and are *not* runtime
+ * errors: the `[id]` guard (404), the payload guard (400) and the empty-source guard (400 `EMPTY_CONTENT`),
+ * plus the empty-answer guard (502 `EMPTY_RESULT`, kept because `chat()` has no schema to retry against).
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -92,8 +97,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       model: response.model,
     });
   } catch (error) {
-    // D-P3-3 is not applied here yet: the runtime's code and status are flattened into the flat 502 this
-    // route has always answered with, exactly as the legacy facade's failures were.
-    return fail(error instanceof Error ? error.message : "Rewrite failed", 502);
+    // D-P3-3 applied here by P3-C: `failFromError` keeps an `AppError`'s own code and status (the runtime sets
+    // both) and answers anything else with this route's long-standing 502, which is all that ever reached the
+    // dialog for a non-`AppError` failure.
+    return failFromError(error, "AI_PROVIDER_FAILED", 502);
   }
 }
