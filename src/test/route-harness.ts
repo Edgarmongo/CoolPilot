@@ -4,7 +4,11 @@ import path from "node:path";
 import { vi } from "vitest";
 
 /**
- * The route layer's shared test plumbing (batch P3-A3-0 of `docs/generate-migration-p3.md`).
+ * The shared test plumbing of the layers that sit above the runtime (batch P3-A3-0 of
+ * `docs/generate-migration-p3.md`), and of the two "freeze, do not migrate" batches after it:
+ * `src/app/api/images/route.test.ts` (P3-B-1) and `src/lib/article-images.test.ts` (P3-B-2) are the two
+ * callers of `prepareImageModel()`, and the second one is not a route at all - the module pins the image
+ * strategy, which is the layer both routes sit on. Nothing in here changed for them.
  *
  * `src/app` had no test file before A3, and `lib/scraper.test.ts` shows why: a test that watches a
  * route talk to a provider first has to own four things - a database that is not the user's, a
@@ -27,7 +31,7 @@ const dataDir = mkdtempSync(path.join(tmpdir(), "coolpilot-route-"));
 process.env.SOCIAL_AUTO_POST_DB_URL = `file:${path.join(dataDir, "routes.db").replace(/\\/g, "/")}`;
 process.env.SOCIAL_AUTO_POST_DATA_DIR = dataDir;
 
-/** For a route that writes files (artifacts, exports); cleaning up is the route test's business. */
+/** For a test that writes files (artifacts, exports); cleaning up is that test's business. */
 export const routeTestDataDir = dataDir;
 
 /** The runtime's public surface: seeding, routing, catalog sync and the credential pool. */
@@ -58,9 +62,10 @@ const keyEnvVars = [...new Set(aiProviderOrder.flatMap((provider) => credentials
  * Blank slate: no key in the process, no vault entry, no callable model, no capability default left
  * over from an earlier case (a default outranks the provider order a case may reason about).
  *
- * `image_generation` is cleared for the same reason as the two text capabilities, even though only
- * the B-1 file asks for it today (`src/app/api/images/route.test.ts`): a leftover image default
- * would outrank the provider order a case reasons about, exactly like a leftover `chat` default.
+ * `image_generation` is cleared for the same reason as the two text capabilities: the B files are the
+ * only cases that ask for it (`src/app/api/images/route.test.ts`, `src/lib/article-images.test.ts`), and
+ * a leftover image default would outrank the provider order a case reasons about, exactly like a
+ * leftover `chat` default.
  */
 export async function resetRuntime() {
   for (const name of keyEnvVars) {

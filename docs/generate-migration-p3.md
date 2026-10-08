@@ -1078,3 +1078,123 @@ throwing factories while leaving `@/lib/ai/compat` alone - the third factory is 
   `src/components/agent-chat/chat-conversation.tsx` is unchanged), `node_modules\.bin\vitest.cmd run` =
   **68 files / 419 tests, all pass** - A3-3.2's 67 / 403 plus exactly this batch's 1 file / 16 tests.
 
+
+### P3-B-2 - `lib/article-images.ts` (frozen, not migrated)
+
+The second surface of batch B, and the second one with nothing to migrate. `resolveArticleImages()` walks
+three sources and each step already speaks to a domain service - `fs.copyFile` for a stored photo,
+`fetchArticleText()` from `lib/scraper.ts` for `og:image`, and `generateImageFile()` from
+`lib/agent/image-generation.ts`, which *is* the runtime boundary (D-P3-2). So the batch freezes the
+strategy instead of moving it:
+
+```
+resolveArticleImages()                      strategy, target, dedupe, budget, best effort
+  -> fs.copyFile into artifacts             product: writing-<ts>-<nanoid>.<ext>
+  -> lib/scraper.ts fetchArticleText()      web:     the page's og:image, as a remote url
+  -> lib/agent/image-generation.ts          ai:      agent-image-<ts>-<nanoid>.<ext>
+       -> aiRuntime.generateImage()         how it is produced: provider pin, model, key rotation
+```
+
+Why freeze *this* file, and why now: it had **no test file at all**, and its only two callers
+(`api/ai-writing/generate`, `api/content/generate`) both hand it `imageStrategy: "product"` from their
+fixtures - so the two routes that do exercise it can only ever reach the first stage. The `web` stage,
+the `ai` stage, `maxGeneratedArticleImages` and the best-effort rule at the bottom of the loop were
+completely unguarded, and the `ai` stage is exactly what P3-B-3 cuts next. The facts this file pins:
+
+| Fact | Where it comes from in production | Case that pins it |
+| --- | --- | --- |
+| `product` is the only stage that writes a file: a stored photo is **copied** into the artifacts dir as `writing-<ts>-<nanoid>.<ext>`, extension lower-cased, `.png` when the path has none. | `copyIntoArtifacts()`: `fs.mkdir` + `fs.copyFile`, name from `Date.now()` + `nanoid(8)`. | The copy case (name shape, bytes, source still in place, directory holds exactly that file) and the extension case (`.JPG` -> `.jpg`, extensionless -> `.png`). |
+| A product photo that is not on disk is skipped and the loop continues; a blank entry is skipped before the filesystem is asked. | `try { add(await copyIntoArtifacts(path)) } catch {}` and `if (!imagePath) continue`. | The missing-photo case still returns the *next* photo; the blank-entry case returns one image out of two entries. |
+| `target` is an upper bound, never a floor, and the sources are spent in the order the caller gave them. | `add()` refuses past `target`; every stage re-tests `images.length < input.target`. | Three photos with `target: 2` return the first two photos - asserted by **bytes**, because the generated names cannot show which source won. |
+| Each stage is gated by the strategy: `product` never reads a page, `web`/`ai` never copy a product photo. | `strategy === "product" \|\| strategy === "mixed"`, and so on for the other two. | A `product` run with a *working* page in `sourceUrls` fetches nothing; a `web` run with a real photo leaves artifacts empty. |
+| `web` reads **at most three** source urls, and `og:image` becomes the article's image *as the remote URL it is* - no download, no copy. | `input.sourceUrls.slice(0, 3)` + `add((await fetchArticleText(url)).imageUrl)`. | Five urls return three, in url order, and the fourth and fifth were never fetched; artifacts stays empty. |
+| An ignored page does not end the loop: a down page and a page without `og:image` are skipped and the next url is still read. | `try { … } catch { /* ignore unreachable pages */ }` plus truthiness in `add()`. | The dead / image-less / good case reads all three pages and keeps only the third's image. |
+| The same image is added once, whoever produced it. | `!images.includes(value)` inside `add()`. | Two pages sharing one `og:image` produce one entry. |
+| Generation is a **budget**, not a target: at most `maxGeneratedArticleImages` (3) per run, and only as many as `target` still leaves open. | `const remaining = Math.min(input.target - images.length, maxGeneratedArticleImages)`. | `target: 6` + a callable provider = three calls, three files, three *distinct* names; `mixed` + one product photo + `target: 2` = one call. |
+| Generated files are `agent-image-*` in the same artifacts dir, and the prompt names the article title. | `generateImageFile({ prompt: \`为文章《${input.title}》…\` })` and `writeBase64Image()` in the domain service. | The generation case pins the name shape, the decoded bytes, and the wire body: the runtime's model, the title inside `prompt`, `settings.openAIImageSize`, one `POST /images/generations`, no chat call. |
+| The image provider stays **pinned** to `settings.imageProvider`; a callable other provider is never used as a fallback. | `generateImageFile()` -> `preferredImageProvider(undefined)` -> `generateImage({ providerId })` (G3). | Gemini configured *and* callable while the settings still name OpenAI: no `:generateContent`, no images call, no images - and no throw. |
+| The whole AI stage is **best effort**: any failure ends it quietly, the images already collected survive, and the promise never rejects. | `for (…) { try { … } catch { break } }` - `break`, not `continue`, and no rethrow. | Four cases: provider 503 (exactly **one** call, so a failure is not retried three times), a rejected key after the product copy (the article keeps its cover), a keyless install (no call at all), and the pinned-provider case above. |
+
+The two decisions that most deserve prose, because a refactor would break them quietly:
+
+* **The AI budget is not the target.** `target` arrives as `imageCountValues[config.imageCount]` (`few: 1`,
+  `standard: 3`, `many: 6`), so `strategy: "ai"` with `many` asks for six images and gets three: the cap is
+  `min(target - filled, maxGeneratedArticleImages)`, per run. `maxGeneratedArticleImages` is exported and,
+  after this commit, its only reader outside the module's own body is this test file - so what protects the
+  budget is the **call count** assertion (three `POST /images/generations`), not `images.length <= target`,
+  which a `for (let i = 0; i < target; i++)` rewrite would still satisfy.
+* **Best effort is the contract, not the error handling.** Both callers await this function inside a 201
+  they then return to the UI, so a reject would cost them the whole generated article. The `break` (rather
+  than `continue`) is part of the same decision: one provider failure is a verdict on the provider, not on
+  the remaining images, so the stage stops after one call instead of paying the timeout three times.
+
+What is deliberately *not* in this batch:
+
+* **No production line changed.** `lib/article-images.ts` is untouched, so the suite above pins behaviour
+  this commit provably leaves alone; `lib/agent/image-generation.ts`, `lib/ai/compat.ts`, `lib/scraper.ts`
+  and the runtime are untouched with it.
+* **The compat edge is still there.** `resolveArticleImages` -> `generateImageFile()` -> `compat.ts` ->
+  `aiRuntime`, exactly as in B-1. What B-2 adds is the net that edge is cut with: once B-3 removes the shim,
+  these cases are what would notice a changed `MissingAIKeyError` wording, a lost cold-start resync, or a
+  failure that stops being swallowed at all. The two throwing factories on `@/lib/ai` and `@/lib/ai/generate`
+  are already legal here - `lib/ai/compat.ts` imports the runtime, the settings repository, the provider
+  registry and `lib/secrets`, never the facade - which is what makes B-3 a *cut* rather than a rewrite.
+* **D-P3-3 stays P3-C's**: this module words no error to anyone. Its whole error vocabulary is "fewer
+  images", so there is nothing here for a later commit to unify.
+* **`lib/scraper.ts`'s HTML reading is not re-tested.** The `web` stage is pinned for the three rules *this*
+  module owns - the three-url cap, the `slice` order and skip-and-continue - not for `cheerio`'s
+  `og:image` parsing, which A1 already froze for the generator path.
+
+Counters after this commit: `generateImageFile` still has **3** call sites (`api/images`, frozen in B-1,
+plus `lib/article-images`, frozen here, and `lib/agent/local-tools`, which is B-3's second caller),
+`lib/ai/compat.ts` still has exactly **1** production importer (`lib/agent/image-generation.ts`), and
+`lib/ai/generate.ts` still has **0**. P3-B is a three-commit batch precisely so that number only reaches 0
+at B-3.
+
+The file (`src/lib/article-images.test.ts`) is 1 file / 20 tests in four groups - the product stage (6),
+the web stage (5), the AI stage (8) and the order they are spent in (1) - and it mocks the two text facades
+with throwing factories while leaving `@/lib/ai/compat` alone, exactly like B-1. Its cases:
+
+1. A product photo is copied into artifacts as `writing-*`, byte-identical, with the source left where the
+   product keeps it and nothing else in the directory.
+2. The copy keeps the source extension, lower-cased (`shot-lid.JPG` -> `.jpg`), and falls back to `.png` for
+   a path that has none.
+3. A product photo that is not on disk is skipped, and the loop still copies the next one.
+4. A blank product entry is skipped instead of being asked of the filesystem.
+5. `target` caps the product stage and the photos are spent in selection order - asserted by bytes, because
+   the generated names cannot show which source won.
+6. `product` never reads a source page, even when the page in `sourceUrls` would have answered.
+7. A `web` run stores `og:image` verbatim as the remote url it is, and writes no file.
+8. A `web` run ignores the product photos entirely.
+9. `web` reads at most the first three urls: three images in url order, and the fourth and fifth were never
+   fetched.
+10. A page that is down (503) or carries no `og:image` is skipped and the next url is still read - all three
+    were fetched.
+11. Two pages sharing one `og:image` produce one entry.
+12. The AI stage generates the missing image: `agent-image-*` in artifacts, the decoded bytes on disk, one
+    `POST /images/generations` carrying the runtime's model, the title inside `prompt` and
+    `settings.openAIImageSize`, and no chat call anywhere.
+13. The provider stays pinned (G3): gemini configured *and* callable while the settings still name openai ->
+    `[]`, no `:generateContent`, no images call.
+14. A provider that answers 503 -> `[]`, **one** generation call (`break`, not `continue`) and no file.
+15. A keyless install -> `[]`, with no call at all.
+16. A rejected key after the product copy -> the article keeps its cover, and the copy is the only file in
+    artifacts.
+17. `target: 6` with a callable provider -> exactly three calls, three files, three distinct names
+    (`maxGeneratedArticleImages`).
+18. `mixed`, `target: 2`, one product photo -> one generation, two images, the copy first.
+19. `mixed`, `target: 2`, two product photos -> the callable provider is never asked.
+20. The full order: copy, then `og:image`, then generation - and the page is read before the generation on
+    the wire.
+
+* Supporting changes: `src/test/route-harness.ts` is **comment-only** - the header now names the two files
+  that call `prepareImageModel()` and the `resetRuntime()` note names both files that clear the
+  `image_generation` default; no export and no line of code, and no third helper was needed. The one piece
+  of plumbing this module does need - an HTML `Response` with `.text()`, which the harness's `jsonResponse()`
+  does not have - lives in the new file, because this is the only branch in the app that reads HTML.
+  `src/lib/article-images.ts` and `src/lib/agent/image-generation.ts` are untouched.
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .`
+  exit 0 (the same one pre-existing `react-hooks/exhaustive-deps` warning in
+  `src/components/agent-chat/chat-conversation.tsx` is unchanged), `node_modules\.bin\vitest.cmd run` =
+  **69 files / 439 tests, all pass** - B-1's 68 / 419 plus exactly this batch's 1 file / 20 tests.
+
