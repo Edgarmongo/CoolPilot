@@ -1,26 +1,8 @@
-import { createContentItem, createUsageRecord } from "@/db/repository";
-import { listKnowledgeBase } from "@/db/repositories/knowledge-base";
-import { getDefaultPosition, getPosition } from "@/db/repositories/positions";
-import { aiRuntime } from "@/features/ai-runtime";
-import { postDraftSchema } from "@/lib/ai/schemas";
-import {
-  audiencePrompt,
-  buildArticlePrompt,
-  buildArticleSystemPrompt,
-  imageCountValues,
-  industryDomainPrompt,
-  type AiWritingConfig,
-  type AiWritingMaterial,
-  type AiWritingPositioning,
-  type OutputLanguage,
-} from "@/lib/ai-writing";
+import { generateArticle } from "@/lib/article-generation";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
-import { resolveArticleImages } from "@/lib/article-images";
-import { selectKnowledgeReferences } from "@/lib/knowledge-base";
-import { countTextCharacters } from "@/lib/usage";
+import { type AiWritingConfig, type AiWritingMaterial, type OutputLanguage } from "@/lib/ai-writing";
 import { contentGenerateSchema } from "@/lib/validation";
 import { getWritingAgent } from "@/lib/writing-agents";
-import type { PositionRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -33,39 +15,29 @@ function guessLanguage(value: string): OutputLanguage {
   return "zh-CN";
 }
 
-function toPositioning(position: PositionRecord | null): AiWritingPositioning | undefined {
-  if (!position) return undefined;
-  return {
-    name: position.name,
-    description: position.description,
-    targetAudience: position.targetAudience,
-    contentDirection: position.contentDirection,
-    toneStyle: position.toneStyle,
-    personaRole: position.personaRole,
-    writingGuide: position.writingGuide,
-    bannedWords: position.bannedWords,
-  };
-}
-
 /**
- * Generates a ready-to-publish article from a topic. Shared by AI writing,
- * article creation, posts and videos, so positioning and the knowledge base
- * apply consistently to every generation entry point.
+ * The article-creation entry point for a ready-to-publish article (C3 of
+ * `docs/creator-workflow-audit.md`), shared by AI writing, article creation, posts and videos, so
+ * positioning and the knowledge base apply consistently to every generation entry point.
  *
- * The model call goes straight to `aiRuntime` (batch P3-A3 of `docs/generate-migration-p3.md`):
- * provider order, model choice, key rotation, failover and structured-output validation are the
- * runtime's business, while the writing agent's prompt, the article prompt, the schema and everything
- * after the call (images, the content item, the usage row) stay this route's. The answer is read
- * through the runtime's own names (`providerId`, `model`, `usage`), and a failure keeps the runtime's
- * code *and* status (D-P3-3) instead of a 502 flattened from a message, so a missing credential is a
- * 400 - the payload guard below is the only error this route still words itself.
+ * The route owns *who is asking*: the payload's schema and guard, the legacy `language` string it has
+ * to guess a code from, the writing agent that prefixes the system prompt (F-C3-7 keeps the agent here
+ * rather than in the service), the material it builds from `topic`/`prompt`, and the provenance this
+ * entry records (`type`, `agentId`, `generationType`, ...). The article itself - positioning,
+ * knowledge, prompts, the structured call, the images, the content item and the usage row - belongs to
+ * `generateArticle()` (`@/lib/article-generation`), which `api/ai-writing/generate` uses too.
+ *
+ * The model call goes through `generateArticle` into `aiRuntime` (batch P3-A3 of
+ * `docs/generate-migration-p3.md`): provider order, model choice, key rotation, failover and
+ * structured-output validation are the runtime's business. The answer is read through the runtime's own
+ * names (`providerId`, `model`, `usage`), and a failure keeps the runtime's code *and* status (D-P3-3)
+ * instead of a 502 flattened from a message, so a missing credential is a 400 - the payload guard below
+ * is the only error this route still words itself.
  */
 export async function POST(request: Request) {
   const parsed = await parseJson(request, contentGenerateSchema);
   if (parsed.error) return fail("Invalid generation payload", 400, parsed.error);
   const data = parsed.data;
-
-  const positioning = data.positioningId ? await getPosition(data.positioningId) : await getDefaultPosition();
 
   const config: AiWritingConfig = {
     materialSource: "free",
@@ -83,80 +55,34 @@ export async function POST(request: Request) {
     positioningId: data.positioningId,
   };
 
-  const knowledge =
-    config.knowledgeMode === "position" ? selectKnowledgeReferences(await listKnowledgeBase(), positioning?.id) : [];
   const agent = getWritingAgent(data.agentId);
-  const materials: AiWritingMaterial = {
+  const material: AiWritingMaterial = {
     topics: [],
     products: [],
     freeText: data.prompt ? `${data.topic}\n\n${data.prompt}` : data.topic,
   };
 
-  const systemPrompt = [
-    agent.systemPrompt,
-    buildArticleSystemPrompt({ config, positioning: toPositioning(positioning) }),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  const prompt = buildArticlePrompt({
-    config,
-    materials,
-    knowledge,
-    audienceLabel: audiencePrompt[config.audience],
-    industryLabel: industryDomainPrompt[config.industry],
-  });
-
   try {
-    const response = await aiRuntime.chatStructured({
-      messages: [{ role: "user", content: prompt }],
-      systemPrompt,
-      schema: postDraftSchema,
-    });
-    const title = response.data.title.trim() || data.topic;
-    const body = response.data.body.trim();
-    const images = await resolveArticleImages({
-      strategy: config.imageStrategy,
-      target: imageCountValues[config.imageCount],
-      productImagePaths: [],
-      sourceUrls: [],
-      title,
-    });
-
-    const item = await createContentItem({
-      title,
-      body,
-      postReadyText: `${title}\n\n${body}`.trim(),
-      sourceUrls: [],
-      imagePath: images[0] ?? "",
-      metadata: {
+    const result = await generateArticle({
+      positioningId: data.positioningId,
+      config,
+      material,
+      systemPromptPrefix: agent.systemPrompt,
+      titleFallback: data.topic,
+      // A topic has no product photo and no source page, so this entry contributes no image source.
+      imageSources: { productImagePaths: [], sourceUrls: [] },
+      provenance: {
         type: data.type,
-        images,
         prompt: data.prompt,
         topic: data.topic,
         generationType: "topic",
         agentId: agent.id,
         agentName: agent.name,
-        provider: response.providerId,
-        model: response.model,
-        positioningId: positioning?.id ?? "",
         aiWriting: { ...config },
       },
-      status: "ready",
     });
 
-    await createUsageRecord({
-      provider: response.providerId,
-      model: response.model,
-      kind: "article",
-      status: "success",
-      inputTokens: response.usage?.inputTokens,
-      outputTokens: response.usage?.outputTokens,
-      totalTokens: response.usage?.totalTokens,
-      wordCount: countTextCharacters(body),
-      contentItemId: item?.id,
-    });
-
-    return ok({ item, provider: response.providerId, model: response.model, images }, { status: 201 });
+    return ok(result, { status: 201 });
   } catch (error) {
     // No local error taxonomy: `failFromError` keeps an `AppError`'s own code and status (the runtime
     // sets both) and answers anything else with this route's long-standing 502.

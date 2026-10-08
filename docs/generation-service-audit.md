@@ -339,3 +339,44 @@ HTTP-level):
 - No touch of P5-B0/B1, 内容中心 (`/content/library`), the C1 hand-off, C2's publish facts, or the
   database schema.
 
+## 10. Implementation status (C3-2, Cut A)
+
+Executed against §7's Cut A and §8's pins. §1-§9 are the audit; this section is the code that followed
+it. Every check in §7's table, re-run after the change:
+
+| Check | Result |
+| --- | --- |
+| `resolveArticleImages(` under `src/app` | 0 |
+| `createContentItem(` / `createUsageRecord(` in the two generate routes | 0 / 0 |
+| `aiRuntime.chatStructured(` in the two generate routes | 0 |
+| `toPositioning(` definitions in `src` | 1 - `src/lib/article-generation.ts`, private |
+| `src/app/api/ai-writing/generate/route.test.ts`, `src/app/api/content/generate/route.test.ts` | unmodified, green |
+| `src/lib/article-generation.test.ts` | new, 6 cases |
+| `tsc --noEmit` / `eslint .` / `vitest run` | 0 / 0 errors, 1 pre-existing warning / 85 files, 548 tests (from 84 and 542) |
+
+The interface is §4 and §6 unchanged: `ArticleGenerationRequest` (`positioningId`, `config`, `material`,
+`systemPromptPrefix?`, `titleFallback`, `imageSources`, `provenance`) in, `ArticleGenerationResult`
+(`item`, `images`, `provider`, `model`) out. The boundaries of §5 hold in the code: the service calls
+`resolveArticleImages()` and never the image runtime, imports no `next/*`, no `@/lib/api` and no
+`@/lib/editor-link`, resolves the positioning and the knowledge itself, and writes
+`images` / `positioningId` / `provider` / `model` as the only metadata keys it owns - the entry's
+provenance is spread in first and stored verbatim.
+
+Three things a reader of the diff should know, because they are the only observable differences:
+
+1. **The stored `metadata` JSON's key order changes.** It is composed provenance-first
+   (`{ ...provenance, images, positioningId, provider, model }`), where each entry used to interleave its
+   own keys around them. Same keys, same values, no reader and no test depends on the order.
+2. **`api/content/generate`'s 201 envelope re-orders its keys** to `item, images, provider, model` (the
+   shared result), where it answered `item, provider, model, images`. Same envelope and same keys;
+   `api/ai-writing/generate` already used this order.
+3. **One failure path widened.** The positioning and knowledge lookups used to run *before* each route's
+   `try` block, so a database error there escaped the handler (Next's own 500). They now run inside
+   `generateArticle()`, so the routes' `failFromError(error, "AI_PROVIDER_FAILED", 502)` answers them.
+   Both are 5xx, no test and no client reads the difference, and the alternative - a service that cannot
+   report its own failures - would have been worse.
+
+Deliberately not in this cut: F-C3-5 (the article dialog's `product` default still passes no image
+source), F-C3-6 (a failed generation still writes nothing), F-C3-7 (`generateTopicPost` keeps its own
+pipeline until C5), C4's image identity, and anything in P5-B0/B1 or the workspace.
+
