@@ -744,3 +744,107 @@ business ones.
   (`api/content/mindmap`, `api/content/[id]/rewrite`) and `generateImageFile` (`api/images` and `lib/article-images`),
   and `lib/agent/image-generation.ts` is still the compat shim's only production importer: the surface the batches
   after this one own, and nothing more.
+
+### P3-A3-3.1 - `api/content/mindmap`
+
+The first of the two `generateText` routes (section 1: `api/content/mindmap:62`) and the smallest migration of the
+batch: two lines change, because the answer is free text and the route consumes **one** field of it. It is also the
+cleanest statement of the boundary this phase keeps drawing - `aiRuntime` owns the model call, the domain owns the
+meaning of the answer - since the route does not interpret the outline at all.
+
+| Field | Before | After |
+| --- | --- | --- |
+| Call | `generateText({ prompt, systemPrompt })` | `aiRuntime.chat({ messages: [{ role: "user", content: prompt }], systemPrompt })` |
+| Answer | `result.text` -> `{ markdown }` | `response.text` - unchanged, byte for byte |
+| Provider / model | not read | not read: `providerId` / `model` / `credentialLabel` / `attempts` / `route` stay unused on this path |
+| Usage | not read, no usage row written | unchanged - still no usage row, and no `EMPTY_RESULT` guard was added |
+| Preference | no `provider` argument | no `preferProviderId`: the runtime's configured text provider applies (this route never asked for a vendor) |
+| Failure | `failFromError(error, "UNKNOWN_ERROR", 500)`, which for an unroutable install or a missing key meant a flat 500 carrying `MissingAIKeyError`'s message | the same `failFromError`, now passing the runtime's own code *and* status on |
+| Legacy import | `generateText` from `@/lib/ai` | none: `next/server`, `zod`, `@/lib/api` and the runtime |
+
+Kept, because this batch moves a boundary rather than a business: the `{ topic: z.string().trim().min(1) }` guard,
+`MINDMAP_SYSTEM_PROMPT` and the `主题：...` prompt in full, `withCors` on every answer, `OPTIONS`'s 204, the
+`{ markdown }` envelope with nothing else in it, the trim the schema performs, and the absence of any
+post-processing: the route forwards the model's text exactly as it came out of the adapter - a blank completion never
+reaches it (`MODEL_UPSTREAM_NO_CONTENT`, 502, raised by the adapter), and a fenced or oddly-wrapped outline is the
+client's problem to parse.
+
+That is the boundary this route illustrates best, because the interpretation it does *not* do already lives outside
+the server: `markdownToMindMap()` (`src/mindmap/mindmap-markdown.ts`, heading hierarchy -> tree, indentation
+fallback, code-fence stripping) runs on the canvas, and the Drawnix whiteboard talks to this same endpoint from a
+different origin with its own reader (`src/whiteboard/drawnix/utils/llm.ts`). "Runtime calls the model, domain
+interprets the answer" is therefore not a rule this batch obeys - it is what the file already did, which is why the
+migration is two lines.
+
+**The error vocabulary is the one contract change**, and §2.1 already listed this route as a `failFromError` one -
+the error-propagation family, not the fallback family of `knowledge-base/ai-parse` and `positions/generate`:
+
+| Case | Before | After |
+| --- | --- | --- |
+| nothing configured | `MissingAIKeyError` -> **500** `UNKNOWN_ERROR`, message `Missing gemini API key` | **503** `MODEL_NOT_CONFIGURED`, `No model is configured for this request` |
+| credential missing | `MissingAIKeyError` -> **500** | **400** `MODEL_CREDENTIAL_MISSING`, `No configured model has a usable credential for this request` |
+| every key unavailable | `MissingAIKeyError` -> **500** | **429** / 400 `MODEL_CREDENTIAL_UNAVAILABLE` + `details.reasons` |
+| provider 5xx | **502** `MODEL_UPSTREAM_FAILED` (the shim never masked this one) | **502** - unchanged, parity |
+| blank completion | **502** `MODEL_UPSTREAM_NO_CONTENT` | **502** - unchanged, parity |
+| body guard, `INVALID_PAYLOAD` | **400** | **400** - unchanged |
+| body that is not JSON | **500** `UNKNOWN_ERROR` | **500** `UNKNOWN_ERROR` - unchanged |
+| anything else | 500, code `UNKNOWN_ERROR` | same |
+
+The last two rows are why the fallback code stays `UNKNOWN_ERROR` here instead of becoming an AI-specific one as in
+A3-2.1..2.3: this route's `try` also contains its **input** guard (`await request.json()` and `safeParse`), so its
+fallback is not an AI-only fallback. That guard is deliberately left exactly where it was - the one place in this
+batch where a `parseJson()` cleanup was available and not taken, because "AI call moved off the facade" and "API input
+error semantics" are different changes and only the first one is this commit. The test pins today's 500 so a later
+cleanup is a visible expectation change rather than a silent behaviour shift.
+
+Tests (`src/app/api/content/mindmap/route.test.ts`, 10 cases - the runtime is *not* mocked, the route handler is
+called for real, and only the transport is stubbed):
+
+1. Success: HTTP 200, `ok: true`, `data` holding **exactly** `markdown` and nothing else, and that markdown equal to
+   the answer byte for byte - the answer deliberately carries blank lines, CRLF and a ```` ```markdown ```` fence, so
+   "the route forwards what it got" is proven rather than assumed (stripping the fence is `markdownToMindMap()`'s job
+   on the client). One call on the text channel: the runtime's model, no `response_format`, no tools, no pinned
+   provider, the adapter's default `temperature: 0.7`, a system turn byte-identical to this route's literal and a user
+   turn equal to `主题：<topic>\n请输出该主题的 Markdown 思维导图大纲。` The usage table is asserted to stay empty.
+2. No capability default: `prepareModel()` (a credential and one enabled model, no `chat` default) still answers with
+   the model, in one call - the install state most users are in.
+3. The whiteboard's preflight: `OPTIONS` -> 204, the three CORS headers, an empty body and **no** provider call, on a
+   keyless install. This is the case the batch's only foreign-origin consumer depends on, and it had no test before.
+4. The trim: a padded topic produces the trimmed prompt - `z.string().trim()` did the work and the route pasted its
+   output in whole (no slice, no second cap, unlike A3-2.4's 8000-character one).
+5. The guard: `{}`, `{ topic: "" }`, `{ topic: "   " }` and `{ topic: 42 }` are all 400 `INVALID_PAYLOAD` /
+   `Invalid payload` on an empty transport - validation runs before the call, so an unusable payload cannot reach the
+   runtime, and the transport proves nobody was asked.
+6. A body that is not JSON: 500 `UNKNOWN_ERROR`, carrying the parser's own message. This is the deliberate decision
+   above, pinned.
+7. Nothing configured: **503** `MODEL_NOT_CONFIGURED`, `No model is configured for this request`, no provider call,
+   and neither `Missing` nor `API key` anywhere in the body - the case that shows the legacy error class left this
+   route's contract.
+8. A credential revoked after the model was configured: **400** `MODEL_CREDENTIAL_MISSING` with the runtime's reason,
+   and no chat call at all (the pool refuses before a request exists). The old route answered a flat 500 here.
+9. Parity: a provider 5xx is still **502** `MODEL_UPSTREAM_FAILED` with `details.status` 503 after exactly one attempt.
+10. Parity: a blank completion is still **502** `MODEL_UPSTREAM_NO_CONTENT` - the adapter refuses it, which is why this
+    route needs no `EMPTY_RESULT` guard and no case can put `markdown: ""` in the envelope.
+
+The three CORS headers are additionally asserted on every failure above (cases 5-10, plus the success), because a
+failed call is a body the whiteboard *prints*: `generateMindMapMarkdown()` throws
+`AI 请求失败 (<status>): <body>` and a cross-origin read without the header would be a browser-level mystery instead
+of that message.
+
+The file mocks `@/lib/ai`, `@/lib/ai/generate` and `@/lib/ai/compat` with throwing factories, so a surviving
+`import { generateText } from "@/lib/ai"` anywhere under the handler fails the whole file instead of a packaged build.
+The shim mock is safe for the same reason as A3-2.3..2.5 and was not safe in A3-2.1/A3-2.2: the only production
+importer of `@/lib/ai/compat` is `lib/agent/image-generation.ts`, reached through `lib/article-images.ts`, and neither
+is on this route's graph. No business fixture is needed at all - the topic comes from the request - and the usage
+table is asserted to stay empty (this endpoint has never booked a row; adding one would be a business change, not this
+migration).
+
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .` exit 0 with
+  0 errors (the same single pre-existing `react-hooks/exhaustive-deps` warning),
+  `node_modules\.bin\vitest.cmd run` = **66 files / 391 tests, all pass** - A3-2.5's 65 / 381 plus exactly this batch's
+  1 file / 10 tests, with no case deleted anywhere. `git grep "generateText" -- src/app` now finds **one** production
+  call site (`api/content/[id]/rewrite`), so the facade's `generateText` surface went
+  **2 -> 1 (A3-3.1)**; `generateImageFile` (3, batch B) is untouched, and `lib/ai/generate.ts` therefore stays -
+  it still has a production caller until A3-3.2 lands.
+
+

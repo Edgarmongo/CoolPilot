@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { generateText } from "@/lib/ai";
+import { aiRuntime } from "@/features/ai-runtime";
 import { fail, failFromError, ok } from "@/lib/api";
 
 export const runtime = "nodejs";
@@ -53,18 +53,37 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders });
 }
 
+/**
+ * Turns one topic into a Markdown outline that the caller lays out itself.
+ *
+ * The model call goes straight to `aiRuntime` (batch P3-A3 of `docs/generate-migration-p3.md`): provider
+ * order, model choice, key rotation, failover and usage are the runtime's business, while the topic guard,
+ * the system literal and the prompt stay this route's. The answer is free text - this route has no schema
+ * and asks for no JSON mode - and it is forwarded verbatim as `{ markdown }`: interpreting the outline
+ * (headings -> tree, code fences, indentation fallbacks) belongs to the clients, `markdownToMindMap()` in
+ * `src/mindmap/mindmap-markdown.ts` for the canvas and `whiteboard/drawnix/utils/llm.ts` for the
+ * whiteboard, so nothing of it moved here. A failure keeps the runtime's own vocabulary *and* its HTTP
+ * status (D-P3-3) - credentials 400, nothing routable 503, upstream 502 - which is what this route's
+ * `failFromError` already passed on; only the legacy `MissingAIKeyError`, which used to flatten all of
+ * those into a 500, is gone from the contract. The response carries no provider/model and books no usage
+ * row, exactly as before: this endpoint has never charged a run, and adding one would be a business change
+ * rather than this migration.
+ */
 export async function POST(request: Request) {
   try {
     const parsed = schema.safeParse(await request.json());
     if (!parsed.success) {
       return withCors(fail("INVALID_PAYLOAD", 400, parsed.error));
     }
-    const result = await generateText({
-      prompt: `主题：${parsed.data.topic}\n请输出该主题的 Markdown 思维导图大纲。`,
+    const response = await aiRuntime.chat({
+      messages: [{ role: "user", content: `主题：${parsed.data.topic}\n请输出该主题的 Markdown 思维导图大纲。` }],
       systemPrompt: MINDMAP_SYSTEM_PROMPT,
     });
-    return withCors(ok({ markdown: result.text }));
+    return withCors(ok({ markdown: response.text }));
   } catch (error) {
+    // No local error taxonomy: `failFromError` keeps an `AppError`'s own code and status (the runtime sets
+    // both) and answers anything else - including the body guard above, which runs inside this same `try`
+    // and is why the fallback stays `UNKNOWN_ERROR` here instead of an AI-specific code - with a 500.
     return withCors(failFromError(error, "UNKNOWN_ERROR", 500));
   }
 }
