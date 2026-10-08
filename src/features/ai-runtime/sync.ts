@@ -130,8 +130,10 @@ export async function syncProviderCatalog(providerId: string): Promise<CatalogSy
  *
  * The pre-runtime path resolved a model on demand (`/models` → first usable id), so an install
  * that only had a key still worked. Routing needs a callable registry row instead, so the
- * legacy facade asks for this pass when routing found nothing at all
- * (`docs/generate-migration.md`, G3). Best-effort by design: a provider that is already
+ * legacy facade used to ask for this pass when routing found nothing at all
+ * (`docs/generate-migration.md`, G3); the caller is now the seed's cold-start pass
+ * (`ensureColdStartCatalogs` in `./registry`), which is also what keeps routing offline.
+ * Best-effort by design: a provider that is already
  * callable or has no credential is skipped without a network call, and a failing sync is
  * swallowed so the caller keeps reporting its own routing error.
  */

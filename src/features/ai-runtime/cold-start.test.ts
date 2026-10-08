@@ -7,8 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * Cold-start catalog discovery (D-P3-1 of `docs/generate-migration-p3.md`).
  *
  * The pre-runtime path resolved a model on demand, so an install that only had an API key answered
- * out of the box. The runtime needs a callable registry row instead, and `lib/ai/compat.ts` patches
- * that today by discovering inside a failed request. These tests pin the replacement: **the seed**
+ * out of the box. The runtime needs a callable registry row instead, and the path it replaced used to
+ * patch that by discovering inside a failed request (`lib/ai/compat.ts`, deleted in P4). These tests
+ * pin the replacement: **the seed**
  * discovers, routing stays offline, a provider that is down cannot break start-up, and a provider
  * that is already set up is never re-synced by a request.
  */
