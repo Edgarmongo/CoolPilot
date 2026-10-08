@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import * as schema from "./schema";
+import { quoteIdentifier } from "@/lib/backup";
 import { dataRoot, normalizeFileUrl } from "@/lib/paths";
 
 function resolveDatabaseUrl() {
@@ -410,9 +411,10 @@ async function initializeDatabase() {
     `CREATE INDEX IF NOT EXISTS idx_ai_credential_keys_status ON ai_credential_keys(status)`,
   ];
 
-  // Domain rename: migrate a legacy `sites` table to `accounts` and rename the
-  // related `site_id` / `site_name` columns. Best-effort; no-ops on fresh databases.
-  await sqlite.execute(`ALTER TABLE sites RENAME TO accounts`).catch(() => undefined);
+  // Domain rename: migrate a legacy `sites` table to `accounts` (see
+  // `renameLegacyAccountsTable` below) and rename the related `site_id` /
+  // `site_name` columns. Best-effort; no-ops on fresh databases.
+  await renameLegacyAccountsTable();
   await sqlite.execute(`ALTER TABLE schedules RENAME COLUMN site_id TO account_id`).catch(() => undefined);
   await sqlite.execute(`ALTER TABLE runs RENAME COLUMN site_id TO account_id`).catch(() => undefined);
   await sqlite.execute(`ALTER TABLE publish_records RENAME COLUMN site_id TO account_id`).catch(() => undefined);
@@ -457,4 +459,100 @@ async function initializeDatabase() {
 
   // Index on a metric column must run only after the ALTER TABLE above created it.
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_publish_records_metric_status ON publish_records(metric_status)`).catch(() => undefined);
+
+  // Runs last on purpose: by now `accounts` has every column this build declares, so a
+  // legacy table that predates one of them still migrates with all of its own columns.
+  await absorbLegacyAccountRows();
+}
+
+/**
+ * P5-B0-1. The accounts table was called `sites` before the domain rename, and real
+ * workspaces still hold accounts in it.
+ *
+ * The migration this replaced was one best-effort `ALTER TABLE sites RENAME TO accounts`
+ * wrapped in `.catch(() => undefined)`. SQLite answers `table accounts already exists`
+ * the moment `accounts` is present as well, so the rename no-opped, the error was
+ * swallowed, and those accounts stayed invisible to every reader in the app - the file
+ * backup included, since it walks the drizzle schema and a `sites` table is no part of
+ * it. The user's own accounts were left in a table nothing reads.
+ *
+ * The work is therefore two guarded steps rather than one ignored statement: the rename,
+ * which runs only when there is genuinely nothing to merge into, and the copy, which runs
+ * after the column migrations so a legacy table that predates a column still fills every
+ * column it has. Both are no-ops on a workspace that never had the table.
+ */
+const LEGACY_ACCOUNTS_TABLE = "sites";
+const ACCOUNTS_TABLE = "accounts";
+
+/** Which of the two account tables this workspace has. */
+async function accountTables() {
+  const result = await sqlite.execute({
+    sql: `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?)`,
+    args: [LEGACY_ACCOUNTS_TABLE, ACCOUNTS_TABLE],
+  });
+  return new Set(result.rows.map((row) => String(row.name)));
+}
+
+async function tableColumns(table: string) {
+  const result = await sqlite.execute({
+    sql: `SELECT name FROM pragma_table_info(?)`,
+    args: [table],
+  });
+  return result.rows.map((row) => String(row.name));
+}
+
+async function rowCount(table: string) {
+  const result = await sqlite.execute(`SELECT COUNT(*) AS total FROM ${quoteIdentifier(table)}`);
+  return Number(result.rows[0]?.total ?? 0);
+}
+
+/** The rename half of P5-B0-1: a workspace that only ever had `sites` keeps its rows. */
+async function renameLegacyAccountsTable() {
+  const tables = await accountTables();
+  if (!tables.has(LEGACY_ACCOUNTS_TABLE) || tables.has(ACCOUNTS_TABLE)) return;
+  // Not best-effort: a rename that fails here would hide the user's accounts again.
+  await sqlite.execute(
+    `ALTER TABLE ${quoteIdentifier(LEGACY_ACCOUNTS_TABLE)} RENAME TO ${quoteIdentifier(ACCOUNTS_TABLE)}`,
+  );
+}
+
+/**
+ * The half of P5-B0-1 the rename could never reach: `accounts` exists next to a legacy
+ * table that still holds rows.
+ *
+ * Rows are copied by column name, so a legacy table from before a column was added simply
+ * leaves that column at its default, and `INSERT OR IGNORE` keeps the row the app already
+ * shows whenever both tables describe the same id. A legacy row is deleted only once it is
+ * readable in `accounts`, so a partial copy cannot lose anything, and whatever is left over
+ * is reported instead of being dropped by a migration that cannot tell what it is.
+ */
+async function absorbLegacyAccountRows() {
+  const tables = await accountTables();
+  if (!tables.has(LEGACY_ACCOUNTS_TABLE)) return;
+
+  const destination = new Set(await tableColumns(ACCOUNTS_TABLE));
+  const shared = (await tableColumns(LEGACY_ACCOUNTS_TABLE)).filter((column) =>
+    destination.has(column),
+  );
+  // A table of that name holding something else is not this migration's business.
+  if (!shared.includes("id")) return;
+
+  const columns = shared.map(quoteIdentifier).join(", ");
+  const source = quoteIdentifier(LEGACY_ACCOUNTS_TABLE);
+  const target = quoteIdentifier(ACCOUNTS_TABLE);
+
+  const before = await rowCount(ACCOUNTS_TABLE);
+  await sqlite.execute(`INSERT OR IGNORE INTO ${target} (${columns}) SELECT ${columns} FROM ${source}`);
+  await sqlite.execute(`DELETE FROM ${source} WHERE id IN (SELECT id FROM ${target})`);
+
+  const moved = (await rowCount(ACCOUNTS_TABLE)) - before;
+  const left = await rowCount(LEGACY_ACCOUNTS_TABLE);
+  if (moved > 0) {
+    console.log(`[db] Moved ${moved} account(s) out of the legacy ${LEGACY_ACCOUNTS_TABLE} table.`);
+  }
+  if (left > 0) {
+    console.warn(
+      `[db] ${left} row(s) in the legacy ${LEGACY_ACCOUNTS_TABLE} table could not be read as accounts.`,
+    );
+  }
 }
