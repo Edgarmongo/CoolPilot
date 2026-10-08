@@ -211,7 +211,7 @@ that reaches it, each step independently shippable and revertable:
 | Slice | Work | Why this order | Ends in |
 | --- | --- | --- | --- |
 | **C1** | Join the ends: what a generator just produced opens in the editor. Shipped as the deep link `?edit=<id>` on 文章创作 (wizard result link + the article AI dialog handing its stored item over); no route, schema or 内容中心 change. | Biggest user-visible gain, smallest blast radius, no route or schema change. | 想法 -> AI 生产 -> 编辑 |
-| **C2** | One publish contract that records: the assisted run writes a `publish_records` row when the platform confirms (`/api/publish/verify`), abandons on discard, and moves the content item to `posted`. | Makes publish a fact instead of UI state; unblocks 发布记录 / 内容日历 / metrics. | 编辑 -> 发布 -> 记录 |
+| **C2** | One publish contract that records: the assisted run writes a `publish_records` row when the platform confirms (`/api/publish/verify`), abandons on discard, and moves the content item to `posted`. *Shipped in §7 as the success contract: the record and the `posted` move land; a discard or failure still writes nothing (D2).* | Makes publish a fact instead of UI state; unblocks 发布记录 / 内容日历 / metrics. | 编辑 -> 发布 -> 记录 |
 | **C3** | One generation service: extract the shared tail of the two generate routes into `src/lib` (behind both request schemas, or behind one), keeping the existing route tests as the pin. | Stops every later slice from being written twice. | one entry point for AI writing |
 | **C4** | One image identity: a single client+server resolver for an image reference, one stored shape, cover = first entry, and remote covers either fetched into the artifacts dir at creation or explicitly marked remote. | The cover is the one image publishing actually ships. | 图片 -> 发布 |
 | **C5** | Reuse: point the agent tool layer and the (static) app-store catalog at the C3 service, so Agent/Workflow/Template share one pipeline instead of a fourth copy. | Only meaningful once C3 exists; this is where the Agent/Workflow story gets its landing point. | 复用 |
@@ -247,7 +247,9 @@ Still open:
    文章创作, and the library keeps the shape F-C0-4 describes - read-only, linked from the wizard, not
    part of the editing loop yet.
 
-## 7. What has shipped since this audit (P5-C1)
+## 7. What has shipped since this audit
+
+### P5-C1 - the generator hands its item to the editor
 
 The first slice, implemented and verified in the C1 batch:
 
@@ -272,8 +274,70 @@ The first slice, implemented and verified in the C1 batch:
   `scripts/creator-editor-link-smoke.ts` (a real browser: the built link opens the item, leaving drops the
   parameter, a deleted item reports itself). The smoke needs a running server and does not click 生成 -
   that costs a real model call - so it navigates to exactly the href the wizard's JSX builds.
-- **Untouched**: `/content/library` (question 4 above), publishing (C2), the two generate routes (C3), the
-  image resolver (C4), and everything in P5-B0.
+- **Untouched**: `/content/library` (question 4 above), the publish paths C2 did not take, the two generate
+  routes (C3), the image resolver (C4), and everything in P5-B0.
+
+### P5-C2 - assisted publish becomes a fact
+
+The second slice. It closes the half of F-C0-2 / F-C0-8 that says the publish a creator performs writes
+nothing, and that the same act has different histories depending on who performs it. Before this batch a
+verified success existed only in `publish-run-panel`'s tab state: the `publish_records` row came from
+`/api/publish` (a different flow, one-shot) and `content.status = posted` only from the threads worker, so
+"the author published" and "the database knows" were unrelated events.
+
+- **The fact lands at the completion of verify, and the identity is server-owned.** `/api/publish/draft`
+  already *received* `contentItemId`/`contentType`/`method`/`terminal` from the panel - the schema accepted
+  them and the destructure discarded them - so it now remembers them as a receipt on the session that
+  performed the draft (`rememberPublishDraft`). `/api/publish/verify` is the only reader, and reading is
+  taking (`takePublishReceipt`): the first verify that reports success consumes the receipt, and the polls
+  that repeat while the dialog is still advancing find nothing left to record.
+- **Two conditions, neither of them the client's word**: the check has to report success, *and* this
+  process has to still hold the receipt of the draft that produced it. A success the server cannot
+  attribute to a content item is reported to the dialog and writes nothing - the client may claim
+  "published", it just cannot create a fact.
+- **One module, two writes, no service.** `src/lib/publish-facts.ts` exports a single
+  `recordPublishSuccess({ account, receipt, url, evidence, publishedAt })` that writes the
+  `publish_records` row and then moves the item to `posted`. It does not open a browser, decide whether a
+  publish happened, look an account up or know that a session exists; the layer order is Browser -> fact ->
+  database, never fact -> browser. Title and type come from the draft receipt rather than a re-read of the
+  item, because metric sync matches a platform post back to a record *by title* (`src/lib/metric-sync.ts`).
+  The record is written first: it *is* the fact and `posted` is its consequence, so a failure in the
+  second write leaves a record without a status move. A content item deleted between the draft and the
+  verify keeps its record for the same reason - the publish still happened.
+- **The row explains itself (D5).** The check is a heuristic - a URL that left the editor, or a success
+  phrase - so `checkPublishResult` now also returns `evidence`, and the record's `message` stores it
+  verbatim: `session left the editor URL at <url>` / `success confirmation visible at <url>`. The database
+  answers "why does this row say published" with the observation, instead of "the button said so".
+- **Decisions taken for this slice**: **D1** the idempotency is the consumed receipt, not a unique index
+  (single process, single user - the receipt's lifetime *is* the session's), which is *at-most-once per
+  in-memory receipt*, said that way on purpose: taking before writing means a failed write loses the fact
+  instead of duplicating it, and the alternative (peek, write, take) would need a unique index or a
+  transactional claim to stay idempotent, which is a Publish Service question and not this slice's.
+  **D2** a failed or discarded assisted run writes nothing; C2 establishes the success fact only.
+  **D3** `posted` still removes an item from `findNextReadyContentItem`, which is the intended
+  consequence. **D4** the threads worker is not wired in. **D5** the heuristic is accepted, with its
+  evidence stored.
+- **`contentItemId` is required for fact recording, and its absence fails safe.** A draft that names no
+  content item still opens the editor and still returns 200, but leaves no receipt, so no verify can turn
+  it into a fact: the caller that never had a content item stays untracked rather than acquiring a
+  misleading record. Silent by design in C2 (no UI change) - a future non-library publish (a one-off post
+  that belongs to no content item) is where this becomes a product question.
+- **Known, accepted asymmetries after C2**: (1) the threads worker still reaches `posted` through
+  `sleep(4000)` with no record - a weak signal that must not become a domain fact, so it waits for the
+  automatic-workflow slice; (2) an assisted run that fails or is discarded leaves no trace at all, unlike
+  the one-shot `/api/publish`, which writes `failed` rows; (3) that the heuristic can read a page the
+  author navigated to as a success is now *visible* in the record it writes.
+- **Pinned by**: `src/app/api/publish/verify/route.test.ts` (one success = exactly one record plus
+  `posted`; a repeated poll adds nothing; a failed check writes nothing and does not spend the receipt;
+  success without a receipt writes nothing; no session writes nothing) and
+  `src/app/api/publish/draft/route.test.ts` (the receipt is remembered, only for a draft that names a
+  content item, and only once). Both drive a fake session (`src/test/browser-session-fixture.ts`) instead
+  of Playwright: the check reads a URL and a body text, and the receipt lives on the session object, so no
+  browser, account or network is needed.
+- **Untouched**: the database schema, every client component (the verify response gains one field and the
+  request keeps its shape - `evidence` is additive, and the panel reads only `published` and `url`),
+  `/api/publish` and its one-shot semantics, `src/lib/threads.ts`, the platform profiles, and all three
+  locales.
 
 ## 8. Evidence index
 
@@ -293,6 +357,10 @@ The first slice, implemented and verified in the C1 batch:
 - Publishing: `src/lib/publish.ts`, `src/lib/browser-preview.ts`, `src/lib/account-health.ts`,
   `src/app/api/publish/*`, `src/components/creation/publish-run-panel.tsx`,
   `src/components/creation/content-publish-dialog.tsx`, `src/lib/threads.ts`, `src/worker/runner.ts`.
+- The publish fact and its pins (added by C2, §7): `src/lib/publish-facts.ts`,
+  `src/lib/browser-preview-session.ts` (`rememberPublishDraft` / `takePublishReceipt` /
+  `checkPublishResult`), `src/app/api/publish/draft/route.test.ts`,
+  `src/app/api/publish/verify/route.test.ts`, `src/test/browser-session-fixture.ts`.
 - Records and metrics: `src/app/api/publish-records/route.ts`,
   `src/db/repositories/publish-records.ts`, `src/lib/metric-*.ts`, `src/lib/metrics.ts`.
 - Reuse surfaces (the future Agent/Workflow/Template callers): `src/lib/agent/local-tools.ts`,
