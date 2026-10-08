@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, isNotNull, like, lte, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { browserProfilesRoot } from "@/lib/paths";
+import { accountProfilePath } from "@/lib/paths";
 import type {
   ContentItem,
   AgentChatMessageRecord,
@@ -47,7 +47,6 @@ import {
   accounts,
   usageRecords,
 } from "./schema";
-import path from "node:path";
 import { deriveContentImageAssociations } from "@/lib/content-image-reconciliation";
 import { contentImageList, mergeContentMetadata } from "@/lib/content-images";
 import { summarizeUsageRecords, usageRangeStart } from "@/lib/usage";
@@ -73,7 +72,10 @@ function toAccount(row: typeof accounts.$inferSelect): AccountRecord {
     platform: row.platform as AccountPlatform,
     url: row.url,
     account: row.account,
-    profilePath: row.profilePath,
+    // `row.profilePath` is history - where this account's browser profile lived in the
+    // workspace that created it (P5-B0-1.5). Consumers launch Chromium on this field, so it
+    // is resolved from the open workspace instead of the stored absolute path.
+    profilePath: accountProfilePath(row.id),
     memo: row.memo,
     status: row.status as AccountStatus,
     preset: parseJson<Record<string, unknown>>(row.presetJson, {}),
@@ -281,7 +283,7 @@ export async function createAccount(input: {
   await ensureDatabase();
   const id = nanoid();
   const createdAt = now();
-  const profilePath = path.join(browserProfilesRoot(), id);
+  const profilePath = accountProfilePath(id);
   await db.insert(accounts).values({
     id,
     name: input.name,
@@ -301,6 +303,11 @@ export async function createAccount(input: {
 export async function updateAccount(id: string, patch: Partial<Omit<AccountRecord, "id" | "createdAt">>) {
   await ensureDatabase();
   const { preset, ...rest } = patch;
+  // `profilePath` carries `accounts.profile_path`, history from the workspace this account
+  // was created in, and reads resolve the live path from the open workspace instead
+  // (P5-B0-1.5). It is therefore not writable: an edit that accepted it would plant the
+  // absolute path this build stopped trusting, on a machine that may not be this one.
+  delete rest.profilePath;
   await db
     .update(accounts)
     .set({
