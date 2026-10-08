@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { FileText, Pencil, Plus, Send, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConsolePagination } from "@/components/ui/console-pagination";
 import { consoleInputClass } from "@/components/ui/console-surface";
 import { Dialog } from "@/components/ui/dialog";
-import { apiDelete, apiPost, swrFetcher } from "@/lib/api-client";
+import { apiDelete, apiGet, apiPost, swrFetcher } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
+import { articleEditorPath, readArticleEditorTarget } from "@/lib/editor-link";
+import { localizedPath } from "@/lib/i18n-config";
 import { knowledgeCharacterCount } from "@/lib/knowledge-base";
 import type { TranslationKey } from "@/lib/locale-resources";
 import type { ContentItem, ContentPage } from "@/lib/types";
@@ -67,7 +70,7 @@ function formatDateTime(timestamp: number) {
 }
 
 export function ArticlesWorkspace() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
@@ -90,6 +93,34 @@ export function ArticlesWorkspace() {
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
 
+  const searchParams = useSearchParams();
+  const editorTarget = readArticleEditorTarget(searchParams);
+  // A deep link is consumed once: the id is remembered, so an item that cannot be opened (deleted,
+  // stale bookmark) reports itself and leaves the user on the list instead of retrying forever. An
+  // address that asks for nothing forgets the last entry, so the same item can be opened again later.
+  const openedTargetRef = useRef("");
+
+  useEffect(() => {
+    if (!editorTarget) {
+      openedTargetRef.current = "";
+      return;
+    }
+    if (openedTargetRef.current === editorTarget) return;
+    openedTargetRef.current = editorTarget;
+    let live = true;
+    void (async () => {
+      try {
+        const item = await apiGet<ContentItem>(`/api/content/${encodeURIComponent(editorTarget)}`);
+        if (live) setEditingItem(item);
+      } catch {
+        if (live) setNotice(t("arEditorOpenFailed"));
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [editorTarget, t]);
+
   async function openCreate() {
     setCreating(true);
     try {
@@ -103,6 +134,22 @@ export function ArticlesWorkspace() {
 
   function openEdit(item: ContentItem) {
     setEditingItem(item);
+  }
+
+  /**
+   * Closing the editor also drops the entry parameter, so a reload shows the list instead of reopening
+   * whatever was edited last.
+   *
+   * The native History API rather than `router.replace`: this route reads `useSearchParams` inside a
+   * `Suspense` boundary (see the page), and there a `replace` whose pathname is already the current one
+   * never commits - the router re-fetches the *current* URL and the address bar keeps the parameter
+   * (observed against a production build of this batch). `replaceState` is the documented way to change
+   * the URL without navigating, and `useSearchParams` follows it.
+   */
+  function closeEditor() {
+    setEditingItem(null);
+    void mutate();
+    if (editorTarget) window.history.replaceState(null, "", localizedPath(locale, articleEditorPath));
   }
 
   async function handleDelete() {
@@ -126,10 +173,7 @@ export function ArticlesWorkspace() {
           setEditingItem(next);
           void mutate();
         }}
-        onExit={() => {
-          setEditingItem(null);
-          void mutate();
-        }}
+        onExit={closeEditor}
       />
     );
   }
@@ -298,9 +342,11 @@ export function ArticlesWorkspace() {
       <ArticleAiDialog
         open={aiOpen}
         onClose={() => setAiOpen(false)}
-        onGenerated={(title) => {
-          setNotice(t("arGenerated", { title }));
+        onGenerated={(item) => {
+          setNotice(t("arGenerated", { title: item.title }));
           void mutate();
+          // C1: what was just generated opens in the editor instead of ending as a toast (F-C0-4).
+          setEditingItem(item);
         }}
       />
       <ContentPublishDialog

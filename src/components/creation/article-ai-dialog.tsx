@@ -52,7 +52,12 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-/** AI generation dialog used by the article-creation page. */
+/**
+ * AI generation dialog used by the article-creation page.
+ *
+ * It hands the *stored* item back rather than its title (P5-C1): the caller opens the editor on what
+ * was just generated, which is what closes F-C0-4 of `docs/creator-workflow-audit.md`.
+ */
 export function ArticleAiDialog({
   open,
   onClose,
@@ -60,7 +65,7 @@ export function ArticleAiDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onGenerated: (title: string) => void;
+  onGenerated: (item: ContentItem) => void;
 }) {
   const { t } = useI18n();
   const { data: positions = [] } = useSWR<PositionRecord[]>("/api/positions", swrFetcher);
@@ -110,7 +115,7 @@ export function ArticleAiDialog({
       });
       setTopic("");
       setPrompt("");
-      onGenerated(result.item.title);
+      onGenerated(result.item);
       onClose();
     } catch {
       setError(t("awGenerateFailed"));

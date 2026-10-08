@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, RefreshCw, Sparkles } from "lucide-react";
+import { CheckCircle2, PenLine, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiPost } from "@/lib/api-client";
+import { articleEditorHref } from "@/lib/editor-link";
 import {
   audienceLabelKeys,
   articleStyleLabelKeys,
@@ -113,12 +114,21 @@ export function AiWritingStepOutput({
           {loading ? t("awGenerating") : result ? t("awRegenerate") : t("awGenerate")}
         </Button>
         {result ? (
-          <Link
-            href={localizedPath(locale, "/content/library")}
-            className="text-sm font-medium text-sky-600 hover:underline"
-          >
-            {t("awOpenLibrary")}
-          </Link>
+          <>
+            <Link
+              href={articleEditorHref(locale, result.item.id)}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-sky-700 transition hover:text-sky-900 hover:underline"
+            >
+              <PenLine className="size-4" />
+              {t("awOpenEditor")}
+            </Link>
+            <Link
+              href={localizedPath(locale, "/content/library")}
+              className="text-sm font-medium text-sky-600 hover:underline"
+            >
+              {t("awOpenLibrary")}
+            </Link>
+          </>
         ) : null}
       </div>
 

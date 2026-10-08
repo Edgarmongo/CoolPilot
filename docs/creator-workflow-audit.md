@@ -210,7 +210,7 @@ that reaches it, each step independently shippable and revertable:
 
 | Slice | Work | Why this order | Ends in |
 | --- | --- | --- | --- |
-| **C1** | Join the ends: the generation result opens in the editor (a deep link into 文章创作 with the item open, plus an 编辑 entry from 内容中心's details dialog). | Biggest user-visible gain, smallest blast radius, no route or schema change. | 想法 -> AI 生产 -> 编辑 |
+| **C1** | Join the ends: what a generator just produced opens in the editor. Shipped as the deep link `?edit=<id>` on 文章创作 (wizard result link + the article AI dialog handing its stored item over); no route, schema or 内容中心 change. | Biggest user-visible gain, smallest blast radius, no route or schema change. | 想法 -> AI 生产 -> 编辑 |
 | **C2** | One publish contract that records: the assisted run writes a `publish_records` row when the platform confirms (`/api/publish/verify`), abandons on discard, and moves the content item to `posted`. | Makes publish a fact instead of UI state; unblocks 发布记录 / 内容日历 / metrics. | 编辑 -> 发布 -> 记录 |
 | **C3** | One generation service: extract the shared tail of the two generate routes into `src/lib` (behind both request schemas, or behind one), keeping the existing route tests as the pin. | Stops every later slice from being written twice. | one entry point for AI writing |
 | **C4** | One image identity: a single client+server resolver for an image reference, one stored shape, cover = first entry, and remote covers either fetched into the artifacts dir at creation or explicitly marked remote. | The cover is the one image publishing actually ships. | 图片 -> 发布 |
@@ -221,20 +221,61 @@ export surface, image or video library redesign beyond the cover path, Marketpla
 runtime capability. C1 and C2 are the two that change what a creator can accomplish; C3 and C4 are the
 two that make the next ten features cheaper.
 
-## 6. Open questions for the product owner
+## 6. Decisions, and what is still open
 
-1. **Which publish semantics is the Creator Workflow's?** Assisted (today's dialog: the human clicks
-   publish) or automatic (`/api/publish`)? C2 can be written either way, but not both, and it decides
-   which route owns the record write.
-2. **Does the wizard keep its own endpoint?** If yes, C3 becomes "one service, two thin routes"; if no,
-   C3 becomes "one route, two payload shapes" and the older dialog migrates.
-3. **Is an image reference allowed to point outside the workspace?** Today a remote `og:image` is stored
-   as the cover and dropped at publish time. Either the workspace owns every published image (fetch at
-   creation) or the product admits remote covers and teaches publishing to handle them.
-4. **Does 内容中心 become an editing entry, or stay the read-only inventory?** C1 assumes it gains one
-   link; a stronger version would make it the library the workflow returns to.
+Answered by the product owner before C1, and recorded here because C2..C5 are designed against them:
 
-## 7. Evidence index
+1. **Publish semantics: assisted.** The Creator Workflow publishes the way the editor dialog does today -
+   the human confirms, CoolPilot executes, `verify` reports, the record is written. Automatic publishing
+   is not rejected, it is *later* and belongs to the same Publish Domain: the fact that something was
+   published is the publish layer's business, not the screen's, so C2 puts the `publish_records` write and
+   the `posted` transition in one place a future Workflow trigger can also call. What it must not become
+   is "the button writes the record".
+2. **The wizard keeps its own endpoint.** C3 is therefore "one generation service, two thin routes" -
+   the duplicated *tail* (prompt -> AI -> images -> content item -> usage) collapses into a service, while
+   the two HTTP entries keep their own payloads, guards, response envelopes and UI meaning. The audit's
+   finding was duplicated business implementation, not a surplus entry point.
+3. **An image reference should own a workspace identity.** Direction given for C4: an external asset (a
+   remote `og:image`) is brought into the workspace at creation time (`fetch` -> `artifacts/` ->
+   content image reference), so Content and the publish layer only ever see a local path. This is the
+   local-first rule applied to images; the work itself stays in C4.
+
+Still open:
+
+4. **Does 内容中心 become an editing entry, or stay the read-only inventory?** Unanswered, so C1 does not
+   touch `/content/library` at all: the hand-off below runs from the two generators to the editor inside
+   文章创作, and the library keeps the shape F-C0-4 describes - read-only, linked from the wizard, not
+   part of the editing loop yet.
+
+## 7. What has shipped since this audit (P5-C1)
+
+The first slice, implemented and verified in the C1 batch:
+
+- **The hand-off is a URL, not a second screen.** `?edit=<content id>` on the 文章创作 route
+  (`src/lib/editor-link.ts`) is produced by the wizard's own result
+  (`src/components/creation/ai-writing/ai-writing-step-output.tsx`: 在编辑器中打开) and consumed by the
+  workspace (`src/components/creation/articles-workspace.tsx`), which reads that one item
+  (`GET /api/content/[id]`) and renders the editor in place of the list. The parameter is an *entry*, not
+  state: closing the editor drops it, so a reload lands on the list. (The route therefore needs a
+  `Suspense` boundary around `useSearchParams` - see `src/app/[locale]/(console)/creation/articles/page.tsx`.)
+  Dropping it is `window.history.replaceState`, not `router.replace`: measured against a production build
+  of this batch, a `replace` whose pathname is already the current one never commits on this route - the
+  router re-fetches the *current* URL three times and the address bar keeps `?edit=`, while the native
+  History API (which Next documents as syncing `useSearchParams`) updates it and the page follows.
+- **The other generator no longer ends in a toast.** `ArticleAiDialog` hands the stored item back
+  (`src/components/creation/article-ai-dialog.tsx:118`) instead of its title, so 新增 / AI 生成 also opens
+  the editor on what was just written rather than leaving the creator to find it by title in a list.
+- **A link that cannot be opened says so** - `arEditorOpenFailed` in all three locales - instead of
+  landing on an empty list.
+- **Pinned by**: `src/lib/editor-link.test.ts` (the URL contract itself),
+  `src/app/api/content/[id]/route.test.ts` (the read the editor depends on: the item, or a 404),
+  `scripts/creator-editor-link-smoke.ts` (a real browser: the built link opens the item, leaving drops the
+  parameter, a deleted item reports itself). The smoke needs a running server and does not click 生成 -
+  that costs a real model call - so it navigates to exactly the href the wizard's JSX builds.
+- **Untouched**: `/content/library` (question 4 above), publishing (C2), the two generate routes (C3), the
+  image resolver (C4), and everything in P5-B0.
+
+## 8. Evidence index
 
 - Generation: `src/app/api/content/generate/route.ts`, `src/app/api/ai-writing/generate/route.ts`,
   `src/app/api/content/import-url/route.ts`, `src/lib/scraper.ts`, `src/lib/ai-writing.ts`,
@@ -257,9 +298,14 @@ two that make the next ten features cheaper.
 - Reuse surfaces (the future Agent/Workflow/Template callers): `src/lib/agent/local-tools.ts`,
   `src/lib/agent/tool-registry.ts`, `src/lib/app-store-catalog.ts`, `src/app/api/app-store/route.ts`.
 
-## 8. What this audit did not do
+## 9. What this audit did not do
 
-No product code, schema, API, translation or test was written or changed; the only file this batch adds
-is this document. No live publish was attempted and no workspace was touched. Nothing in P5-B0
-(`src/lib/workspace/*`, `/api/workspace/manifest`, Workspace Overview) was reopened, and none of the
-findings above is scheduled - they are inputs to the C-series decision, not a backlog.
+Sections 0-5 and 8 are the read-only audit: no product code, schema, API, translation or test was
+written or changed by it; the only file that batch added is this document. No live publish was attempted
+and no workspace was touched. Nothing in P5-B0 (`src/lib/workspace/*`, `/api/workspace/manifest`,
+Workspace Overview) was reopened, and none of the findings above is scheduled by the audit itself - they
+are inputs to the C-series decision, not a backlog.
+
+§6 and §7 came after it and are the opposite kind of writing: the product owner's answers, and the C1
+batch they unblocked. From here on this document is a decision record as well as an audit - re-read it
+before assuming what the next slice is.
