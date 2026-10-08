@@ -627,3 +627,120 @@ these tables (`resetRuntime()` resets the runtime's own tables, not the business
   `git grep "generateStructured" -- src` now finds, in production code, **one** remaining route
   (`positions/generate`), the facade itself and its own test: **4 -> 3 (A3-2.2) -> 2 (A3-2.3) -> 1 (A3-2.4)**. One route
   left before the facade has no production caller at all.
+
+### P3-A3-2.5 - `api/positions/generate`
+
+The "AI 生成定位" route: one sentence in, a whole writing profile out (and no row of its own - the dialog saves the
+draft through another endpoint). It is the second and last of the two routes §2.1 lists as "catch -> deterministic
+local fallback" (row 6), and §2.1's `generateStructured` column ends here: after this batch the legacy facade has **no
+production caller at all**.
+
+| Field | Before | After |
+| --- | --- | --- |
+| Call | `generateStructured({ prompt, systemPrompt, schema: aiPositionSchema })` | `aiRuntime.chatStructured({ messages: [{ role: "user", content: prompt }], systemPrompt, schema: aiPositionSchema })` |
+| Entry | `result.data` -> the eight profile fields | `response.data` - unchanged |
+| Provider / model | `result.provider`, `result.model` (usage row, response) | `response.providerId`, `response.model` |
+| Usage | `result.usage?.inputTokens` / `outputTokens` / `totalTokens` | `response.usage?.*` - unchanged field names |
+| Schema | the route's own local `aiPositionSchema` | unchanged: no import moves here either, because `@/lib/ai/schemas` was never this route's source |
+| Failure | `catch (error)` -> `buildPositionDraftFromPrompt()` -> 200 `source: "fallback"` + `reason` | the same `catch` - see below |
+| Legacy import | `generateStructured` from `@/lib/ai/generate` | none: this route now imports nothing from `@/lib/ai` at all |
+
+Kept, because this batch moves a boundary rather than a business: the prompt (`用户想做这样的账号：`), the six-line
+`systemPrompt` literal, the payload guard, the eight answer fields, the whole normalisation chain
+(`normalizePositionDraft({ ...emptyPositionDraft(name), ...data })`, which trims every field and clamps it to
+`positionFieldLimits`, and which resets `bannedWords` / `antiAiDetection` / `aiFreedom` / `cooldownDays` /
+`platformOverrides` / `rssSources` / `store` to their defaults whatever the model answered), the AI path's habit of
+storing a blank `name` as blank (deriving one from the sentence is the fallback's job, not the model's), the usage row
+(`kind: "profile"`, the runtime's tokens, the character count of the model's `personaRole`) and the response
+`{ draft, source: "ai", provider, model }`.
+
+**Like A3-2.4 - and unlike A3-2.1..2.3 - this route does not adopt D-P3-3.**
+
+| Runtime outcome | A3-2.1..2.3 | `positions/generate` |
+| --- | --- | --- |
+| `MODEL_CREDENTIAL_MISSING` (no usable key) | 400, the runtime's code | **200** `source: "fallback"` + `reason` |
+| `MODEL_CREDENTIAL_UNAVAILABLE` (pool exhausted) | 429 + `details.reasons` | **200** `source: "fallback"` + `reason` |
+| `MODEL_UPSTREAM_FAILED` (provider 5xx) | 502 + `details.status` | **200** `source: "fallback"` + `reason` |
+| `AI_STRUCTURED_OUTPUT_INVALID` (both attempts) | 502 | **200** `source: "fallback"` + `reason` |
+| `MODEL_NOT_CONFIGURED` / `MODEL_CAPABILITY_UNAVAILABLE` | 503 / 409 | **200** `source: "fallback"` + `reason` |
+| `INVALID_PAYLOAD` (this route's own guard) | 400 | 400 - unchanged |
+| `MissingAIKeyError` (the legacy shim) | - | gone: `reason` carries the runtime's own message instead |
+
+`failFromError` appears nowhere in the file, and the envelope grows no `code`. The dialog
+(`components/smart-config/positioning-ai-dialog.tsx`) calls `apiPost` and then either applies `result.draft` or shows
+`posAiFailed`; it reads neither `source` nor `reason`. The fallback is therefore invisible to it - which is exactly why
+the route has to keep answering it instead of an "AI provider failed" error: an install with no key is the normal state
+for a first run, and the dialog's whole promise is that a sentence always comes back as a usable draft.
+
+**The one thing this route's body can see change is `reason`**, the third key of the fallback payload - and this is the
+concrete form of "P3-C deletes the legacy error abstraction, not the business fallback". The legacy path quoted
+`MissingAIKeyError` (`Missing qwen API key`) or a provider error; it now quotes whatever the runtime actually failed
+with:
+
+| Failure | `reason` on the wire |
+| --- | --- |
+| Nothing routable | `No model is configured for this request` |
+| Model configured, no usable key | `No configured model has a usable credential for this request` |
+| Provider 5xx | `Chat completion HTTP 503: {"error":{"message":"boom"}}` - the adapter's own wording |
+| Both answers rejected by the schema | `Structured output validation failed: <the zod issue>...` |
+
+That is the honest text of the failure instead of the shim's guess at it, nothing branches on the string (the dialog
+does not read it, and no consumer of this route does), and every one of those values is pinned in the test file - so a
+later change to it is a conscious decision rather than a silent one.
+
+Tests (`src/app/api/positions/generate/route.test.ts`, 9 cases - the runtime is *not* mocked, the route handler is
+called for real, and only the transport is stubbed):
+
+1. Success: HTTP 200, `source: "ai"`, a payload whose keys are exactly `draft` / `source` / `provider` / `model`, the
+   runtime's provider pair, and a draft deep-equal to `{ ...emptyPositionDraft(name), <the model's seven other fields,
+   trimmed> }` - every field normalised, and the name is the model's rather than the sentence's first segment the local
+   builder would use. On the wire: one structured call with JSON mode (`response_format: { type: "json_object" }`),
+   turns `["system", "user"]`, a system turn byte-identical to this route's literal, and a user turn that starts with
+   `用户想做这样的账号：` plus the sentence and carries the runtime's schema instruction. One usage row: `kind:
+   "profile"`, `qwen` / `qwen3-max`, the runtime's tokens (11/7/18) and `wordCount` = the character count of the
+   *model's* `personaRole` - asserted to differ from the sentence's.
+2. An overreaching answer (100/600/2400 characters on the clamped fields, plus `bannedWords`, `antiAiDetection`,
+   `aiFreedom`, `cooldownDays`, `platformOverrides`, `rssSources` and a `store` claiming `status: "published"`): the
+   three oversized fields end exactly at `positionFieldLimits.name` / `.description` / `.personaRole`, `personaSeeds`
+   keeps what the model said inside its own field, and every switch `aiPositionSchema` never asks about is at its
+   default - a model cannot publish a store listing or switch off the AI-detection guard through this route. A second
+   answer with a whitespace-only name stores blank, because deriving a name from the sentence is the fallback's job.
+3. Nothing configured: HTTP **200**, `source: "fallback"`, keys exactly `draft` / `reason` / `source`, the draft
+   deep-equal to `buildPositionDraftFromPrompt(prompt)`, `reason` = `No model is configured for this request`, no `code`
+   anywhere in the body, no provider call at all and no usage row.
+4. A credential revoked after the model was configured (`MODEL_CREDENTIAL_MISSING`, the 400 of every other route in this
+   batch): still **200** `source: "fallback"`, `reason` = `No configured model has a usable credential for this request`,
+   no chat call, no usage row.
+5. A provider 5xx: exactly one attempt, then the same 200 fallback, `reason` = the adapter's wording, nothing billed.
+6. An answer `aiPositionSchema` rejects twice: two calls (the runtime's corrective retry), then the fallback, `reason`
+   starting with `Structured output validation failed`, and the rejected name nowhere in the draft.
+7. The guards: `{}`, a whitespace-only `prompt`, 301 characters and a body that is not JSON are all 400
+   `INVALID_PAYLOAD` / `Invalid payload` on an empty transport, with nothing billed. Validation runs before the call, so
+   an unusable payload can never reach the fallback - the one answer this route words itself.
+8. The ceiling: a 300-character sentence padded with spaces is trimmed by `positionGenerateSchema` and pasted in whole
+   (`用户想做这样的账号：` + all 300 characters). This route slices nothing - unlike A3-2.4's 8000-character cap, there
+   is no second limit for a case to find.
+9. No capability default: `prepareModel()` (a credential and one enabled model, no `chat` / `structured_output` default)
+   still answers `source: "ai"` in one call.
+
+The file mocks `@/lib/ai`, `@/lib/ai/generate` and `@/lib/ai/compat` with throwing factories. That is what makes this
+the file that proves `generateStructured` left this route's graph: a surviving
+`import { generateStructured } from "@/lib/ai/generate"` anywhere under the handler - the shape this batch replaced -
+would fail here instead of in a packaged build. The shim mock is safe for the same reason as A3-2.3/A3-2.4 and was not
+safe in A3-2.1/A3-2.2: the only production importer of `@/lib/ai/compat` is `lib/agent/image-generation.ts`, reached
+through `lib/article-images.ts`, and neither is on this route's graph (`@/db/repository`, `@/lib/api`, `@/lib/positions`,
+`@/lib/usage`, `@/lib/validation` and the runtime). No business fixture is needed at all - the sentence comes from the
+request - and only the usage rows are diffed by id, because `resetRuntime()` resets the runtime's own tables and not the
+business ones.
+
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .` exit 0 with
+  0 errors (the same single pre-existing `react-hooks/exhaustive-deps` warning),
+  `node_modules\.bin\vitest.cmd run` = **65 files / 381 tests, all pass** - A3-2.4's 64 / 372 plus exactly this batch's
+  1 file / 9 tests, with no case deleted anywhere. In production code, `git grep "generateStructured" -- src
+  ":(exclude)*.test.ts"` now finds only a comment in `features/ai-runtime/runtime.ts`, a comment in `lib/scraper.ts`,
+  the facade's own definition and the facade's barrel:
+  **4 -> 3 (A3-2.2) -> 2 (A3-2.3) -> 1 (A3-2.4) -> 0 (A3-2.5)** - after this batch the legacy structured-output path
+  has no production caller at all, and **P3-A3-2 is complete**. What still imports the facade is `generateText`
+  (`api/content/mindmap`, `api/content/[id]/rewrite`) and `generateImageFile` (`api/images` and `lib/article-images`),
+  and `lib/agent/image-generation.ts` is still the compat shim's only production importer: the surface the batches
+  after this one own, and nothing more.

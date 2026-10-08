@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createUsageRecord } from "@/db/repository";
+import { aiRuntime } from "@/features/ai-runtime";
 import { fail, ok, parseJson } from "@/lib/api";
-import { generateStructured } from "@/lib/ai/generate";
 import { buildPositionDraftFromPrompt, emptyPositionDraft, normalizePositionDraft } from "@/lib/positions";
 import { countTextCharacters } from "@/lib/usage";
 import { positionGenerateSchema } from "@/lib/validation";
@@ -29,29 +29,46 @@ const systemPrompt = [
   "writingGuide 为 3-5 条写作准则，每条一行。全部使用简体中文。",
 ].join("\n");
 
+/**
+ * Turns one sentence into a whole writing profile for the "AI 生成定位" dialog.
+ *
+ * The model call goes straight to `aiRuntime` (batch P3-A3 of `docs/generate-migration-p3.md`): provider
+ * order, model choice, key rotation, failover and structured-output validation are the runtime's business,
+ * while the prompt, the schema, the draft normalisation below and the usage row stay this route's. The
+ * answer is read through the runtime's own names (`providerId`, `model`, `usage`).
+ *
+ * The catch is deliberately *not* an error answer, and this is the second of the two routes §2.1 lists
+ * that way (the other is `knowledge-base/ai-parse`): any AI failure - nothing configured, no usable
+ * credential, a provider that is down, an answer that failed the schema twice - falls back to
+ * `buildPositionDraftFromPrompt()` and still answers 200 with `source: "fallback"`. `failFromError` (and
+ * with it D-P3-3's code/status pass-through) does not apply here: the dialog reads the draft or shows its
+ * own failure message, and the payload guard the handler runs before the call is the only answer this
+ * route words itself. The one thing that does change on this path is `reason`, which quotes the failure's
+ * message and therefore now quotes the runtime's.
+ */
 export async function POST(request: Request) {
   const parsed = await parseJson(request, positionGenerateSchema);
   if (parsed.error) return fail("INVALID_PAYLOAD", 400, parsed.error);
 
   const prompt = parsed.data.prompt;
   try {
-    const result = await generateStructured({
-      prompt: `用户想做这样的账号：${prompt}`,
+    const response = await aiRuntime.chatStructured({
+      messages: [{ role: "user", content: `用户想做这样的账号：${prompt}` }],
       systemPrompt,
       schema: aiPositionSchema,
     });
-    const draft = normalizePositionDraft({ ...emptyPositionDraft(result.data.name), ...result.data });
+    const draft = normalizePositionDraft({ ...emptyPositionDraft(response.data.name), ...response.data });
     await createUsageRecord({
-      provider: result.provider,
-      model: result.model,
+      provider: response.providerId,
+      model: response.model,
       kind: "profile",
       status: "success",
-      inputTokens: result.usage?.inputTokens,
-      outputTokens: result.usage?.outputTokens,
-      totalTokens: result.usage?.totalTokens,
-      wordCount: countTextCharacters(result.data.personaRole),
+      inputTokens: response.usage?.inputTokens,
+      outputTokens: response.usage?.outputTokens,
+      totalTokens: response.usage?.totalTokens,
+      wordCount: countTextCharacters(response.data.personaRole),
     });
-    return ok({ draft, source: "ai" as const, provider: result.provider, model: result.model });
+    return ok({ draft, source: "ai" as const, provider: response.providerId, model: response.model });
   } catch (error) {
     // No provider configured / provider failure: fall back to a deterministic local draft.
     const draft = buildPositionDraftFromPrompt(prompt);
