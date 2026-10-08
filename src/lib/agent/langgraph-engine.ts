@@ -1,7 +1,6 @@
 import path from "node:path";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { generateStructured, toolPlanSchema, type ToolPlanStep } from "@/lib/ai";
 import {
   appendAgentRuntimeEvent,
   createAgentRuntimeRun,
@@ -11,6 +10,8 @@ import {
   updateAgentRuntimeRun,
 } from "@/db/repository";
 import { getBrandSettings, getLocalAgentSettings, getPromptSettings } from "@/db/repositories/settings";
+import { aiRuntime } from "@/features/ai-runtime";
+import { toolPlanSchema, type ToolPlanStep } from "@/lib/ai/schemas";
 import { defaultLocale, localeLanguageName, type Locale } from "@/lib/i18n-config";
 import { localeResources, type TranslationKey } from "@/lib/locale-resources";
 import { browserProfilesRoot } from "@/lib/paths";
@@ -161,8 +162,12 @@ export async function planToolCalls(input: AgentRunInput, registry: ToolRegistry
 
   let steps: ToolPlanStep[];
   try {
-    const result = await generateStructured({ prompt, systemPrompt: PLANNER_SYSTEM_PROMPT, schema: toolPlanSchema });
-    steps = result.data.steps.filter((step) => registry.has(step.tool));
+    const response = await aiRuntime.chatStructured({
+      messages: [{ role: "user", content: prompt }],
+      systemPrompt: PLANNER_SYSTEM_PROMPT,
+      schema: toolPlanSchema,
+    });
+    steps = response.data.steps.filter((step) => registry.has(step.tool));
   } catch {
     steps = [];
   }

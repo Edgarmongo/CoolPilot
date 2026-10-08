@@ -1,9 +1,10 @@
 import path from "node:path";
 import { z } from "zod";
 import { createContentItem, updateContentItemImage } from "@/db/repository";
+import { aiRuntime } from "@/features/ai-runtime";
+import { imagePromptSchema } from "@/lib/ai/schemas";
 import { artifactsRoot } from "@/lib/paths";
 import { generateTopicPost } from "@/lib/scraper";
-import { generateStructured, imagePromptSchema } from "@/lib/ai";
 import { runSiteBrowserTool } from "@/lib/browser-preview";
 import { generateImageFile as callImageGenerationEndpoint } from "./image-generation";
 import { playwrightSessionManager } from "./playwright-session";
@@ -188,19 +189,24 @@ export function createDefaultToolRegistry() {
       outputSchema: z.object({ prompt: z.string(), provider: z.string(), model: z.string() }),
       requiresApproval: (_input, context) => needsApproval(context.settings.agentPermissions.generateImage),
       async execute(input, context) {
-        const result = await generateStructured({
-          prompt: [
-            "Create one concise image generation prompt for a social media post.",
-            "If post context is provided, the image must illustrate that post context and must not invent an unrelated scene.",
-            "The prompt field must mention composition, subject, style, lighting, and aspect ratio.",
-            `Topic: ${input.topic}`,
-            input.postContext ? `Post context: ${input.postContext}` : "",
-            input.style ? `Style: ${input.style}` : "",
-          ].filter(Boolean).join("\n"),
+        const response = await aiRuntime.chatStructured({
+          messages: [
+            {
+              role: "user",
+              content: [
+                "Create one concise image generation prompt for a social media post.",
+                "If post context is provided, the image must illustrate that post context and must not invent an unrelated scene.",
+                "The prompt field must mention composition, subject, style, lighting, and aspect ratio.",
+                `Topic: ${input.topic}`,
+                input.postContext ? `Post context: ${input.postContext}` : "",
+                input.style ? `Style: ${input.style}` : "",
+              ].filter(Boolean).join("\n"),
+            },
+          ],
           schema: imagePromptSchema,
           systemPrompt: context.systemPrompt,
         });
-        return { prompt: result.data.prompt.trim(), provider: result.provider, model: result.model };
+        return { prompt: response.data.prompt.trim(), provider: response.providerId, model: response.model };
       },
     })
     .register({

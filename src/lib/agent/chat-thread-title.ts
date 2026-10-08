@@ -1,5 +1,6 @@
 import { updateAgentChatThreadTitle } from "@/db/repository";
-import { chatTitleSchema, generateStructured } from "@/lib/ai";
+import { aiRuntime } from "@/features/ai-runtime";
+import { chatTitleSchema } from "@/lib/ai/schemas";
 import type { Locale } from "@/lib/i18n-config";
 import type { AgentChatMessageWithTools, AgentChatThreadRecord } from "@/lib/types";
 
@@ -64,17 +65,22 @@ export async function generateChatThreadTitle(input: {
 
   try {
     const language = input.locale === "zh-hk" ? "Traditional Chinese for Hong Kong" : input.locale === "en" ? "English" : "Simplified Chinese";
-    const result = await generateStructured({
-      prompt: [
-        "Create one concise title for this chat history.",
-        `Language: ${language}.`,
-        "Rules: the title field must be 2 to 8 words, no generic title like Chat.",
-        "User messages:",
-        ...messages.map((message, index) => `${index + 1}. ${message}`),
-      ].join("\n"),
+    const response = await aiRuntime.chatStructured({
+      messages: [
+        {
+          role: "user",
+          content: [
+            "Create one concise title for this chat history.",
+            `Language: ${language}.`,
+            "Rules: the title field must be 2 to 8 words, no generic title like Chat.",
+            "User messages:",
+            ...messages.map((message, index) => `${index + 1}. ${message}`),
+          ].join("\n"),
+        },
+      ],
       schema: chatTitleSchema,
     });
-    const generated = normalizeChatThreadTitle(result.data.title);
+    const generated = normalizeChatThreadTitle(response.data.title);
     if (generated && !isGenericChatThreadTitle(generated)) {
       return generated;
     }

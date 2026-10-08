@@ -1,26 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/ai", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/ai")>("@/lib/ai");
-  return { ...actual, generateStructured: vi.fn() };
+/**
+ * The planner runs on `aiRuntime` since P3-A2, so the mock moved from the legacy `@/lib/ai` facade
+ * to the runtime itself. Everything else about this suite is unchanged: what it pins is the wiring
+ * between a plan step and the tool call it becomes, not the transport.
+ */
+vi.mock("@/features/ai-runtime", async () => {
+  const actual = await vi.importActual<typeof import("@/features/ai-runtime")>("@/features/ai-runtime");
+  return { ...actual, aiRuntime: { ...actual.aiRuntime, chatStructured: vi.fn() } };
 });
 
-import { generateStructured } from "@/lib/ai";
+import { aiRuntime } from "@/features/ai-runtime";
 import { planToolCalls } from "./langgraph-engine";
 import { createDefaultToolRegistry } from "./local-tools";
-import type { ToolPlanStep } from "@/lib/ai";
+import type { ToolPlanStep } from "@/lib/ai/schemas";
 import type { AccountRecord } from "@/lib/types";
 
 const registry = createDefaultToolRegistry();
-const mockedGenerateStructured = vi.mocked(generateStructured);
+const mockedChatStructured = vi.mocked(aiRuntime.chatStructured);
 
 function planSteps(steps: ToolPlanStep[]) {
-  mockedGenerateStructured.mockResolvedValue({
+  mockedChatStructured.mockResolvedValue({
     data: { steps },
-    provider: "gemini",
-    model: "test-model",
-    keyLabel: "****",
-  } as Awaited<ReturnType<typeof generateStructured>>);
+    providerId: "qwen",
+    model: "qwen3-max",
+    usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+  } as Awaited<ReturnType<typeof aiRuntime.chatStructured>>);
 }
 
 const threadsSite: AccountRecord = {
@@ -39,7 +44,7 @@ const threadsSite: AccountRecord = {
 
 describe("local agent LLM tool planning", () => {
   beforeEach(() => {
-    mockedGenerateStructured.mockReset();
+    mockedChatStructured.mockReset();
   });
 
   it("wires an image plan to the latest post context instead of drafting a new post", async () => {
@@ -116,7 +121,7 @@ describe("local agent LLM tool planning", () => {
   });
 
   it("falls back to a single draft when the planner call fails", async () => {
-    mockedGenerateStructured.mockRejectedValue(new Error("no api key"));
+    mockedChatStructured.mockRejectedValue(new Error("no api key"));
     const calls = await planToolCalls({ message: "write something about cats" }, registry);
     expect(calls).toHaveLength(1);
     expect(calls[0].name).toBe("generate_social_post_draft");

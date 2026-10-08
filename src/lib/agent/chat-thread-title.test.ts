@@ -1,12 +1,40 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AppError } from "@/lib/app-errors";
+
+/**
+ * The first block is about the pure title helpers; the second is the P3-A2 change - title generation
+ * calls `aiRuntime.chatStructured()` directly, so the runtime is mocked here rather than the legacy
+ * `@/lib/ai` facade. The transport-level guarantees (rotation, failover, usage) are asserted in
+ * `src/lib/scraper.test.ts` and `src/features/ai-runtime/runtime.test.ts`; what matters here is that
+ * the schema goes in, `data.title` comes out, and a runtime failure never blocks the chat response.
+ */
+vi.mock("@/features/ai-runtime", async () => {
+  const actual = await vi.importActual<typeof import("@/features/ai-runtime")>("@/features/ai-runtime");
+  return { ...actual, aiRuntime: { ...actual.aiRuntime, chatStructured: vi.fn() } };
+});
+
+import { aiRuntime } from "@/features/ai-runtime";
+import { chatTitleSchema } from "@/lib/ai/schemas";
 import {
   isGenericChatThreadTitle,
   defaultChatThreadTitle,
+  generateChatThreadTitle,
   normalizeChatThreadTitle,
   shouldGenerateChatThreadTitle,
   userMessagesForTitle,
 } from "./chat-thread-title";
 import type { AgentChatMessageWithTools, AgentChatThreadRecord } from "@/lib/types";
+
+const mockedChatStructured = vi.mocked(aiRuntime.chatStructured);
+
+function runtimeAnswer(title: string) {
+  return {
+    data: { title },
+    providerId: "qwen",
+    model: "qwen3-max",
+    usage: { inputTokens: 9, outputTokens: 4, totalTokens: 13 },
+  } as Awaited<ReturnType<typeof aiRuntime.chatStructured>>;
+}
 
 const thread: AgentChatThreadRecord = {
   id: "thread-1",
@@ -64,3 +92,46 @@ describe("chat thread title helpers", () => {
     ]);
   });
 });
+
+describe("chat thread title generation on the runtime", () => {
+  beforeEach(() => {
+    mockedChatStructured.mockReset();
+  });
+
+  it("asks the runtime with the title schema and keeps the answer it returned", async () => {
+    mockedChatStructured.mockResolvedValue(runtimeAnswer("  Threads launch   plan. "));
+
+    const title = await generateChatThreadTitle({ messages: ["plan my launch"], locale: "en" });
+
+    // The runtime's `data.title` is the only field this call site reads, normalised as before.
+    expect(title).toBe("Threads launch plan");
+    const request = mockedChatStructured.mock.calls[0]?.[0];
+    expect(request?.schema).toBe(chatTitleSchema);
+    expect(request?.systemPrompt).toBeUndefined();
+    expect(request?.messages.at(-1)?.role).toBe("user");
+    expect(request?.messages.at(-1)?.content).toContain("Language: English.");
+    expect(request?.messages.at(-1)?.content).toContain("1. plan my launch");
+  });
+
+  it("never blocks the chat response when the runtime fails (D-P3-3 vocabulary included)", async () => {
+    mockedChatStructured.mockRejectedValue(new AppError("MODEL_CREDENTIAL_MISSING"));
+
+    // A missing key is the runtime's to report; a thread title is not worth an error, so the local
+    // fallback stands - the same behaviour the facade migration had to preserve.
+    await expect(generateChatThreadTitle({ messages: ["plan my launch"], locale: "en" })).resolves.toBe(
+      "Chat: plan my launch",
+    );
+  });
+
+  it("keeps a usable preferred title without calling the runtime or the model", async () => {
+    const title = await generateChatThreadTitle({
+      messages: ["plan my launch"],
+      locale: "en",
+      preferredTitle: "Launch plan",
+    });
+
+    expect(title).toBe("Launch plan");
+    expect(mockedChatStructured).not.toHaveBeenCalled();
+  });
+});
+

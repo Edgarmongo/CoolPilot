@@ -182,3 +182,39 @@ Required cases (`src/lib/scraper.test.ts`), all through a stubbed transport:
 * The two generators keep their different error contracts, and the cases show it: `generateTopicPost()`
   surfaces whatever the runtime threw while `rewriteArticle()` wraps everything except the
   `MODEL_CREDENTIAL_*` family, which the last case pins with `instanceof AppError` plus the code.
+
+### P3-A2 - the agent layer's LLM consumers (`lib/agent`, 3 call sites)
+
+`chat-thread-title.ts:67`, `langgraph-engine.ts:164` and `local-tools.ts:191` (the
+`generate_image_prompt` tool) are the last text/structured consumers of the facade inside `src/lib`;
+after them the only production importers left are the route layer (A3) and `lib/agent/image-generation.ts`
+(compat, B) - D-P3-2 gives that one its own design table, so it is not migrated here even though it
+sits in the same directory.
+
+| Field | Before | After |
+| --- | --- | --- |
+| Call | `generateStructured({ prompt, schema, systemPrompt? })` | `aiRuntime.chatStructured({ messages: [{ role: "user", content: prompt }], schema, systemPrompt? })` |
+| Data | `result.data` (`.title`, `.steps`, `.prompt`) | `response.data` - unchanged |
+| Provider / model | `result.provider`, `result.model` - read once, by `local-tools`, into the tool output `{ prompt, provider, model }` | `response.providerId`, `response.model` |
+| Failure | swallowed by the caller's own `try/catch`: `generateChatThreadTitle()` falls back to the local title, `planToolCalls()` to a single draft step | unchanged - the runtime's error vocabulary deliberately never reaches these call sites |
+| Schema + type imports | `@/lib/ai` re-export | `@/lib/ai/schemas` (the schemas do not move, only the import path) |
+
+Kept: `chatTitleSchema` / `toolPlanSchema` / `imagePromptSchema`, the "a title never blocks the chat
+response" contract, `planToolCalls()`'s empty-plan fallback, and the `generate_image_prompt` output
+shape.
+
+Tests - the mocks move with the import, so no case changed its subject:
+
+* `langgraph-engine.test.ts` mocks `@/features/ai-runtime` instead of `@/lib/ai` (spread of the real
+  module, so only `chatStructured` is stubbed); its five planning cases are otherwise untouched.
+* `chat-thread-title.test.ts` gains three runtime cases: the schema and the numbered chat history go
+  in and a normalised `data.title` comes out; a `MODEL_CREDENTIAL_MISSING` `AppError` still falls back
+  to the local title; a usable preferred title never calls the runtime at all.
+* `local-tools.test.ts` gains an execution case for `generate_image_prompt`: the tool reports the
+  provider/model the runtime really used - not a hard-coded pair - and passes `context.systemPrompt` on.
+
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` clean, `node_modules\.bin\eslint.cmd .`
+  0 errors (same single pre-existing `react-hooks/exhaustive-deps` warning),
+  `node_modules\.bin\vitest.cmd run` = **59 files / 339 tests, all pass** - A1's 335 plus exactly this
+  batch's 4 cases (3 in `chat-thread-title.test.ts`, 1 in `local-tools.test.ts`). No case was deleted
+  and no suite changed its subject, which is the check that the mock swap really was a mock swap.
