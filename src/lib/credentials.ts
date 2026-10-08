@@ -34,6 +34,13 @@ const vaultFileName = "credential-vault.json";
 const vaultKeyFileName = "credential-vault.key";
 const vaultVersion = 1;
 
+/**
+ * The two files the vault owns inside the app data directory. They sit next to the database in
+ * the workspace root, so the workspace inventory (`@/lib/workspace/manifest`) has to know them
+ * before it can say which root files nothing accounts for.
+ */
+export const credentialVaultFileNames = [vaultFileName, vaultKeyFileName] as const;
+
 export type CredentialRef = {
   slug: string;
   name: string;
