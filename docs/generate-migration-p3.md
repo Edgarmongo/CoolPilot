@@ -453,3 +453,89 @@ once in `beforeAll`, because `resetRuntime()` resets the runtime's own tables, n
   batch's 1 file / 6 tests. `git grep "generateStructured" -- src` now finds, in production code, the three
   remaining routes (`content/[id]/translate`, `knowledge-base/ai-parse`, `positions/generate`), the facade itself
   and its own test - one route per commit, so the count is the batch's progress bar.
+
+### P3-A3-2.3 - `api/content/[id]/translate`
+
+The editor's 翻译 dialog: the first *dynamic* route of the batch. It reads one article by `[id]`, translates its
+paragraphs, and writes **nothing** back - the dialog shows a diff and persists through `PATCH /api/content/[id]`
+only after the user confirms. Only the call boundary moved.
+
+| Field | Before | After |
+| --- | --- | --- |
+| Call | `generateStructured({ prompt, systemPrompt, schema: articleTranslationSchema })` | `aiRuntime.chatStructured({ messages: [{ role: "user", content: prompt }], systemPrompt, schema: articleTranslationSchema })` |
+| Paragraphs | `result.data.paragraphs` | `response.data.paragraphs` - unchanged |
+| Title | `result.data.title` | `response.data.title` - unchanged |
+| Provider / model | `result.provider`, `result.model` (usage row and the 200 envelope) | `response.providerId`, `response.model` |
+| Usage | `result.usage?.inputTokens` / `outputTokens` / `totalTokens` | `response.usage?.*` - unchanged field names |
+| Failure | `fail(error.message, 502)` -> 502, code `UNKNOWN_ERROR` | `failFromError(error, "AI_PROVIDER_FAILED", 502)`: an `AppError` keeps the runtime's code *and* status, anything else keeps this route's 502 |
+| Legacy import | `generateStructured` from `@/lib/ai/generate` | `aiRuntime` from `@/features/ai-runtime` |
+
+Kept, because this batch migrates a boundary rather than a business: the `[id]` guard (a missing article is a
+404 *before* the payload is parsed), the payload guard (`INVALID_PAYLOAD`), the source assembly
+(`parsed.data.title?.trim() || existing.title`, then `parsed.data.text?.trim() || htmlToPlainText(existing.body)`,
+capped at `maxTranslateInput = 8000`), `toParagraphs()`, the `EMPTY_CONTENT` guard, the prompt (the language
+label, the four instruction lines, `原标题：`, the numbered source paragraphs), the translator system
+instruction, the trim/filter over the answer, the `EMPTY_RESULT` guard, the usage row (`kind: "article"`,
+`wordCount` of `paragraphs.join("\n")`, `contentItemId`) and the 200 envelope
+`{ title, paragraphs, sourceTitle, sourceParagraphs, provider, model }`.
+
+The status of an AI exception is the same D-P3-3 trade as A3-2.1/A3-2.2: a missing credential is a 400
+`MODEL_CREDENTIAL_MISSING` instead of a 502 built from `MissingAIKeyError`'s message, a cooled-down pool a 429,
+and an upstream 5xx a 502 carrying the upstream status in `details.status`; a non-`AppError` keeps this route's
+long-standing 502 (only its code becomes `AI_PROVIDER_FAILED`). Nothing downstream branches on the difference:
+`components/creation/article-editor/article-translate-dialog.tsx` shows one generic failure and reads only
+`title` / `paragraphs` / `sourceTitle` / `sourceParagraphs` - `provider` and `model` travel in the envelope for
+the same reason they always did (the console's usage view), and the dialog ignores them.
+
+Two of this route's own sentences are warts rather than codes, and both are now pinned: `EMPTY_CONTENT` is a 400
+whose *code* is `UNKNOWN_ERROR` and whose *message* is that literal, and `EMPTY_RESULT` is a 502 with the same
+shape. They looked like that before the migration and the batch deliberately did not tidy them up
+(`fail("EMPTY_CONTENT", 400)` passes a string that is not an `AppErrorCode`), so a later cleanup has to notice
+the tests.
+
+Tests (`src/app/api/content/[id]/translate/route.test.ts`, 7 cases - the runtime is *not* mocked, the route
+handler is called for real, and only the transport is stubbed):
+
+1. Success: HTTP 200, the trimmed title and the ordered paragraphs the model answered, `sourceTitle` /
+   `sourceParagraphs` taken from the *editor's* text and title (the stored body and the stored title must not
+   reach the prompt at all, and a second article in the database must not be mentioned either), the runtime's
+   `provider` / `model`, one structured call with JSON mode on the wire, a system turn byte-identical to the
+   translator instruction, and a user turn that starts with the prompt these three inputs must produce (rebuilt
+   in the test, so the case pins the route's *assembly*) plus the schema instruction the runtime appends. The
+   usage row carries the runtime's token report and the returned text's character count, and the article is
+   still byte-identical afterwards.
+2. The fallback path: a payload with no `text` and no `title` translates the **stored** article - its HTML is
+   flattened, split into paragraphs and cut at the 8000-character cap (the cut lands inside the last paragraph,
+   which the case proves against both the same expression the route should have used and the untruncated
+   paragraph), and the stored title becomes `sourceTitle`.
+3. A removed credential: HTTP **400**, code `MODEL_CREDENTIAL_MISSING`, a message that is no longer
+   `Missing qwen API key`, no provider call, no usage row, no article change.
+4. The `[id]` guard: an unknown article is a 404 `NOT_FOUND` with nothing on the wire - even when the payload is
+   one this route would reject, which pins that the article is read before the body is parsed.
+5. The guards it still words itself: a body without `targetLanguage`, a `targetLanguage` that is blank once
+   trimmed and a body that is not JSON are all 400 `INVALID_PAYLOAD`, and an article whose body is empty (with a
+   `text` that falls back to it) is the 400 with code `UNKNOWN_ERROR` and message `EMPTY_CONTENT` - none of them
+   reaching the provider.
+6. The post-answer guard: a schema-valid answer whose only paragraph is whitespace is accepted by the runtime on
+   the first attempt, emptied by the route's own trim/filter, and answered as a 502 `EMPTY_RESULT` (again code
+   `UNKNOWN_ERROR`) with no usage row and no article change - the guard sits before the usage row.
+7. The runtime's structured contract is live: a first answer that omits `paragraphs` is rejected, the route
+   answers 200 from the *corrected* second answer, the retry call carries four turns with the route's prompt
+   still the prefix, and the usage row reports both attempts merged (22 / 14 / 36).
+
+The `[id]` segment is why this file calls the handler the way the framework does -
+`POST(jsonRequest(url, body), { params: Promise.resolve({ id }) })` - and never through the URL: the route reads
+`(await context.params).id`, so the article a case seeded is the article it must read, which is what case 1 and
+case 4 pin from both sides. The file mocks `@/lib/ai`, `@/lib/ai/generate` *and* `@/lib/ai/compat` with throwing
+factories; that last one is stronger than A3-2.1/A3-2.2 could be, and possible here for a reason worth
+recording: the only production importer of the shim is `lib/agent/image-generation.ts`, and this route reaches
+neither it nor `lib/article-images.ts`, so this graph is shim-free and the mock proves it. The four articles
+these cases read (the target, a sibling that must stay unmentioned, one long enough to hit the cap, one with an
+empty body) are created once in `beforeAll`, because `resetRuntime()` resets the runtime's own tables, not these.
+
+* Verification on this tree: `node_modules\.bin\tsc.cmd --noEmit` exit 0, `node_modules\.bin\eslint.cmd .` exit 0
+  with 0 errors (the same single pre-existing `react-hooks/exhaustive-deps` warning),
+  `node_modules\.bin\vitest.cmd run` = **63 files / 363 tests, all pass** - A3-2.2's 62 / 356 plus exactly this
+  batch's 1 file / 7 tests. `git grep "generateStructured" -- src` now finds, in production code, the two
+  remaining routes (`knowledge-base/ai-parse`, `positions/generate`), the facade itself and its own test:
+  **4 -> 3 (A3-2.2) -> 2**.

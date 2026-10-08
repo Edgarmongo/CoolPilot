@@ -1,8 +1,8 @@
 import { createUsageRecord, getContentItem } from "@/db/repository";
-import { generateStructured } from "@/lib/ai/generate";
+import { aiRuntime } from "@/features/ai-runtime";
 import { articleTranslationSchema } from "@/lib/ai/schemas";
 import { htmlToPlainText } from "@/lib/article-themes";
-import { fail, ok, parseJson } from "@/lib/api";
+import { fail, failFromError, ok, parseJson } from "@/lib/api";
 import { toParagraphs } from "@/lib/translation-layouts";
 import { countTextCharacters } from "@/lib/usage";
 import { contentTranslateSchema } from "@/lib/validation";
@@ -17,6 +17,14 @@ const maxTranslateInput = 8000;
  * Paragraphs come back aligned with the source so the dialog can lay them out as
  * “中文在前 / 逐段对照 / 仅译文”. Nothing is written to the article here — the
  * editor shows a diff and persists only after the user confirms.
+ *
+ * The model call goes straight to `aiRuntime` (batch P3-A3 of `docs/generate-migration-p3.md`): provider
+ * order, model choice, key rotation, failover and structured-output validation are the runtime's business,
+ * while reading the article by `[id]`, the source-text assembly, the translator prompt, the schema and
+ * everything after the call (the trim/filter, the usage row, the envelope) stay this route's. The answer
+ * is read through the runtime's own names (`providerId`, `model`, `usage`), and a failure keeps the
+ * runtime's code *and* status (D-P3-3) instead of a 502 flattened from a message - the `[id]` guard, the
+ * payload guard and the empty-source guard are the only answers this route still words itself.
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -41,35 +49,37 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   ].join("\n");
 
   try {
-    const result = await generateStructured({
+    const response = await aiRuntime.chatStructured({
+      messages: [{ role: "user", content: prompt }],
       systemPrompt: "你是一位专业翻译，擅长把自媒体文章逐段翻译成目标语言并保持段落一一对应。",
-      prompt,
       schema: articleTranslationSchema,
     });
-    const paragraphs = result.data.paragraphs.map((text) => text.trim()).filter(Boolean);
+    const paragraphs = response.data.paragraphs.map((text) => text.trim()).filter(Boolean);
     if (paragraphs.length === 0) return fail("EMPTY_RESULT", 502);
 
     await createUsageRecord({
-      provider: result.provider,
-      model: result.model,
+      provider: response.providerId,
+      model: response.model,
       kind: "article",
       status: "success",
-      inputTokens: result.usage?.inputTokens,
-      outputTokens: result.usage?.outputTokens,
-      totalTokens: result.usage?.totalTokens,
+      inputTokens: response.usage?.inputTokens,
+      outputTokens: response.usage?.outputTokens,
+      totalTokens: response.usage?.totalTokens,
       wordCount: countTextCharacters(paragraphs.join("\n")),
       contentItemId: id,
     });
 
     return ok({
-      title: result.data.title.trim() || sourceTitle,
+      title: response.data.title.trim() || sourceTitle,
       paragraphs,
       sourceTitle,
       sourceParagraphs,
-      provider: result.provider,
-      model: result.model,
+      provider: response.providerId,
+      model: response.model,
     });
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Translation failed", 502);
+    // No local error taxonomy: `failFromError` keeps an `AppError`'s own code and status (the runtime
+    // sets both) and answers anything else with this route's long-standing 502.
+    return failFromError(error, "AI_PROVIDER_FAILED", 502);
   }
 }
