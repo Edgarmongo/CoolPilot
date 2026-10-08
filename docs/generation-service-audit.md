@@ -380,3 +380,38 @@ Deliberately not in this cut: F-C3-5 (the article dialog's `product` default sti
 source), F-C3-6 (a failed generation still writes nothing), F-C3-7 (`generateTopicPost` keeps its own
 pipeline until C5), C4's image identity, and anything in P5-B0/B1 or the workspace.
 
+## 11. Freeze declaration (C3-2 Cut A: passed / frozen)
+
+`generateArticle()` is the Article Generation **business seam**, not a general AI generation service.
+
+The name is the contract. What lives here is *an article*: its positioning, its knowledge, its prompts, the
+content item it becomes and the usage row it costs. What must not live here is *AI* - image generation,
+video, audio, chat, embeddings, or a `generateAnything()` door that turns this file into the endpoint of
+every model call in the app. The test for a future addition is not "does it call a model?" but "is it part
+of producing an article?".
+
+Two corollaries follow from the same rule, and C4/C5 should read them as constraints rather than
+suggestions:
+
+- **Entry semantics stay in the entry.** Provenance is decided by the caller, carried verbatim, and
+  extended only with the four facts this pipeline itself produces (`images`, `positioningId`, `provider`,
+  `model`). There will be no `normalizeProvenance()`: a service that unifies its callers' provenance erases
+  what made them different, and the caller cannot recover it afterwards.
+- **The seam grows by becoming a shared callee, not by absorbing its callers.** F-C3-7's value is that a
+  third entry (`generateTopicPost`) can call `generateArticle()` instead of re-implementing the pipeline. If
+  a future caller does not fit, the answer is to widen the request with something the caller knows - as
+  `systemPromptPrefix` and `imageSources` already do - not to move the caller's rules in here.
+
+The structural gates of section 7 are therefore not only about this cut: they are the tests that keep the
+seam an article seam. `src/lib/article-generation.ts` must never import `next/*`, `@/lib/api`,
+`@/lib/editor-link`, or the image runtime, and `resolveArticleImages()` is the only image dependency it may
+have, because image *identity* is C4's question and image *attachment* is this pipeline's.
+
+Status: **C3-2 Cut A passed review and is frozen at commit `841a238`.** No further change to
+`src/lib/article-generation.ts` belongs to C3; the entries' guards, envelopes, provenance and derived
+inputs stay theirs. F-C3-5, F-C3-6 and F-C3-7 remain open and deliberately unfixed - they are image-source
+semantics (C4), usage/observability, and the topic pipeline (C5) - and C3's next act is *not* automatically
+Cut B: the Creator Vertical Slice (create -> generate -> edit -> publish -> record) now has to earn the next
+refactor, not the other way round.
+
+
