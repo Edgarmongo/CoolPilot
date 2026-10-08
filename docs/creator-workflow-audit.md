@@ -339,6 +339,17 @@ verified success existed only in `publish-run-panel`'s tab state: the `publish_r
   request keeps its shape - `evidence` is additive, and the panel reads only `published` and `url`),
   `/api/publish` and its one-shot semantics, `src/lib/threads.ts`, the platform profiles, and all three
   locales.
+### P5-C3 - the audit that pins the two generate routes before they are merged
+
+C0's F-C0-1 ("the generate tail is implemented twice") is now measured and sliced in
+`docs/generation-service-audit.md`: both entries' contracts line by line, the minimal input and minimal
+output of the service they share, and Cut A (the tail - positioning → prompt → runtime → images → content
+item → usage row) proposed as the first cut, with the two HTTP entries otherwise unchanged (their payloads,
+guards and envelopes stay, per §6.2 above). No product code changed for that audit, and both route tests
+stay unmodified as the regression net. C2's own manual Assisted Publish smoke - a real `publish_records`
+row plus `content_items.status = posted` - is still the last open item of C2.
+
+
 
 ## 8. Evidence index
 
