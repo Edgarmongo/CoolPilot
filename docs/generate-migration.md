@@ -297,10 +297,22 @@ Baseline after P2 (the numbers to compare P3 against):
 node_modules\.bin\tsc.cmd --noEmit      -> exit 0 (all 19 call sites type-check unedited)
 node_modules\.bin\eslint.cmd src scripts -> exit 0 (0 errors, 1 pre-existing warning in
                                             src/components/agent-chat/chat-conversation.tsx)
-node_modules\.bin\vitest.cmd run        -> 58 files / 331 tests passed
-                                            (was 57/323 before P2: +generate.test.ts, +1 runtime case)
+node_modules\.bin\vitest.cmd run        -> 57 files / 326 tests passed
+                                            (was 57/323 before P2; 58/331 when P2 landed - see the baseline note below)
 tsx scripts/ai-runtime-smoke.ts         -> all sections print, including the P2 facade block
 ```
+
+**Baseline note - re-read this before P3.** The block above was measured when P2 landed. The rebrand
+commit changed the test inventory, so the number P3 must compare against is **57 files / 326 tests**:
+
+| Point in time | Test files | Tests | What moved |
+| --- | --- | --- | --- |
+| `2d8e5f8` (P2 landed) | 58 | 331 | - |
+| `a4ce0d1` (rebrand; runtime made local-only) | 57 | 326 | -7 `src/features/smepost/client.test.ts` (deleted with the SME provider), +2 `src/electron/branding.test.ts` |
+
+The reconciliation is arithmetic, not a guess: `331 - 7 + 2 = 326` and `58 - 1 = 57`. Spot check on the
+same tree: `src/lib/ai/generate.test.ts` = 7 cases, `src/features/ai-runtime` = 4 files / 36 cases (both
+together 5 files / 43 cases).
 
 Three provenance notes so the evidence above can be reproduced and trusted:
 
