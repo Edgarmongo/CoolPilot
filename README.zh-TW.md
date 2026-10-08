@@ -339,7 +339,7 @@ src/worker/       Queue and schedule worker
 electron/         Electron entrypoints
 scripts/          Build and packaging helpers
 public/           Public assets
-docs/             Model layer docs (model-gateway.md · model-gateway-plan.md · model-layer-spec.md · model-runtime.md · generate-migration.md) + tech stack (tech-stack.md)
+docs/             Model layer docs (model-gateway.md · model-gateway-plan.md · model-layer-spec.md · model-runtime.md · generate-migration.md) + tech stack (tech-stack.md) + Creator Workflow audit (creator-workflow-audit.md)
 ```
 
 ## 安全與平台風險聲明
