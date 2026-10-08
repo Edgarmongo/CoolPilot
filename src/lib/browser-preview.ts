@@ -6,9 +6,17 @@ export {
   getBrowserPreviewFrame,
   getBrowserPreviewSession,
   probeSiteLogin,
+  rememberPublishDraft,
   runSiteBrowserTool,
   startBrowserPreviewSession,
   stopBrowserPreviewSession,
+  takePublishReceipt,
 } from "./browser-preview-session";
-export type { BrowserInputPayload, BrowserLoginState, SiteBrowserToolName, SiteLoginProbe } from "./browser-preview-session";
-export type { BrowserPreviewSnapshot } from "./browser-preview-shared";
+export type {
+  BrowserInputPayload,
+  BrowserLoginState,
+  PublishVerification,
+  SiteBrowserToolName,
+  SiteLoginProbe,
+} from "./browser-preview-session";
+export type { BrowserPreviewSnapshot, PublishDraftReceipt } from "./browser-preview-shared";

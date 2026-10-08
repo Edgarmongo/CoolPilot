@@ -14,6 +14,20 @@ export type StartBrowserPreviewOptions = {
   headless?: boolean;
 };
 
+/**
+ * What `/api/publish/draft` handed to the platform, remembered on the session that performed
+ * the draft (C2 of `docs/creator-workflow-audit.md`). The verify step is the only reader, and
+ * reading *takes* it - so one draft can authorize at most one publish fact.
+ */
+export type PublishDraftReceipt = {
+  contentItemId: string;
+  title: string;
+  contentType: string;
+  method: string;
+  terminal: string;
+  draftedAt: number;
+};
+
 export type BrowserPreviewSession = {
   accountId: string;
   accountName: string;
@@ -21,6 +35,8 @@ export type BrowserPreviewSession = {
   status: PreviewStatus;
   error?: string;
   pageUrl?: string;
+  /** The draft this session is holding, until a verify consumes it. */
+  publishDraft?: PublishDraftReceipt;
   startedAt: number;
   updatedAt: number;
   lastFrameAt?: number;

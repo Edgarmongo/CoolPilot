@@ -13,6 +13,7 @@ import {
   touch,
   toSnapshot,
   type BrowserPreviewSession,
+  type PublishDraftReceipt,
   type StartBrowserPreviewOptions,
 } from "./browser-preview-shared";
 import {
@@ -470,21 +471,67 @@ function activeSessionPage(accountId: string) {
 }
 
 /**
+ * Remembers what the draft this session just created actually was, so a later verify can turn
+ * "the author published" into a fact about a content item (C2 of `docs/creator-workflow-audit.md`).
+ *
+ * The receipt lives on the session because the session is what performed the draft: identity is
+ * claimed here, by the server, and not sent back by the client on the next request. A draft that
+ * names no content item has no identity to record, so it is not remembered at all.
+ */
+export function rememberPublishDraft(
+  accountId: string,
+  draft: Omit<PublishDraftReceipt, "draftedAt">,
+): boolean {
+  const session = getBrowserPreviewStore().sessions.get(accountId);
+  if (!session || !draft.contentItemId.trim()) return false;
+  session.publishDraft = { ...draft, draftedAt: now() };
+  touch(session);
+  return true;
+}
+
+/**
+ * Takes - and thereby consumes - the receipt of the draft this session is holding. Consuming is
+ * the idempotency (D1): the first verify that reports success takes it, and a poll that repeats
+ * while the client is still advancing finds nothing left to record.
+ */
+export function takePublishReceipt(accountId: string): PublishDraftReceipt | null {
+  const session = getBrowserPreviewStore().sessions.get(accountId);
+  const receipt = session?.publishDraft;
+  if (!session || !receipt) return null;
+  session.publishDraft = undefined;
+  touch(session);
+  return receipt;
+}
+
+/** `checkPublishResult`'s answer, with the observation that produced it. */
+export type PublishVerification = {
+  published: boolean;
+  url: string;
+  /**
+   * How the answer was reached, in the words the publish record stores (D5). This check is a
+   * heuristic - a URL that left the editor, or a success phrase - so the fact it authorizes has
+   * to carry the observation behind it: "the database says published" must be answerable with
+   * "because the session was showing this".
+   */
+  evidence: string;
+};
+
+/**
  * Reads the live session page to decide whether an assisted publish has landed:
  * the page left the editor URL, or a success confirmation is visible.
  */
-export async function checkPublishResult(accountId: string): Promise<{ published: boolean; url: string }> {
+export async function checkPublishResult(accountId: string): Promise<PublishVerification> {
   const page = activeSessionPage(accountId);
-  if (!page) return { published: false, url: "" };
+  if (!page) return { published: false, url: "", evidence: "no live session page" };
   const url = page.url();
   if (url && !looksLikeEditorUrl(url)) {
-    return { published: true, url };
+    return { published: true, url, evidence: `session left the editor URL at ${url}` };
   }
   const bodyText = await page.locator("body").innerText({ timeout: 1500 }).catch(() => "");
   if (publishSuccessPattern.test(bodyText)) {
-    return { published: true, url };
+    return { published: true, url, evidence: `success confirmation visible${url ? ` at ${url}` : ""}` };
   }
-  return { published: false, url };
+  return { published: false, url, evidence: `still the editor URL ${url || "(blank)"}` };
 }
 
 /**
