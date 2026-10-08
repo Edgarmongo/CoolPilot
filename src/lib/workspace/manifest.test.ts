@@ -5,8 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { credentialVaultFileNames } from "@/lib/credentials";
-import { artifactsRoot, browserProfilesRoot, uploadsRoot, videosRoot } from "@/lib/paths";
-import { resolveAppDataDir } from "@/lib/runtime-config";
+import { artifactsRoot, browserProfilesRoot, dataRoot, uploadsRoot, videosRoot } from "@/lib/paths";
 import { createWorkspaceManifest } from "./manifest";
 
 /**
@@ -15,10 +14,12 @@ import { createWorkspaceManifest } from "./manifest";
  *
  * Every invariant below has a cheaper way to be wrong, and each of them is pinned here:
  *
- *   - `@/lib/paths` creates every root it resolves (`mkdirSync`), so a manifest that asked it
- *     where `artifacts` lives would bring an empty workspace into existence. The manifest derives
- *     its layout from `resolveAppDataDir()` instead, and the tests that build files through the
- *     `@/lib/paths` accessors are what keeps the two views of the layout identical.
+ *   - `@/lib/paths` used to create every root it resolved (`mkdirSync`), so a manifest that asked it
+ *     where `artifacts` lives would bring an empty workspace into existence. Both halves are gone
+ *     now (P5-B0-2.5): the accessors resolve and the `ensure*` initializers create, and the manifest
+ *     reads the root and every section through those same accessors - which is what the tests below
+ *     that build files through them keep honest. The two views of the layout cannot drift apart
+ *     unnoticed.
  *   - `@libsql/client` creates a missing database file the moment a statement runs on it
  *     (measured, see `manifest.ts`), so a workspace with no database is reported from `existsSync`
  *     and never opened.
@@ -174,7 +175,7 @@ describe("workspace manifest", () => {
 
     const manifest = await createWorkspaceManifest();
 
-    expect(manifest.root).toBe(resolveAppDataDir());
+    expect(manifest.root).toBe(dataRoot());
     expect(manifest.root.startsWith(root)).toBe(true);
     expect(manifest.database).toEqual({
       path: databasePath,
