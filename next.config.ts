@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Hide the Next.js DevTools indicator (the floating "N" button injected into
+  // the document by Next.js in development). This only affects `next dev`;
+  // production builds never render it. Build/runtime errors are still shown.
+  devIndicators: false,
   transpilePackages: [
     "@plait-board/markdown-to-drawnix",
     "@plait-board/mermaid-to-drawnix",

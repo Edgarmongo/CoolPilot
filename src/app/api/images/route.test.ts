@@ -18,7 +18,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *  1. **The image provider is a hard pin, not a preference.** `settings.imageProvider` (default
  *     `openai`) reaches the runtime as `providerId`, so the candidate chain is one provider: no model
  *     failover, no cross-provider fallback, only key rotation inside that endpoint. The pin case below
- *     is the route-level counterpart of G3. Still frozen - P3-C changed no line of the image path.
+ *     is the route-level counterpart of G3. It is still a pin, and since CI-AI-IMG-CONFIG-03 it names
+ *     the provider that *owns* images - `openai-image` / `gemini-image` - which is the row holding the
+ *     image endpoint (`openAIImageBaseUrl`, never `openAIBaseUrl`) and the image credential. That row
+ *     only exists once the settings name an image URL, so a URL-less install fails with the runtime's
+ *     structured error instead of borrowing the text endpoint (Q4 as ruled); both shapes are pinned
+ *     below, and `openai/default` is never asked.
  *  2. **The error envelope was a flat 500 and is now the runtime's own.** B-1 froze
  *     `fail(error.message, 500)`, which dropped the runtime's status *and* code (`MODEL_CREDENTIAL_MISSING`'s
  *     400, `MODEL_UPSTREAM_NO_CONTENT`'s 502 and `MODEL_NOT_CONFIGURED`'s 503 all arrived as `UNKNOWN_ERROR`)
@@ -47,9 +52,12 @@ const {
   jsonResponse,
   prepareChatModel,
   prepareImageModel,
+  refuseEveryAiBudgetCall,
   resetRuntime,
   routeTestDataDir,
+  runtimeRepository,
   stubFetch,
+  syncImageProviderSettings,
   unavailable,
   unauthorized,
 } = await import("@/test/route-harness");
@@ -58,6 +66,14 @@ const { updateLocalAgentSettings } = await import("@/db/repositories/settings");
 const { artifactImageUrl } = await import("@/lib/artifact-image-url");
 
 const imagesUrl = "http://localhost/api/images";
+
+/**
+ * The image endpoint every case configures (CI-AI-IMG-CONFIG-03). `openAIImageBaseUrl` is the only
+ * field an OpenAI-compatible image request may be signed against, so a host of its own keeps the wire
+ * assertions honest: a call that had fallen back to the text provider would show up in the URL
+ * (`api.openai.com`) and not only in a status.
+ */
+const imageBaseUrl = "https://images.example.test/v1";
 
 /** The artifacts directory of the *temp* data root, which is the only directory these cases touch. */
 const artifactsDir = path.join(routeTestDataDir, "artifacts");
@@ -143,16 +159,28 @@ const geminiImageReply = () =>
     ],
   });
 
-/** The usual fixture: one credential, one callable image model, the image capability default. */
-const prepareOpenAIImage = () => prepareImageModel("openai", "gpt-image-1", "sk-stub-openai");
+/**
+ * The usual fixture: one credential, one callable image model, the image capability default.
+ *
+ * CI-AI-IMG-CONFIG-03: the provider is the *image* row, and the key is the image credential - the
+ * `openai` text provider stays as unconfigured as `resetRuntime()` left it, so a case that passed by
+ * falling back onto it could not pass here.
+ */
+const prepareOpenAIImage = () => prepareImageModel("openai-image", "gpt-image-1", "sk-stub-openai-image");
 
 describe("POST /api/images on aiRuntime", () => {
   beforeEach(async () => {
     vi.unstubAllGlobals();
     await resetRuntime();
-    // The two settings the image path reads are restored here, because a case may pin the other
-    // provider or another size and nothing else resets them.
-    await updateLocalAgentSettings({ imageProvider: "openai", openAIImageSize: "1024x1024" });
+    // The three settings the image path reads are restored here, because a case may pin the other
+    // provider, another size or another URL and nothing else resets them. The URL is what makes an
+    // image endpoint exist at all (Q4): `prepareImageModel()` reconciles this row into the registry
+    // before it reads a catalog.
+    await updateLocalAgentSettings({
+      imageProvider: "openai",
+      openAIImageSize: "1024x1024",
+      openAIImageBaseUrl: imageBaseUrl,
+    });
     await clearArtifacts();
   });
 
@@ -177,19 +205,21 @@ describe("POST /api/images on aiRuntime", () => {
     expect(fileName.startsWith("agent-image-")).toBe(true);
     expect(fileName.endsWith(".png")).toBe(true);
     expect(url).toBe(artifactImageUrl(fileName));
-    // What the route reports is what the runtime reported - not a hard-coded pair.
-    expect(provider).toBe("openai");
+    // What the route reports is what the runtime reported - not a hard-coded pair. Since
+    // CI-AI-IMG-CONFIG-03 the identity is the image provider, not the vendor's text one.
+    expect(provider).toBe("openai-image");
     expect(model).toBe("gpt-image-1");
 
     // The bytes on disk are the decoded answer, and the directory holds nothing else.
     expect(await artifacts()).toEqual([fileName]);
     expect(await artifactBytes(fileName)).toBe(pngBytes);
 
-    // One call to the images endpoint, signed by the one key that model is configured with.
+    // One call to the images endpoint, signed by the one key that model is configured with, against
+    // the endpoint the *image* settings name - not the text provider's host.
     expect(imageCalls(calls)).toHaveLength(1);
     const [imageCall] = imageCalls(calls);
-    expect(imageCall.url.endsWith("/images/generations")).toBe(true);
-    expect((imageCall.init?.headers as Record<string, string>).Authorization).toBe("Bearer sk-stub-openai");
+    expect(imageCall.url).toBe(`${imageBaseUrl}/images/generations`);
+    expect((imageCall.init?.headers as Record<string, string>).Authorization).toBe("Bearer sk-stub-openai-image");
     expect(bodyOf(imageCall)).toEqual({
       model: "gpt-image-1",
       prompt: "a cat on a keyboard",
@@ -239,7 +269,7 @@ describe("POST /api/images on aiRuntime", () => {
       { match: () => true, respond: offline },
     ]);
     // Gemini is configured and callable; the settings still name OpenAI as the image provider.
-    await prepareImageModel("gemini", "gemini-2.5-flash-image", "sk-stub-gemini");
+    await prepareImageModel("gemini-image", "gemini-2.5-flash-image", "sk-stub-gemini");
     // Preparation syncs gemini's catalog; what this case measures is the request that follows.
     const prepared = calls.length;
 
@@ -255,9 +285,10 @@ describe("POST /api/images on aiRuntime", () => {
     expect(payload.message).not.toContain("Missing");
     expect(payload.error).toBe(payload.message);
     // The diagnosis travels with it now (D1-b): which capability failed, and which provider the requirement
-    // had already narrowed the search to - the pin, visible in the error as well as in the wire.
+    // had already narrowed the search to - the pin, visible in the error as well as in the wire. The pinned
+    // name is the image row (`openai-image`), because that is the row that owns the image endpoint and key.
     expect(payload.details.requirement.capability).toBe("image_generation");
-    expect(payload.details.requirement.providerId).toBe("openai");
+    expect(payload.details.requirement.providerId).toBe("openai-image");
     expect(generateContentCalls(calls)).toHaveLength(0);
     expect(imageCalls(calls)).toHaveLength(0);
     // ...and why nothing was sent at all: routing never makes a request of its own, and the shim's one
@@ -266,17 +297,81 @@ describe("POST /api/images on aiRuntime", () => {
     expect(await artifacts()).toEqual([]);
   });
 
+  it("refuses the image endpoint whose URL was withdrawn instead of falling back to the text one (Q4)", async () => {
+    const calls = stubFetch([
+      // The image path's own catalog read, so the fixture below can configure its model...
+      { match: (target) => target.startsWith(imageBaseUrl) && target.endsWith("/models"), respond: openAIImageCatalog },
+      // ...and a fully callable *text* provider: a fallback would have an endpoint, a key and a model to
+      // silently use - and the URL assertions would show it.
+      {
+        match: (target) => target.startsWith("https://api.openai.com"),
+        respond: () => jsonResponse({ data: [{ id: "gpt-4o" }] }),
+      },
+      { match: (target) => target.includes("/images/generations"), respond: () => openAIImageReply() },
+    ]);
+    await prepareOpenAIImage();
+    await prepareChatModel("openai", "gpt-4o", "sk-stub-openai-text");
+    // The form was saved with the field emptied: the image URL is gone, so the row that once pointed at
+    // `imageBaseUrl` is written disabled - exactly what the settings route reconciles on every save.
+    await updateLocalAgentSettings({ openAIImageBaseUrl: "", openAIImageModel: "gpt-image-1" });
+    await syncImageProviderSettings();
+    const prepared = calls.length;
+
+    expect((await runtimeRepository.getModelEndpoint("openai-image/default"))?.enabled).toBe(false);
+
+    const response = await postImage({ prompt: "a cat on a keyboard" });
+    const payload = await response.json();
+
+    // The runtime names the bottleneck instead of calling anything: the pinned provider's endpoint is
+    // the disabled one, and `api.openai.com` - configured and callable here - is never asked.
+    expect(response.status).toBe(503);
+    expect(payload.code).toBe("MODEL_NOT_CONFIGURED");
+    expect(payload.details.reason).toBe("endpoint-disabled");
+    expect(payload.details.requirement.providerId).toBe("openai-image");
+    expect(imageCalls(calls)).toHaveLength(0);
+    expect(textCalls(calls)).toHaveLength(0);
+    expect(calls).toHaveLength(prepared);
+    expect(await artifacts()).toEqual([]);
+  });
+
+  it("has no image endpoint at all for an install that never named an image URL (Q4)", async () => {
+    const calls = stubFetch([{ match: () => true, respond: offline }]);
+    // The state a fresh install is in: the image field was never filled in, so there is no image row to
+    // route to. Emulated by removing the rows the fixture's URL had created - a case before this one
+    // always leaves them behind - and reconciling the settings, which name nothing.
+    await runtimeRepository.deleteModelProvider("openai-image");
+    await updateLocalAgentSettings({ openAIImageBaseUrl: "", openAIImageModel: "" });
+    await syncImageProviderSettings();
+
+    // The provider is still a registry row (it is what the settings screen lists), but it has no endpoint
+    // and no model: `openai/default` cannot lend it either.
+    expect(await runtimeRepository.listModelEndpoints("openai-image")).toEqual([]);
+    expect(await runtimeRepository.listModels({ providerId: "openai-image" })).toEqual([]);
+
+    const response = await postImage({ prompt: "a cat on a keyboard" });
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.code).toBe("MODEL_NOT_CONFIGURED");
+    expect(payload.details.reason).toBe("no-models-synced");
+    expect(payload.details.missing).toEqual(["image_generation"]);
+    // Nothing was sent, and in particular nothing was sent to the text provider's endpoint.
+    expect(calls).toHaveLength(0);
+    expect(await artifacts()).toEqual([]);
+  });
+
   it("answers the runtime's own 409 MODEL_CAPABILITY_UNAVAILABLE when the pinned provider has no image model", async () => {
     const calls = stubFetch([
       { match: (target) => target.endsWith("/models"), respond: () => jsonResponse({ data: [{ id: "gpt-4o-mini" }] }) },
       { match: () => true, respond: offline },
     ]);
-    // OpenAI is configured and callable - but only for text. `prepareChatModel` enables what its catalog
-    // lists as a chat model, so the provider has an endpoint, a key and a model, and yet nothing it holds
-    // provides `image_generation`. This is the state `creation/images` used to guess at with its
+    // The image provider is configured and callable - but only with a text model. `prepareImageModel`
+    // enables what its catalog lists, so the provider has an endpoint, a key and a model, and yet nothing
+    // it holds provides `image_generation`. This is the state `creation/images` used to guess at with its
     // `/No image models returned/` string test - a sentence the runtime never produced, so the guess could
-    // only ever fail. P3-C (D1-b) is what makes the code behind it readable instead.
-    await prepareChatModel("openai", "gpt-4o-mini", "sk-stub-openai-text-only");
+    // only ever fail. P3-C (D1-b) is what makes the code behind it readable instead, and the split of
+    // CI-AI-IMG-CONFIG-03 is what keeps the guess from landing on the text provider's catalog instead.
+    await prepareImageModel("openai-image", "gpt-4o-mini", "sk-stub-openai-image-text-only");
     const prepared = calls.length;
 
     const response = await postImage({ prompt: "a cat on a keyboard" });
@@ -299,7 +394,7 @@ describe("POST /api/images on aiRuntime", () => {
       { match: (target) => target.includes("/v1beta/models?"), respond: geminiImageCatalog },
       { match: (target) => target.includes(":generateContent"), respond: geminiImageReply },
     ]);
-    await prepareImageModel("gemini", "gemini-2.5-flash-image", "sk-stub-gemini");
+    await prepareImageModel("gemini-image", "gemini-2.5-flash-image", "sk-stub-gemini");
     await updateLocalAgentSettings({ imageProvider: "gemini" });
 
     const response = await postImage({ prompt: "a cat on a keyboard" });
@@ -308,7 +403,7 @@ describe("POST /api/images on aiRuntime", () => {
     expect(response.status).toBe(201);
     // The mime type decides the extension: the domain service's own mapping, visible in the envelope.
     expect(payload.data.fileName.endsWith(".jpg")).toBe(true);
-    expect(payload.data.provider).toBe("gemini");
+    expect(payload.data.provider).toBe("gemini-image");
     expect(payload.data.model).toBe("gemini-2.5-flash-image");
     expect(await artifactBytes(payload.data.fileName)).toBe(jpegBytes);
 
@@ -387,7 +482,10 @@ describe("POST /api/images on aiRuntime", () => {
     // That is the exact state the shim's discovery pass used to rescue inside a failed request - it would
     // read `/models`, enable what it found and answer 201. The pinned provider is still not routable, so
     // the request is not made at all.
-    await credentials.writeCredential(credentials.credentialRefFor("openai"), "sk-stub-openai-unsynced");
+    await credentials.writeCredential(
+      credentials.credentialRefFor("openai-image"),
+      "sk-stub-openai-image-unsynced",
+    );
 
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
@@ -405,7 +503,7 @@ describe("POST /api/images on aiRuntime", () => {
       { match: (target) => target.includes("/images/generations"), respond: () => openAIImageReply() },
     ]);
     await prepareOpenAIImage();
-    await credentials.clearCredential(credentials.credentialRefFor("openai"));
+    await credentials.clearCredential(credentials.credentialRefFor("openai-image"));
 
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
@@ -430,7 +528,7 @@ describe("POST /api/images on aiRuntime", () => {
     // A rejected key of its own: the pool remembers health by key fingerprint in SQLite and an
     // `invalid` status never expires, so reusing the fixture key here would take every later case in
     // this file out of rotation with it (`prepareModel` would fail before the route was even called).
-    await prepareImageModel("openai", "gpt-image-1", "sk-stub-openai-rejected");
+    await prepareImageModel("openai-image", "gpt-image-1", "sk-stub-openai-image-rejected");
 
     const response = await postImage({ prompt: "a cat on a keyboard" });
     const payload = await response.json();
@@ -503,12 +601,14 @@ describe("POST /api/images on aiRuntime", () => {
 
     expect(response.status).toBe(502);
     expect(payload.code).toBe("MODEL_UPSTREAM_NO_CONTENT");
-    // Lowercase `openai`, not the adapter's `OpenAI`: that is the domain service refusing to name a
-    // file after an empty payload, which is what keeps `writeBase64Image` from writing a 0-byte image.
-    expect(payload.message).toBe("openai returned no image data");
+    // The image provider's own id, not the adapter's `OpenAI`: that is the domain service refusing to name
+    // a file after an empty payload, which is what keeps `writeBase64Image` from writing a 0-byte image.
+    // CI-AI-IMG-CONFIG-03 (C2) is what makes the pin visible here too: the sentence names the provider the
+    // request was actually routed to, so it cannot be mistaken for the text one.
+    expect(payload.message).toBe("openai-image returned no image data");
     // The service words its own `details`, so the code is the runtime's vocabulary while the sentence is the
     // domain's - both reach the client now (D1-b), and neither carries a key.
-    expect(payload.details.providerId).toBe("openai");
+    expect(payload.details.providerId).toBe("openai-image");
     expect(await artifacts()).toEqual([]);
   });
 
@@ -534,6 +634,27 @@ describe("POST /api/images on aiRuntime", () => {
     expect(imageCalls(calls)).toHaveLength(2);
   });
 
+  it("answers the gate's own 402 instead of asking a provider, and writes no file", async () => {
+    // The model is configured through a catalog read first, then the transport is emptied: from this point
+    // on, any call this request makes is one the case will see.
+    stubFetch([{ match: (target) => target.endsWith("/models"), respond: openAIImageCatalog }]);
+    await prepareOpenAIImage();
+    await refuseEveryAiBudgetCall();
+    const calls = stubFetch([]);
+
+    const response = await postImage({ prompt: "a cat on a keyboard" });
+    const payload = await response.json();
+
+    // The gate lives in `lib/agent/image-generation.ts` - the domain service, which is the only place that
+    // knows an image is about to be bought - so the refusal arrives here as an `AppError` this route's
+    // `failFromError` passes through with its own code and status (D-P3-3 applied to a refusal).
+    expect(response.status).toBe(402);
+    expect(payload.ok).toBe(false);
+    expect(payload.code).toBe("AI_BUDGET_EXCEEDED");
+    // No request, and the artifacts directory the 201 envelope points into stays exactly as it was.
+    expect(calls).toEqual([]);
+    expect(await artifacts()).toEqual([]);
+  });
 });
 
 /**

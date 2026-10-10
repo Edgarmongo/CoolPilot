@@ -19,6 +19,10 @@ export type ModelConfigForm = LocalAgentSettings & {
   groqKey: string;
   openAIKey: string;
   openRouterKey: string;
+  // Image credentials are their own fields: they are stored under separate provider refs and are
+  // never the text key echoed back (CI-AI-IMG-CONFIG-02, Q1/Q2).
+  openAIImageKey: string;
+  geminiImageKey: string;
 };
 
 type ModelListResponse = {
@@ -274,21 +278,22 @@ export default function ModelConfigPanel({ showCatalogLink = false }: { showCata
               {form.imageProvider === "openai" ? (
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                    <span>{t("openAIKey")}</span>
+                    <span>{t("openAIImageKey")}</span>
                     <input
                       type="password"
-                      value={form.openAIKey}
-                      onChange={(event) => updateForm({ openAIKey: event.target.value })}
+                      value={form.openAIImageKey}
+                      onChange={(event) => updateForm({ openAIImageKey: event.target.value })}
                       className={`${consoleInputClass} font-mono`}
                     />
                   </label>
                   <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                    <span>{t("openAIBaseUrl")}</span>
+                    <span>{t("openAIImageBaseUrl")}</span>
                     <input
-                      value={form.openAIBaseUrl}
-                      onChange={(event) => updateForm({ openAIBaseUrl: event.target.value })}
+                      value={form.openAIImageBaseUrl}
+                      onChange={(event) => updateForm({ openAIImageBaseUrl: event.target.value })}
                       className={consoleInputClass}
                     />
+                    <span className="text-xs font-normal text-zinc-400">{t("openAIImageBaseUrlHint")}</span>
                   </label>
                   <ModelInput id="image-models" label={t("openAIImageModel")} value={imageModelValue()} models={imageModelData?.models} onChange={updateImageModel} {...modelInputCopy} />
                   <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
@@ -304,11 +309,11 @@ export default function ModelConfigPanel({ showCatalogLink = false }: { showCata
               {form.imageProvider === "gemini" ? (
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-                    <span>{t("geminiKey")}</span>
+                    <span>{t("geminiImageKey")}</span>
                     <input
                       type="password"
-                      value={form.geminiKey}
-                      onChange={(event) => updateForm({ geminiKey: event.target.value })}
+                      value={form.geminiImageKey}
+                      onChange={(event) => updateForm({ geminiImageKey: event.target.value })}
                       className={`${consoleInputClass} font-mono`}
                     />
                   </label>

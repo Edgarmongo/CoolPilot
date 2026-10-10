@@ -34,6 +34,7 @@ const {
   prepareChatModel,
   prepareModel,
   qwenCatalog,
+  refuseEveryAiBudgetCall,
   resetRuntime,
   stubFetch,
   unavailable,
@@ -394,5 +395,29 @@ describe("POST /api/positions/generate on aiRuntime", () => {
     expect(payload.data.provider).toBe("qwen");
     expect(payload.data.draft.name).toBe(answerName);
     expect(chatCalls(calls)).toHaveLength(1);
+  });
+
+  it("answers the gate's own 402 instead of inventing a fallback draft, and books nothing", async () => {
+    // The model is configured through a catalog read first, then the transport is emptied: from this point
+    // on, any call this request makes is one the case will see.
+    stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    await refuseEveryAiBudgetCall();
+    const calls = stubFetch([]);
+    const usageBefore = (await listUsageRecords({ limit: 500 })).length;
+
+    const response = await generate({ prompt });
+    const payload = await response.json();
+
+    // The deterministic draft is this route's answer to an AI that failed. A refusal is not one, and the
+    // gate stands outside that try: a local template here would look like a successful generation.
+    expect(response.status).toBe(402);
+    expect(payload.ok).toBe(false);
+    expect(payload.code).toBe("AI_BUDGET_EXCEEDED");
+    expect(payload.data).toBeUndefined();
+    expect(calls).toEqual([]);
+    expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
   });
 });

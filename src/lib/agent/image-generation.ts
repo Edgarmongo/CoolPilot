@@ -2,8 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { getLocalAgentSettings } from "@/db/repositories/settings";
-import { aiRuntime } from "@/features/ai-runtime";
+import { imageProviderIdFor } from "@/features/ai-settings/provider-registry";
+import { aiRuntime, type ImageGenerationResponse } from "@/features/ai-runtime";
 import { AppError } from "@/lib/app-errors";
+import { beginAiBudgetCall } from "@/lib/ai-budget-guard";
+import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { ensureArtifactsRoot } from "@/lib/paths";
 
 /**
@@ -27,7 +30,9 @@ import { ensureArtifactsRoot } from "@/lib/paths";
  *
  * What the cut did *not* change is the product decision underneath: the provider (`input.provider`, else
  * `settings.imageProvider`, else `openai`) is a hard pin, passed to the runtime as `providerId`, so the
- * candidate chain is one provider wide (D-P3-2, G3).
+ * candidate chain is one provider wide (D-P3-2, G3). CI-AI-IMG-CONFIG-03 (C2) only mapped that choice
+ * onto the provider that *owns* images - `openai-image` / `gemini-image`, with the image endpoint and the
+ * image credential - so the pin still names the same vendor and still never fails over to the other one.
  */
 
 const imageExtensions: Record<string, string> = {
@@ -50,19 +55,76 @@ async function writeBase64Image(base64: string, extension = "png") {
   return filePath;
 }
 
-export async function generateImageFile(input: { prompt: string; provider?: "gemini" | "openai" }) {
+export async function generateImageFile(input: {
+  prompt: string;
+  provider?: "gemini" | "openai";
+  /**
+   * The content item this image is produced for, when the caller already knows one (the agent's
+   * `generate_image_file` tool does). C4: it travels onto this call's ledger rows, which is what lets an
+   * image's cost be read back per content item.
+   *
+   * Absent means the call belongs to no item - the standalone 配图 page - and nothing is guessed in its
+   * place: an attribution invented from the prompt or from whoever happens to be editing would be worse
+   * than an empty one.
+   */
+  contentItemId?: string;
+}) {
   const settings = await getLocalAgentSettings().catch(() => null);
   // The legacy `provider` argument (or `settings.imageProvider`) was a hard choice: the old
   // code never fell over to the other image provider, so this stays a pin, not a preference.
-  const providerId = input.provider ?? settings?.imageProvider ?? "openai";
-  const response = await aiRuntime.generateImage({
-    prompt: input.prompt,
+  // C2 (CI-AI-IMG-CONFIG-03): the pin names the provider that *owns* images - `openai-image` or
+  // `gemini-image` - so the call reaches the image endpoint under the image credential. Pinning the
+  // text provider here would sign an image request against whatever the user configured for chat (Q4).
+  const providerId = imageProviderIdFor(input.provider ?? settings?.imageProvider ?? "openai");
+  // CI-P7-01-04. An image model reports no token usage, so this call is metered by what it produced
+  // (`quantity`) and its cost stays NULL until the catalog names an image price - never a 0. The
+  // file it lands is the artifact the row points at.
+  //
+  // C4: `contentItemId` is carried only when the caller really has one. It is the business half of the
+  // row, exactly like the `contentItemId` the article call writes, so an image's cost can be summed per
+  // content item afterwards; `outputAssetId` (the path of the file) is the other half, and its file name
+  // is the identity `metadata.imageAssets` stores.
+  const usageCall: AiUsageCallContext = {
+    purpose: "image",
+    meteredKind: "image",
+    ...(input.contentItemId?.trim() ? { contentItemId: input.contentItemId.trim() } : {}),
+  };
+
+  // CI-P7-03. An image call is gated like a text one, with two differences that are facts about this
+  // path rather than choices: the route is pre-resolved for `image_generation` (so an image model's price
+  // is what is compared, not a chat model's), and `quantity: 1` states the one image this call will ask
+  // for - a per-image price multiplied by nothing would be `usage-basis-unknown`, not a cheaper estimate.
+  // A refusal is thrown before the try below, so it writes no ledger row: nothing was sent.
+  const budget = await beginAiBudgetCall({
+    identity: usageCall,
+    purpose: usageCall.purpose,
+    capability: "image_generation",
+    meteredKind: "image",
     providerId,
-    size: settings?.openAIImageSize,
+    quantity: 1,
   });
+  // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what
+  // was spent are compared by an id instead of correlated by purpose and time.
+  usageCall.budgetReservationId = budget.reservationId ?? undefined;
+  let response: ImageGenerationResponse;
+  try {
+    response = await aiRuntime.generateImage({
+      prompt: input.prompt,
+      providerId,
+      size: settings?.openAIImageSize,
+    });
+  } catch (error) {
+    await recordAiUsageFailure(usageCall, error);
+    throw error;
+  } finally {
+    await budget.release();
+  }
 
   const [image] = response.images;
   if (!image?.base64) {
+    // The request was answered - and billed - with nothing usable in it, so the row is written
+    // before that becomes the caller's error.
+    await recordAiUsageCall({ ...usageCall, attempts: response.attempts, quantity: { images: 0 } });
     throw new AppError("MODEL_UPSTREAM_NO_CONTENT", {
       status: 502,
       message: `${response.providerId} returned no image data`,
@@ -70,10 +132,18 @@ export async function generateImageFile(input: { prompt: string; provider?: "gem
     });
   }
 
+  const path = await writeBase64Image(image.base64, extensionFor(image.mimeType));
+  await recordAiUsageCall({
+    ...usageCall,
+    attempts: response.attempts,
+    outputAssetId: path,
+    quantity: { images: response.images.length },
+  });
+
   return {
     provider: response.providerId,
     model: response.model,
-    path: await writeBase64Image(image.base64, extensionFor(image.mimeType)),
+    path,
   };
 }
 

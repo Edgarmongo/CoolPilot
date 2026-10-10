@@ -20,15 +20,29 @@ function stripCodeFence(markdown: string): string {
   return markdown.replace(/^\s*```[^\n]*$/gm, "");
 }
 
-/** Serialise the tree to a Markdown outline (headings), used for export and AI round-trips. */
-export function mindMapToMarkdown(root: MindMapNode, maxHeadingLevel = 6): string {
+/**
+ * Serialise the tree to a Markdown outline (headings), used for export and AI round-trips.
+ *
+ * `includeRoot` (CI-SC-01) exists for the 文章编辑器 hand-off: that article already carries the root
+ * topic as its *title*, so writing the same words again as the body's first `#` heading would show
+ * them twice. With `includeRoot: false` the branches start at `#` instead of `##`, which is also what
+ * keeps a three-level outline inside `#`–`###` (the only depths `plainTextToHtml()` renders).
+ *
+ * Both defaults are the behaviour this function has always had, so every existing caller - the JSON /
+ * Markdown export, the AI round-trip - is untouched.
+ */
+export function mindMapToMarkdown(root: MindMapNode, maxHeadingLevel = 6, includeRoot = true): string {
   const lines: string[] = [];
   const walk = (node: MindMapNode, level: number) => {
     const hashes = "#".repeat(Math.min(level + 1, maxHeadingLevel));
     lines.push(`${hashes} ${node.content}`);
     node.children.forEach((child) => walk(child, level + 1));
   };
-  walk(root, 0);
+  if (includeRoot) {
+    walk(root, 0);
+  } else {
+    root.children.forEach((child) => walk(child, 0));
+  }
   return lines.join("\n");
 }
 

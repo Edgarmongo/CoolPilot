@@ -5,63 +5,35 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BarChart3,
-  BookOpen,
   Boxes,
-  Brush,
-  CalendarClock,
-  CalendarDays,
   ChevronDown,
   ChevronUp,
   Database,
   Globe2,
   HardDrive,
-  History,
-  House,
-  Library,
-  ListChecks,
   MessageCircle,
-  Network,
-  Newspaper,
-  Package,
   PanelLeftClose,
   PanelLeftOpen,
-  PenSquare,
-  PenTool,
-  Play,
-  Rocket,
-  ScrollText,
-  Send,
-  Settings,
-  Settings2,
   ShieldCheck,
-  SlidersHorizontal,
-  Sparkles,
-  Store,
-  Target,
-  Users,
-  Video,
   WalletCards,
-  Workflow,
-  Image as ImageIcon,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { ConsoleHeaderActionsProvider, ConsoleHeaderActionsSlot } from "@/components/ui/console-header-actions";
 import { LogoButton } from "@/components/ui/logo-button";
 import { NavButton } from "@/components/ui/nav-button";
+import {
+  consoleMobileNavIds,
+  consoleNavItems,
+  findActiveConsoleNavEntry,
+  labelConsoleNav,
+  matchesConsoleNavSegment,
+  type ConsoleNavLabeledEntry,
+} from "@/lib/console-nav";
 import { useI18n } from "@/lib/i18n";
 import { localizedPath, stripLocale, type Locale } from "@/lib/i18n-config";
 import { PRODUCT_SHORT_NAME } from "@/lib/product-branding";
 import { cn } from "@/lib/utils";
 
-type NavEntry = {
-  id: string;
-  name: string;
-  icon: LucideIcon;
-  href: string;
-  segment: string;
-  children?: NavEntry[];
-};
+type NavEntry = ConsoleNavLabeledEntry;
 
 function AccountDropdownLink({
   href,
@@ -106,97 +78,11 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const navItems = useMemo<NavEntry[]>(
-    () => [
-      { id: "dashboard", name: t("navDashboard"), icon: House, href: "/dashboard", segment: "/dashboard" },
-      { id: "chatroom", name: t("agentChatShortTitle"), icon: MessageCircle, href: "/chatroom", segment: "/chatroom" },
-      { id: "data-center", name: t("navDataCenter"), icon: Database, href: "/data-center", segment: "/data-center" },
-      {
-        id: "creation",
-        name: t("navCreation"),
-        icon: PenSquare,
-        href: "/creation/ai-writing",
-        segment: "/creation",
-        children: [
-          { id: "ai-writing", name: t("navAiWriting"), icon: Sparkles, href: "/creation/ai-writing", segment: "/creation/ai-writing" },
-          { id: "products", name: t("navProductManagement"), icon: Package, href: "/creation/products", segment: "/creation/products" },
-          { id: "articles", name: t("navArticleCreation"), icon: Newspaper, href: "/creation/articles", segment: "/creation/articles" },
-          { id: "posts", name: t("navDynamicPublishing"), icon: Send, href: "/creation/posts", segment: "/creation/posts" },
-          { id: "videos", name: t("navVideoPublishing"), icon: Video, href: "/creation/videos", segment: "/creation/videos" },
-          { id: "images", name: t("navImageManagement"), icon: ImageIcon, href: "/creation/images", segment: "/creation/images" },
-          { id: "content-center", name: t("navContentCenter"), icon: Library, href: "/content/library", segment: "/content" },
-          {
-            id: "drawing",
-            name: t("navDrawing"),
-            icon: Brush,
-            href: "/whiteboard",
-            segment: "/whiteboard",
-            children: [
-              { id: "whiteboard", name: t("navWhiteboard"), icon: PenTool, href: "/whiteboard", segment: "/whiteboard" },
-              { id: "mindmap", name: t("navMindMap"), icon: Network, href: "/mindmap", segment: "/mindmap" },
-            ],
-          },
-        ],
-      },
-      { id: "app-store", name: t("navAppStore"), icon: Store, href: "/app-store", segment: "/app-store" },
-      {
-        id: "smart-config",
-        name: t("navSmartConfig"),
-        icon: Settings2,
-        href: "/smart-config/positioning",
-        segment: "/smart-config",
-        children: [
-          { id: "positioning", name: t("navAccountPositioning"), icon: Target, href: "/smart-config/positioning", segment: "/smart-config/positioning" },
-          { id: "knowledge-base", name: t("navKnowledgeBase"), icon: BookOpen, href: "/smart-config/knowledge-base", segment: "/smart-config/knowledge-base" },
-        ],
-      },
-      {
-        id: "automation",
-        name: t("navAutomation"),
-        icon: Workflow,
-        href: "/schedules/list",
-        segment: "/automation",
-        children: [
-          { id: "schedules", name: t("navSchedules"), icon: CalendarClock, href: "/schedules/list", segment: "/schedules/list" },
-          { id: "calendar", name: t("navContentCalendar"), icon: CalendarDays, href: "/schedules/calendar", segment: "/schedules/calendar" },
-          { id: "generations", name: t("navGenerationRecords"), icon: History, href: "/automation/generations", segment: "/automation/generations" },
-          { id: "operation-logs", name: t("navOperationLogs"), icon: ScrollText, href: "/automation/logs", segment: "/automation/logs" },
-          { id: "execution-nodes", name: t("navExecutionNodes"), icon: Globe2, href: "/automation/nodes", segment: "/automation/nodes" },
-          { id: "runs", name: t("navRuns"), icon: Play, href: "/runs/queue", segment: "/runs" },
-        ],
-      },
-      {
-        id: "publishing",
-        name: t("navPublishing"),
-        icon: Rocket,
-        href: "/publishing/accounts",
-        segment: "/publishing",
-        children: [
-          { id: "accounts", name: t("navAccountManagement"), icon: Users, href: "/publishing/accounts", segment: "/publishing/accounts" },
-          { id: "publish-records", name: t("navPublishRecords"), icon: ListChecks, href: "/publishing/records", segment: "/publishing/records" },
-        ],
-      },
-      {
-        id: "system",
-        name: t("navSystem"),
-        icon: Settings,
-        href: "/settings",
-        segment: "/settings",
-        children: [
-          { id: "models", name: t("navModelManagement"), icon: Boxes, href: "/system/models", segment: "/system/models" },
-          { id: "usage", name: t("navUsage"), icon: BarChart3, href: "/system/usage", segment: "/system/usage" },
-          { id: "settings", name: t("navSettings"), icon: SlidersHorizontal, href: "/settings", segment: "/settings" },
-          // Last on purpose: the mobile "System" tab opens the group's first child (#leafHref), and
-          // B0-3-B adds a surface without changing where that tab already lands.
-          { id: "workspace", name: t("navWorkspace"), icon: HardDrive, href: "/system/workspace", segment: "/system/workspace" },
-        ],
-      },
-    ],
-    [t],
-  );
+  // The tree itself lives in `@/lib/console-nav` (unit tested); here we only resolve its labels.
+  const navItems = useMemo<NavEntry[]>(() => labelConsoleNav(consoleNavItems, t), [t]);
 
   function segmentMatches(segment: string) {
-    return routePath.startsWith(segment) || (segment === "/dashboard" && routePath === "/");
+    return matchesConsoleNavSegment(routePath, segment);
   }
 
   function entryIsActive(entry: NavEntry): boolean {
@@ -208,16 +94,10 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
     return entry.children?.[0]?.href ?? entry.href;
   }
 
-  const navLeaves = useMemo(() => {
-    const flatten = (items: NavEntry[]): NavEntry[] =>
-      items.flatMap((item) => (item.children?.length ? flatten(item.children) : [item]));
-    return flatten(navItems);
-  }, [navItems]);
-  const activeItem = navLeaves.find((item) => segmentMatches(item.segment)) ?? navItems[0];
+  const activeItem = findActiveConsoleNavEntry(navItems, routePath);
 
   const mobileMenuItems = useMemo(() => {
-    const ids = ["dashboard", "creation", "smart-config", "publishing", "system"];
-    const selected = ids
+    const selected = consoleMobileNavIds
       .map((id) => navItems.find((item) => item.id === id))
       .filter((item): item is NavEntry => Boolean(item));
     return selected;
@@ -284,7 +164,7 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
       <Link key={item.id} href={localizedPath(locale, leafHref(item))} className="flex flex-1 justify-center md:w-full md:flex-none">
         <NavButton
           icon={<item.icon className="h-5 w-5" />}
-          label={item.name}
+          label={item.mobileName}
           size={size}
           isActive={entryIsActive(item)}
         />
@@ -400,13 +280,17 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
             ) : null}
           </div>
 
-          <nav className={cn("mt-4 flex flex-col", isSidebarCollapsed ? "items-center gap-2" : "gap-1")} aria-label={t("consoleNavigation")}>
+          <nav
+            className={cn(
+              "mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain pb-1",
+              isSidebarCollapsed ? "items-center gap-2" : "gap-1",
+            )}
+            aria-label={t("consoleNavigation")}
+          >
             {navItems.map((item) => renderNavEntry(item))}
           </nav>
 
-          <div className="min-h-0 flex-1" />
-
-          <div ref={accountMenuRef} className={cn("relative mt-3 w-full border-t border-slate-200 pt-3", isSidebarCollapsed && "flex justify-center")}>
+          <div ref={accountMenuRef} className={cn("relative mt-3 w-full shrink-0 border-t border-slate-200 pt-3", isSidebarCollapsed && "flex justify-center")}>
             {isAccountMenuOpen ? (
               <div className="absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-xl">
                 <AccountDropdownLink href="/system/models" icon={<Boxes className="size-4" />} label={t("navModelManagement")} locale={locale} onNavigate={() => setIsAccountMenuOpen(false)} />
@@ -452,7 +336,7 @@ function ConsoleLayoutShell({ children }: { children: React.ReactNode }) {
         ) : (
           <main className="flex min-w-0 flex-1 flex-col bg-card md:overflow-hidden md:rounded-lg md:border md:border-border md:shadow-sm">
             <header className="sticky top-0 z-10 flex min-h-14 items-center justify-between gap-3 border-b bg-background/60 px-4 py-2 backdrop-blur-sm sm:px-6">
-              <h1 className="truncate text-sm font-semibold text-foreground sm:text-base">{activeItem.name}</h1>
+              <h1 className="truncate text-sm font-semibold text-foreground sm:text-base">{activeItem?.name ?? ""}</h1>
               <ConsoleHeaderActionsSlot />
             </header>
             <div className="flex-1 overflow-auto p-4 md:p-6">{children}</div>

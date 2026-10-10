@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { CalendarClock, CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, CheckCheck, Clock3, Play, TriangleAlert } from "lucide-react";
+import { CalendarClock, CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, CheckCheck, Clock3, Pencil, Play, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConsoleCard, ConsoleNotice, ConsoleSectionHeader, consoleInputClass } from "@/components/ui/console-surface";
 import { swrFetcher } from "@/lib/api-client";
@@ -31,6 +31,7 @@ import { CalendarMonthGrid } from "./calendar-month-grid";
 import { CalendarEntryChip, calendarEntryMeta, calendarKindLabelKeys, calendarStatusLabel } from "./calendar-shared";
 import { playbookLabel, scheduleTimesLabel } from "./schedule-labels";
 import { ScheduleCreateDialog } from "./schedule-create-dialog";
+import { ScheduleRescheduleDialog } from "./schedule-reschedule-dialog";
 
 type CalendarPayload = {
   range: { from: number; to: number };
@@ -39,6 +40,8 @@ type CalendarPayload = {
   summary: CalendarSummary;
   bestSlots: SlotStat[];
   accounts: { id: string; name: string; platform: string }[];
+  /** CI-P2-04: how many content titles this answer resolved, and its own ceiling. */
+  contentTitles: { requested: number; resolved: number; budget: number; capped: boolean };
   generatedAt: number;
 };
 
@@ -94,6 +97,7 @@ export default function ContentCalendar() {
   const [accountId, setAccountId] = useState("");
   const [kinds, setKinds] = useState<CalendarEntryKind[]>(entryKinds);
   const [pending, setPending] = useState<PendingCreate | null>(null);
+  const [reschedule, setReschedule] = useState<{ scheduleId: string; at: number } | null>(null);
   const [lastUsed, setLastUsed] = useState<{ playbookId?: PlaybookId; accountId?: string }>({});
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
 
@@ -151,6 +155,13 @@ export default function ContentCalendar() {
         rules: scheduleTimesLabel(schedule?.scheduleTimes ?? rules, t, locale),
       }),
     });
+    void mutate();
+  }
+
+  /** CI-P2-04-05: the plan moved, so the month and the day agenda are re-read. */
+  function handleRescheduled() {
+    setReschedule(null);
+    setNotice({ tone: "success", message: t("scheduleRescheduleSaved") });
     void mutate();
   }
 
@@ -230,6 +241,15 @@ export default function ContentCalendar() {
               >
                 {t("navSchedules")}
               </Link>
+
+              {data?.contentTitles?.capped ? (
+                <span className="text-xs text-amber-700">
+                  {t("calendarContentTitlesCapped", {
+                    resolved: data.contentTitles.resolved,
+                    requested: data.contentTitles.requested,
+                  })}
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -275,6 +295,26 @@ export default function ContentCalendar() {
                       {entry.playbookId ? (
                         <p className="truncate text-xs text-zinc-400">{playbookLabel(entry.playbookId, t)}</p>
                       ) : null}
+                      {entry.contentItemId ? (
+                        <p className="flex flex-wrap items-center gap-2 truncate text-xs">
+                          <Link
+                            href={`${localizedPath(locale, "/content/library")}?open=${encodeURIComponent(entry.contentItemId)}`}
+                            className="text-sky-600 hover:underline"
+                          >
+                            {entry.contentTitle || t("calendarOpenContent")}
+                          </Link>
+                          {entry.scheduleId && entry.kind === "planned" ? (
+                            <button
+                              type="button"
+                              onClick={() => setReschedule({ scheduleId: entry.scheduleId!, at: entry.at })}
+                              className="inline-flex items-center gap-1 text-zinc-500 transition hover:text-sky-600"
+                            >
+                              <Pencil size={12} />
+                              {t("scheduleRescheduleOpen")}
+                            </button>
+                          ) : null}
+                        </p>
+                      ) : null}
                     </div>
                   </li>
                 ))}
@@ -306,7 +346,9 @@ export default function ContentCalendar() {
                         <span>{formatDayLabel(entry.at, locale)}</span>
                         <span className="tabular-nums">{formatClockTime(entry.at, locale)}</span>
                       </span>
-                      <span className="mt-1 block truncate text-sm text-zinc-800">{entry.title}</span>
+                      <span className="mt-1 block truncate text-sm text-zinc-800">
+                        {entry.contentTitle || entry.title || "—"}
+                      </span>
                       <span className="block truncate text-xs text-zinc-400">{calendarEntryMeta(entry, t)}</span>
                     </button>
                   </li>
@@ -328,6 +370,14 @@ export default function ContentCalendar() {
           defaultAccountId={pending.accountId}
           onClose={() => setPending(null)}
           onCreated={handleCreated}
+        />
+      ) : null}
+      {reschedule ? (
+        <ScheduleRescheduleDialog
+          scheduleId={reschedule.scheduleId}
+          at={reschedule.at}
+          onClose={() => setReschedule(null)}
+          onSaved={handleRescheduled}
         />
       ) : null}
     </div>

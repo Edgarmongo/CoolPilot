@@ -1,8 +1,10 @@
 import * as cheerio from "cheerio";
 import { XMLParser } from "fast-xml-parser";
-import { aiRuntime } from "@/features/ai-runtime";
+import { aiRuntime, type StructuredChatResponse } from "@/features/ai-runtime";
 import { AppError } from "@/lib/app-errors";
+import { beginAiBudgetCall } from "@/lib/ai-budget-guard";
 import { postDraftSchema } from "@/lib/ai/schemas";
+import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { normalizePostText } from "./post-format";
 
 /**
@@ -62,6 +64,8 @@ export async function rewriteArticle(input: {
   maxWords?: number;
   language?: string;
   prompt?: string;
+  /** The automation run (`AutomationContext.runId`) that asked for this rewrite. */
+  runId?: string;
 }) {
   const language = input.language ?? "Simplified Chinese";
   const maxWords = input.maxWords ?? 300;
@@ -77,11 +81,28 @@ export async function rewriteArticle(input: {
     .filter(Boolean)
     .join("\n");
 
+  const usageCall: AiUsageCallContext = { purpose: "rewrite", runId: input.runId };
+
+  // CI-P7-03. The budget gate stands between the prompt and the request. A refusal is thrown from here,
+  // *outside* the try below, so it is neither written to the ledger (no request was sent, so there is
+  // nothing to account for) nor flattened into the legacy `AI rewrite failed: …` wording, which means
+  // "the provider failed" and would be a false statement about a call that never left this process.
+  const budget = await beginAiBudgetCall({
+    identity: usageCall,
+    purpose: usageCall.purpose,
+    capabilities: ["chat"],
+    inputText: prompt,
+  });
+  // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what
+  // was spent are compared by an id instead of correlated by purpose and time.
+  usageCall.budgetReservationId = budget.reservationId ?? undefined;
   try {
     const response = await aiRuntime.chatStructured({
       messages: [{ role: "user", content: prompt }],
       schema: postDraftSchema,
     });
+    // CI-P7-01-04: one ledger row per request the runtime sent, attributed to the run that asked.
+    await recordAiUsageCall({ ...usageCall, attempts: response.attempts });
     return {
       ...toPostDraft(response.data, input.title),
       provider: response.providerId,
@@ -90,10 +111,14 @@ export async function rewriteArticle(input: {
     };
   } catch (error) {
     // The credential cases are the caller's to report; everything else keeps the legacy message.
+    // Recorded first, because a rejected request may still have been billed.
+    await recordAiUsageFailure(usageCall, error);
     if (isCredentialFailure(error)) {
       throw error;
     }
     throw new Error(`AI rewrite failed: ${(error as Error).message}`);
+  } finally {
+    await budget.release();
   }
 }
 
@@ -104,6 +129,8 @@ export async function generateTopicPost(input: {
   language?: string;
   prompt?: string;
   systemPrompt?: string;
+  /** The automation run (`AutomationContext.runId`) that asked for this draft. */
+  runId?: string;
 }) {
   const prompt = [
     `Write a ready-to-post Threads social media draft in ${input.language ?? "Simplified Chinese"}.`,
@@ -115,11 +142,35 @@ export async function generateTopicPost(input: {
   ]
     .filter(Boolean)
     .join("\n");
-  const response = await aiRuntime.chatStructured({
-    messages: [{ role: "user", content: prompt }],
-    systemPrompt: input.systemPrompt,
-    schema: postDraftSchema,
+  const usageCall: AiUsageCallContext = { purpose: "topic-post", runId: input.runId };
+
+  // CI-P7-03, the same gate as `rewriteArticle` above, for the same reason: this is where the worker's
+  // topic/article playbooks really spend, so the gate belongs at the call rather than at the playbook.
+  const budget = await beginAiBudgetCall({
+    identity: usageCall,
+    purpose: usageCall.purpose,
+    capabilities: ["chat"],
+    inputText: prompt,
   });
+  // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what
+  // was spent are compared by an id instead of correlated by purpose and time.
+  usageCall.budgetReservationId = budget.reservationId ?? undefined;
+  let response: StructuredChatResponse<typeof postDraftSchema>;
+  try {
+    response = await aiRuntime.chatStructured({
+      messages: [{ role: "user", content: prompt }],
+      systemPrompt: input.systemPrompt,
+      schema: postDraftSchema,
+    });
+  } catch (error) {
+    // This function has no error contract of its own: it rethrows, so the row has to be written
+    // here, before the failure leaves the module.
+    await recordAiUsageFailure(usageCall, error);
+    throw error;
+  } finally {
+    await budget.release();
+  }
+  await recordAiUsageCall({ ...usageCall, attempts: response.attempts });
   return {
     ...toPostDraft(response.data, input.topic),
     provider: response.providerId,

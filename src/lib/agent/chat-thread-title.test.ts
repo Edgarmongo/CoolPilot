@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AppError } from "@/lib/app-errors";
+import type { AgentChatMessageWithTools, AgentChatThreadRecord } from "@/lib/types";
 
 /**
  * The first block is about the pure title helpers; the second is the P3-A2 change - title generation
@@ -7,23 +7,30 @@ import { AppError } from "@/lib/app-errors";
  * `@/lib/ai` facade. The transport-level guarantees (rotation, failover, usage) are asserted in
  * `src/lib/scraper.test.ts` and `src/features/ai-runtime/runtime.test.ts`; what matters here is that
  * the schema goes in, `data.title` comes out, and a runtime failure never blocks the chat response.
+ *
+ * CI-P7-03 later put a budget gate in front of that call, so this file also pins what a refusal means
+ * here: the local fallback, and no request at all. The harness pins the temp database and puts the
+ * budget row back to the shipped default, and - as in `src/lib/article-generation.test.ts` - it has to
+ * be the first import: the gate reads a settings row that this file's own imports would otherwise
+ * resolve against the install's database.
  */
 vi.mock("@/features/ai-runtime", async () => {
   const actual = await vi.importActual<typeof import("@/features/ai-runtime")>("@/features/ai-runtime");
   return { ...actual, aiRuntime: { ...actual.aiRuntime, chatStructured: vi.fn() } };
 });
 
-import { aiRuntime } from "@/features/ai-runtime";
-import { chatTitleSchema } from "@/lib/ai/schemas";
-import {
+const { allowEveryAiBudgetCall, refuseEveryAiBudgetCall } = await import("@/test/route-harness");
+const { AppError } = await import("@/lib/app-errors");
+const { aiRuntime } = await import("@/features/ai-runtime");
+const { chatTitleSchema } = await import("@/lib/ai/schemas");
+const {
   isGenericChatThreadTitle,
   defaultChatThreadTitle,
   generateChatThreadTitle,
   normalizeChatThreadTitle,
   shouldGenerateChatThreadTitle,
   userMessagesForTitle,
-} from "./chat-thread-title";
-import type { AgentChatMessageWithTools, AgentChatThreadRecord } from "@/lib/types";
+} = await import("./chat-thread-title");
 
 const mockedChatStructured = vi.mocked(aiRuntime.chatStructured);
 
@@ -94,7 +101,10 @@ describe("chat thread title helpers", () => {
 });
 
 describe("chat thread title generation on the runtime", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The shipped budget row is `off`; a case that wants a refusal states the refusal itself, and this
+    // puts the row back so the other cases here keep calling the model.
+    await allowEveryAiBudgetCall();
     mockedChatStructured.mockReset();
   });
 
@@ -131,6 +141,17 @@ describe("chat thread title generation on the runtime", () => {
     });
 
     expect(title).toBe("Launch plan");
+    expect(mockedChatStructured).not.toHaveBeenCalled();
+  });
+
+  it("degrades to the local fallback when the budget refuses the title, without sending it", async () => {
+    await refuseEveryAiBudgetCall();
+
+    // A refused title is the user's own policy speaking and is not worth blocking a chat over, so it
+    // degrades exactly like a provider failure - and the refusal never reaches the transport.
+    await expect(generateChatThreadTitle({ messages: ["plan my launch"], locale: "en" })).resolves.toBe(
+      "Chat: plan my launch",
+    );
     expect(mockedChatStructured).not.toHaveBeenCalled();
   });
 });

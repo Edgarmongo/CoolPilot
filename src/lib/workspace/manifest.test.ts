@@ -128,6 +128,8 @@ describe("workspace manifest", () => {
       "browserProfiles",
       "database",
       "generatedAt",
+      // The `media/` section CI-P3-02 added: the audio/video a transcription reads.
+      "media",
       "root",
       "unaccounted",
       "uploads",
@@ -148,6 +150,7 @@ describe("workspace manifest", () => {
       "unlinkedProfiles",
     ]);
     expect(Object.keys(manifest.videos).sort()).toEqual(["exists", "fileCount", "totalBytes"]);
+    expect(Object.keys(manifest.media).sort()).toEqual(["exists", "fileCount", "totalBytes"]);
     expect(Object.keys(manifest.uploads).sort()).toEqual([
       "brandLogos",
       "exists",

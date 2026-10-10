@@ -2,15 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { fail, ok } from "@/lib/api";
+import { artifactImageUrl } from "@/lib/artifact-image-url";
 import { ensureArtifactsRoot } from "@/lib/paths";
 
 export const runtime = "nodejs";
 
 const allowedExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
-
-function imageUrl(fileName: string) {
-  return `/api/agent/artifacts?file=${encodeURIComponent(fileName)}`;
-}
 
 /** Stores an uploaded image in the artifacts dir so the editor can insert it. */
 export async function POST(request: Request) {
@@ -32,5 +29,5 @@ export async function POST(request: Request) {
 
   const fileName = `upload-${Date.now()}-${nanoid(8)}${extension}`;
   await fs.writeFile(path.join(ensureArtifactsRoot(), fileName), buffer);
-  return ok({ fileName, url: imageUrl(fileName) }, { status: 201 });
+  return ok({ fileName, url: artifactImageUrl(fileName) }, { status: 201 });
 }

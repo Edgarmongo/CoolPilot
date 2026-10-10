@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Flame, Sparkles } from "lucide-react";
 import { apiGet, apiPost } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
+import { articleEditorHref } from "@/lib/editor-link";
 import { Button } from "@/components/ui/button";
 import { consoleInputClass } from "@/components/ui/console-surface";
 import { writingAgents } from "@/lib/writing-agents";
+import { GenerationSourceSelects } from "@/components/creation/generation-source-selects";
 
 type GeneratedPayload = {
   item: { id: string; title: string; body: string; postReadyText: string };
@@ -23,9 +26,13 @@ export function GenerateContentPanel({
   type: string;
   onGenerated?: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [agentId, setAgentId] = useState("general");
   const [topic, setTopic] = useState("");
+  const [topicId, setTopicId] = useState("");
+  const [brandId, setBrandId] = useState("");
+  /** 研究素材 (CI-P3-01): the third stored row the route reads for this run. */
+  const [researchMaterialId, setResearchMaterialId] = useState("");
   const [keywords, setKeywords] = useState("");
   const [maxWords, setMaxWords] = useState(300);
   const [language, setLanguage] = useState("简体中文");
@@ -51,6 +58,13 @@ export function GenerateContentPanel({
         prompt,
         type,
         agentId,
+        // 选题 and 品牌资料 are read from the stored rows by the route (CI-P2-03); the ids are all this
+        // panel sends, so what reaches the prompt is the row and not a client-side copy of it.
+        topicId,
+        brandId,
+        // 研究素材 (CI-P3-01): the third stored row this route reads, on the same terms - the id travels,
+        // the route loads the material's own text.
+        researchMaterialId,
       });
       setResult(data);
       onGenerated?.();
@@ -90,6 +104,22 @@ export function GenerateContentPanel({
           ))}
         </select>
       </label>
+
+      {/* 选题库 / 品牌资料 / 研究素材 (CI-P2-03, CI-P3-01): what this run reads besides the agent and the typed topic. */}
+      <GenerationSourceSelects
+        topicId={topicId}
+        brandId={brandId}
+        researchMaterialId={researchMaterialId}
+        onChange={(patch) => {
+          if (patch.topicId !== undefined) {
+            setTopicId(patch.topicId);
+            // The stored topic prefills the subject the user sees; its other fields are read by the route.
+            if (patch.topic) setTopic(patch.topic.title);
+          }
+          if (patch.brandId !== undefined) setBrandId(patch.brandId);
+          if (patch.researchMaterialId !== undefined) setResearchMaterialId(patch.researchMaterialId);
+        }}
+      />
 
       <div className="rounded-2xl border border-sky-100 bg-sky-50/40 p-3">
         <div className="flex gap-2">
@@ -175,7 +205,17 @@ export function GenerateContentPanel({
             {t("genSaved")}
             {result.provider ? ` · ${result.provider}${result.model ? ` / ${result.model}` : ""}` : ""}
           </p>
-          <h3 className="text-lg font-semibold text-zinc-900">{result.item.title}</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-lg font-semibold text-zinc-900">{result.item.title}</h3>
+            {/* The hand-off into the existing article editor (P5-C1): what was just generated is what the
+                workspace opens with `?edit=<id>`, which is also where 配图 / 封面 / 发布 continue. */}
+            <Link
+              href={articleEditorHref(locale, result.item.id)}
+              className="text-xs font-medium text-sky-600 hover:underline"
+            >
+              {t("awOpenEditor")}
+            </Link>
+          </div>
           <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-700">{result.item.body}</p>
           {result.item.postReadyText ? (
             <div>

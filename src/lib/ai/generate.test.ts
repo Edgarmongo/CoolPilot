@@ -17,18 +17,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * (`src/lib/ai/generate.ts` and the `src/lib/ai/compat.ts` shim behind it), so only the image
  * cases are left. The file name is historical: it still sits where the facade used to live, and
  * its subject is now `@/lib/agent/image-generation`.
+ *
+ * CI-AI-IMG-CONFIG-03 gave the facade an image provider of its own: the pin resolves to
+ * `openai-image` / `gemini-image`, whose endpoint is the URL the settings name (`openAIImageBaseUrl`)
+ * and whose key is the image credential - so nothing here can pass by borrowing the text provider.
  */
 const dataDir = mkdtempSync(path.join(tmpdir(), "coolpilot-legacy-facade-"));
 process.env.SOCIAL_AUTO_POST_DB_URL = `file:${path.join(dataDir, "facade.db").replace(/\\/g, "/")}`;
 process.env.SOCIAL_AUTO_POST_DATA_DIR = dataDir;
 
 const imageFacade = await import("@/lib/agent/image-generation");
+const ledgerRepository = await import("@/db/repositories/ai-usage-ledger");
 const registry = await import("@/features/ai-runtime/registry");
 const runtimeSync = await import("@/features/ai-runtime/sync");
 const repository = await import("@/db/repositories/ai-runtime");
 const credentials = await import("@/lib/credentials");
 const { AppError } = await import("@/lib/app-errors");
-const { aiProviderOrder, aiProviderRegistry } = await import("@/features/ai-settings/provider-registry");
+const { aiProviderOrder, aiProviderRegistry, imageProviderIds } = await import(
+  "@/features/ai-settings/provider-registry"
+);
+const { updateLocalAgentSettings } = await import("@/db/repositories/settings");
 const { keylessAppEnvValue } = await import("@/test/app-env");
 
 /**
@@ -59,6 +67,10 @@ const legacyKeyEnvVars = [
   "OPENAI_API_KEY",
   "OPENROUTER_API_KEY",
   "GROQ_API_KEY",
+  // CI-AI-IMG-CONFIG-03: the image providers hold keys of their own (`OPENAI_IMAGE_API_KEYS` /
+  // `GEMINI_IMAGE_API_KEYS`), so an exported one is neutralised here as well - no case of this suite
+  // may route because of a key that was never written by the case itself.
+  ...Object.values(imageProviderIds).flatMap((providerId) => credentials.credentialEnvVarNames(providerId)),
 ];
 
 function jsonResponse(body: unknown, status = 200) {
@@ -112,6 +124,18 @@ const geminiImageCatalog = () =>
 
 const offline = () => jsonResponse({ error: { message: "offline" } }, 500);
 
+/** The endpoint the image settings name; without one an image request has nowhere to go (Q4). */
+const imageBaseUrl = "https://images.example.test/v1";
+
+/**
+ * What saving the image form does (CI-AI-IMG-CONFIG-03): the settings carry the URL and the runtime's
+ * registry is reconciled from it, which is what creates the endpoint a case can then call through.
+ */
+async function configureImageEndpoint() {
+  await updateLocalAgentSettings({ openAIImageBaseUrl: imageBaseUrl });
+  await registry.syncImageProviderSettings();
+}
+
 /** Blank slate: nothing callable, no legacy key in the process, no vault entry. */
 async function resetRuntime() {
   // Neutralised before the seed: it discovers a catalog for every provider that holds a key (D-P3-1).
@@ -122,12 +146,29 @@ async function resetRuntime() {
     delete process.env[name];
   }
   await registry.ensureModelRuntimeSeeded();
-  for (const providerId of ["gemini", "groq", "openai", "openrouter", "qwen", "deepseek"] as const) {
+  for (const providerId of [
+    ...aiProviderOrder,
+    // CI-AI-IMG-CONFIG-03: the image providers are rows of their own, with their own credentials, so
+    // they are cleared like the text ones - a key one case wrote must not be callable in the next.
+    ...Object.values(imageProviderIds),
+    "qwen",
+    "deepseek",
+  ]) {
     await repository.setModelsEnabledByProvider(providerId, false);
     await credentials.clearCredential(credentials.credentialRefFor(providerId));
   }
   // A capability default from an earlier test would outrank the provider preference under test.
   await registry.setModelDefaultForCapability("chat", null);
+  await registry.setModelDefaultForCapability("image_generation", null);
+  // The image settings decide whether an image endpoint exists at all (Q4), so they go back to "not
+  // configured" and the registry is reconciled with that: a case that needs one sets it itself
+  // (`configureImageEndpoint()`), and a case that does not would otherwise inherit the last one's URL.
+  await updateLocalAgentSettings({
+    imageProvider: "openai",
+    openAIImageBaseUrl: "",
+    openAIImageSize: "1024x1024",
+  });
+  await registry.syncImageProviderSettings();
 }
 
 /** Makes one provider/model pair really callable, with exactly that model left enabled. */
@@ -164,21 +205,57 @@ describe("image facade on aiRuntime", () => {
         respond: () => jsonResponse({ data: [{ b64_json: Buffer.from("fake-png-bytes").toString("base64") }] }),
       },
     ]);
-    await prepareModel("openai", "gpt-image-1", "sk-stub-openai");
+    await configureImageEndpoint();
+    await prepareModel("openai-image", "gpt-image-1", "sk-stub-openai-image");
 
     const result = await imageFacade.generateImageFile({ prompt: "a cat on a keyboard" });
 
-    expect(result.provider).toBe("openai");
+    // The provider that answered is the image row, which is what the ledger row will be keyed on.
+    expect(result.provider).toBe("openai-image");
     expect(result.model).toBe("gpt-image-1");
     expect(path.dirname(result.path)).toBe(path.join(dataDir, "artifacts"));
     expect(await fs.readFile(result.path, "utf-8")).toBe("fake-png-bytes");
 
     const [imageCall] = calls.filter((call) => call.url.includes("/images/generations"));
+    // The endpoint the image settings name, not the text provider's host.
+    expect(imageCall.url).toBe(`${imageBaseUrl}/images/generations`);
     expect(bodyOf(imageCall)).toMatchObject({
       model: "gpt-image-1",
       prompt: "a cat on a keyboard",
       size: "1024x1024",
     });
+  });
+
+  it("carries a content context onto the ledger row only when the caller really has one (C4)", async () => {
+    stubFetch([
+      { match: (url) => url.endsWith("/models"), respond: openAIImageCatalog },
+      {
+        match: (url) => url.includes("/images/generations"),
+        respond: () => jsonResponse({ data: [{ b64_json: Buffer.from("fake-png-bytes").toString("base64") }] }),
+      },
+    ]);
+    await configureImageEndpoint();
+    await prepareModel("openai-image", "gpt-image-1", "sk-stub-openai-image");
+
+    // The agent's `generate_image_file` names the item it is working for, so the row can be read back per
+    // content item - which is what lets an image's cost be summed without guessing whose it was.
+    const attributed = await imageFacade.generateImageFile({
+      prompt: "a cat on a keyboard",
+      contentItemId: "content-1",
+    });
+    const rowsForItem = await ledgerRepository.listAiUsageLedgerEntries({ contentItemId: "content-1" });
+
+    expect(rowsForItem).toHaveLength(1);
+    expect(rowsForItem[0]).toMatchObject({ purpose: "image", meteredKind: "image", contentItemId: "content-1" });
+    // The other half of the relation: the row points at the file, whose name is the identity the item
+    // stores in `metadata.imageAssets`, so "which call produced this image" is answered by identity.
+    expect(rowsForItem[0].outputAssetId).toBe(attributed.path);
+
+    // A caller with no content context - the standalone 配图 page - attributes nothing at all.
+    const standalone = await imageFacade.generateImageFile({ prompt: "a cat on a keyboard" });
+    const [standaloneRow] = await ledgerRepository.listAiUsageLedgerEntries({ limit: 20 });
+    expect(standaloneRow.outputAssetId).toBe(standalone.path);
+    expect(standaloneRow.contentItemId).toBe("");
   });
 
   it("keeps the image provider pinned instead of silently using the other one (G3)", async () => {
@@ -187,7 +264,7 @@ describe("image facade on aiRuntime", () => {
       { match: () => true, respond: offline },
     ]);
     // Gemini is configured and callable; the settings still name OpenAI as the image provider.
-    await prepareModel("gemini", "gemini-2.5-flash-image", "sk-stub-gemini");
+    await prepareModel("gemini-image", "gemini-2.5-flash-image", "sk-stub-gemini");
     // `prepareModel` syncs gemini's catalog; the facade call below is what this case measures.
     const prepared = calls.length;
 

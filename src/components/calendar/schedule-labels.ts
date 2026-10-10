@@ -23,6 +23,13 @@ export const playbookLabelKeys: Record<PlaybookId, TranslationKey> = {
   topic_search_writer: "playbookTopicSearchWriter",
   threads_auto_post: "playbookThreadsAutoPost",
   threads_compose_post: "playbookThreadsComposePost",
+  // CI-P1-04: a render task is a playbook run, so the calendar and the schedules list can name it.
+  video_render: "playbookVideoRender",
+  // CI-P3-02: the same for a transcription, whose calendar row is worth naming rather than rendering as
+  // the raw id `media_transcription`.
+  media_transcription: "playbookMediaTranscription",
+  // CI-P3-03: and for a distillation of a research material.
+  research_extraction: "playbookResearchExtraction",
 };
 
 export const scheduleTimeTypeLabelKeys: Record<ScheduleTime["type"], TranslationKey> = {

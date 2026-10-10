@@ -1,20 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentExecutionContext } from "./contracts";
 
 /**
  * The approval block is about permission policy; the last block is the P3-A2 change - the image-prompt
  * tool calls `aiRuntime.chatStructured()` directly, so the runtime is mocked instead of the legacy
  * `@/lib/ai` facade, and what the case pins is that the tool reports the provider/model the runtime
  * really used rather than a hard-coded pair.
+ *
+ * CI-P7-03 put a budget gate inside that tool, so this file also pins the refusal: the gate's own
+ * error, and no request. The harness pins the temp database and puts the budget row back; it has to be
+ * the first import, because the gate reads a settings row that this file's own imports would otherwise
+ * resolve against the install's database.
  */
 vi.mock("@/features/ai-runtime", async () => {
   const actual = await vi.importActual<typeof import("@/features/ai-runtime")>("@/features/ai-runtime");
   return { ...actual, aiRuntime: { ...actual.aiRuntime, chatStructured: vi.fn() } };
 });
 
-import { aiRuntime } from "@/features/ai-runtime";
-import { imagePromptSchema } from "@/lib/ai/schemas";
-import { createDefaultToolRegistry } from "./local-tools";
-import type { AgentExecutionContext } from "./contracts";
+const { allowEveryAiBudgetCall, refuseEveryAiBudgetCall } = await import("@/test/route-harness");
+const { aiRuntime } = await import("@/features/ai-runtime");
+const { imagePromptSchema } = await import("@/lib/ai/schemas");
+const { createDefaultToolRegistry } = await import("./local-tools");
 
 const mockedChatStructured = vi.mocked(aiRuntime.chatStructured);
 
@@ -87,7 +93,10 @@ describe("local tool approval policy", () => {
 });
 
 describe("local tool model calls on the runtime", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The shipped budget row is `off`; a case that wants a refusal states the refusal itself, and this
+    // puts the row back so the other cases here keep calling the model.
+    await allowEveryAiBudgetCall();
     mockedChatStructured.mockReset();
   });
 
@@ -116,6 +125,18 @@ describe("local tool model calls on the runtime", () => {
     expect(request?.systemPrompt).toBe("Test system prompt");
     expect(request?.messages.at(-1)?.content).toContain("Topic: cold start");
     expect(request?.messages.at(-1)?.content).toContain("Style: flat vector");
+  });
+
+  it("refuses the image prompt before it is sent, with the gate's own error", async () => {
+    await refuseEveryAiBudgetCall();
+    const registry = createDefaultToolRegistry();
+
+    // The refusal leaves the tool as the gate's own `AI_BUDGET_EXCEEDED` (402) rather than a failed
+    // model call: nothing was sent, so there is no attempt to record and no prompt to charge for.
+    await expect(
+      registry.execute("generate_image_prompt", { topic: "cold start", style: "flat vector" }, baseContext),
+    ).rejects.toMatchObject({ code: "AI_BUDGET_EXCEEDED", status: 402 });
+    expect(mockedChatStructured).not.toHaveBeenCalled();
   });
 });
 

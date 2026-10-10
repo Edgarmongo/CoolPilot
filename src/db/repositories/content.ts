@@ -3,6 +3,7 @@ export {
   deleteContentItem,
   findNextReadyContentItem,
   getContentItem,
+  listContentItemRefs,
   listContentItems,
   markContentItemPosted,
   reconcileContentImagesFromChatHistory,

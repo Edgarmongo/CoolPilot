@@ -29,6 +29,16 @@ function resolveDatabaseUrl() {
 
 const dbUrl = resolveDatabaseUrl();
 
+/**
+ * How long a writer waits for the file lock before giving up (CI-P7-03-A).
+ *
+ * Local-first means several processes can share one file: the app, the worker, and a second app
+ * instance. A budget hold is a row now, so those writers contend for real. This is the time a
+ * statement waits rather than failing - long enough to outlast an ordinary statement, short enough
+ * that a genuinely stuck writer still surfaces as an error instead of hanging the request.
+ */
+export const sqliteBusyTimeoutMs = 5000;
+
 if (dbUrl.startsWith("file:")) {
   // A file database, and a configured URL may point outside the workspace: this directory is
   // created because the database layer decided it, not because the workspace boundary did.
@@ -51,6 +61,25 @@ export function ensureDatabase() {
 }
 
 async function initializeDatabase() {
+  // CI-P7-03-A. A worker and the app can now write the *same* table (a budget hold is a row, not a
+  // memory in one process), so a writer that arrives while another one holds the file lock must
+  // **wait**, not fail the user's call. Three things keep this honest:
+  //
+  //  - it is a `file:`-only concern; a remote target does its own serialization and is left alone;
+  //  - the value is read back and a database that did not honour it says so out loud, because a
+  //    silently-ignored timeout would look exactly like "the lock was never contended";
+  //  - it changes no data, so a workspace that cannot set it still starts.
+  if (dbUrl.startsWith("file:")) {
+    await sqlite.execute(`PRAGMA busy_timeout = ${sqliteBusyTimeoutMs}`);
+    const answered = await sqlite.execute(`PRAGMA busy_timeout`);
+    const applied = Number(Object.values(answered.rows[0] ?? {})[0]);
+    if (applied !== sqliteBusyTimeoutMs) {
+      console.warn(
+        `[db] busy_timeout: asked for ${sqliteBusyTimeoutMs}ms, the database reports ${applied}.`,
+      );
+    }
+  }
+
   const statements = [
     `CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY,
@@ -186,6 +215,30 @@ async function initializeDatabase() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS topics (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      keywords_json TEXT NOT NULL DEFAULT '[]',
+      source TEXT NOT NULL DEFAULT 'manual',
+      source_url TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      content_item_id TEXT,
+      research_material_id TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS brands (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      target_audience TEXT NOT NULL DEFAULT '',
+      tone TEXT NOT NULL DEFAULT '',
+      keywords_json TEXT NOT NULL DEFAULT '[]',
+      banned_words_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS knowledge_base (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -198,6 +251,26 @@ async function initializeDatabase() {
       source_url TEXT NOT NULL DEFAULT '',
       file_name TEXT NOT NULL DEFAULT '',
       position_id TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    // CI-P3-01. The processing state is a column of its own because none of the existing material
+    // stores can express it: see `docs/coolpilot-capability-integration-plan.md` §附录 B-8.
+    `CREATE TABLE IF NOT EXISTS research_materials (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'text',
+      content TEXT NOT NULL DEFAULT '',
+      source_url TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      status_message TEXT NOT NULL DEFAULT '',
+      image_url TEXT NOT NULL DEFAULT '',
+      file_name TEXT NOT NULL DEFAULT '',
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      fetched_at INTEGER,
+      transcript_json TEXT NOT NULL DEFAULT '',
+      extraction_json TEXT NOT NULL DEFAULT '',
+      extraction_history_json TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`,
@@ -413,6 +486,153 @@ async function initializeDatabase() {
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_credential_keys_ref_fingerprint ON ai_credential_keys(credential_ref, fingerprint)`,
     `CREATE INDEX IF NOT EXISTS idx_ai_credential_keys_status ON ai_credential_keys(status)`,
+    // CI-P7-01: the AI usage ledger. One row per model attempt, including the attempts that
+    // failed and the retries that preceded a winner - neither of which `usage_records` can hold,
+    // because that table is written from a route's success branch.
+    //
+    // `cost_amount` is nullable on purpose: NULL means "no figure can be claimed", and the writer
+    // is forbidden from storing 0 as a stand-in for it. `cost_source` names which of the four
+    // states the row is in, so a reader never has to guess whether a number is real.
+    `CREATE TABLE IF NOT EXISTS ai_usage_ledger (
+      id TEXT PRIMARY KEY,
+      purpose TEXT NOT NULL DEFAULT '',
+      outcome TEXT NOT NULL DEFAULT 'success',
+      provider_id TEXT NOT NULL DEFAULT '',
+      model_id TEXT NOT NULL DEFAULT '',
+      endpoint_id TEXT NOT NULL DEFAULT '',
+      credential_label TEXT NOT NULL DEFAULT '',
+      attempt_index INTEGER NOT NULL DEFAULT 0,
+      task_id TEXT NOT NULL DEFAULT '',
+      run_id TEXT NOT NULL DEFAULT '',
+      node_id TEXT NOT NULL DEFAULT '',
+      parent_usage_id TEXT NOT NULL DEFAULT '',
+      output_asset_id TEXT NOT NULL DEFAULT '',
+      content_item_id TEXT NOT NULL DEFAULT '',
+      metered_kind TEXT NOT NULL DEFAULT 'text',
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+      reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+      completeness TEXT NOT NULL DEFAULT 'unknown',
+      quantity_json TEXT NOT NULL DEFAULT '{}',
+      cost_amount REAL,
+      cost_currency TEXT NOT NULL DEFAULT '',
+      cost_source TEXT NOT NULL DEFAULT 'unknown',
+      pricing_json TEXT NOT NULL DEFAULT 'null',
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      error_summary TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    )`,
+    // CI-P7-01: the price catalog. Never edited in place - a new row with a later `effective_from`
+    // supersedes an old one, which is what keeps a ledger row's cost restatable only from its own
+    // frozen snapshot.
+    //
+    // CI-P7-01-05: a price row prices exactly one `metered_kind`. The token columns cover the
+    // kinds billed per million tokens; `unit_price` + `unit_label` cover the rest, so an image or
+    // a second of video is not forced into a token column it was never billed in.
+    `CREATE TABLE IF NOT EXISTS ai_model_prices (
+      id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      model_id TEXT NOT NULL DEFAULT '*',
+      metered_kind TEXT NOT NULL DEFAULT 'text',
+      currency TEXT NOT NULL DEFAULT 'CNY',
+      input_per_million REAL NOT NULL DEFAULT 0,
+      output_per_million REAL NOT NULL DEFAULT 0,
+      cached_input_per_million REAL,
+      unit_price REAL,
+      unit_label TEXT NOT NULL DEFAULT '',
+      declared_free INTEGER NOT NULL DEFAULT 0,
+      price_version TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'manual',
+      effective_from INTEGER NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_ledger_created ON ai_usage_ledger(created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_ledger_task_created ON ai_usage_ledger(task_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_ledger_model_created ON ai_usage_ledger(model_id, created_at)`,
+    // CI-P7-03-A: the budget holds that used to live in one process's memory. `held` rows are the
+    // ones that count against a period; the status and the period+currency pair are what every read
+    // and the admission statement filter on, so both are indexed.
+    `CREATE TABLE IF NOT EXISTS ai_budget_reservations (
+      id TEXT PRIMARY KEY,
+      period_key TEXT NOT NULL,
+      period_start INTEGER NOT NULL,
+      period_end INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      amount REAL NOT NULL,
+      policy TEXT NOT NULL DEFAULT '',
+      estimate_kind TEXT NOT NULL DEFAULT '',
+      estimate_method TEXT NOT NULL DEFAULT '',
+      purpose TEXT NOT NULL DEFAULT '',
+      metered_kind TEXT NOT NULL DEFAULT 'text',
+      provider_id TEXT NOT NULL DEFAULT '',
+      model_id TEXT NOT NULL DEFAULT '',
+      route_resolved INTEGER NOT NULL DEFAULT 0,
+      run_id TEXT NOT NULL DEFAULT '',
+      node_id TEXT NOT NULL DEFAULT '',
+      task_id TEXT NOT NULL DEFAULT '',
+      content_item_id TEXT NOT NULL DEFAULT '',
+      owner TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'held',
+      settle_kind TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      settled_at INTEGER,
+      updated_at INTEGER NOT NULL
+    )`,
+    // CI-P7-03-A: what the gate decided, refusals included. Amounts are NULL when nobody stated one
+    // (`limit_amount`, `remaining_amount`), matching the ledger's rule that an unstated figure is
+    // never stored as 0.
+    `CREATE TABLE IF NOT EXISTS ai_budget_decisions (
+      id TEXT PRIMARY KEY,
+      at INTEGER NOT NULL,
+      gate TEXT NOT NULL,
+      status TEXT NOT NULL,
+      reasons_json TEXT NOT NULL DEFAULT '[]',
+      policy TEXT NOT NULL DEFAULT '',
+      unknown_cost_policy TEXT NOT NULL DEFAULT '',
+      enforcement TEXT NOT NULL DEFAULT '',
+      period_key TEXT NOT NULL,
+      currency TEXT NOT NULL DEFAULT '',
+      limit_amount REAL,
+      spent_amount REAL NOT NULL DEFAULT 0,
+      spent_is_complete INTEGER NOT NULL DEFAULT 1,
+      spent_truncated INTEGER NOT NULL DEFAULT 0,
+      reserved_amount REAL NOT NULL DEFAULT 0,
+      remaining_amount REAL,
+      projected_min REAL,
+      projected_max REAL,
+      certainty TEXT NOT NULL DEFAULT '',
+      estimate_kind TEXT NOT NULL DEFAULT '',
+      estimate_method TEXT NOT NULL DEFAULT '',
+      estimate_notes_json TEXT NOT NULL DEFAULT '[]',
+      estimate_amount_min REAL,
+      estimate_amount_max REAL,
+      purpose TEXT NOT NULL DEFAULT '',
+      run_id TEXT NOT NULL DEFAULT '',
+      node_id TEXT NOT NULL DEFAULT '',
+      task_id TEXT NOT NULL DEFAULT '',
+      content_item_id TEXT NOT NULL DEFAULT '',
+      provider_id TEXT NOT NULL DEFAULT '',
+      model_id TEXT NOT NULL DEFAULT '',
+      route_resolved INTEGER NOT NULL DEFAULT 0,
+      reservation_id TEXT NOT NULL DEFAULT '',
+      reservation_amount REAL,
+      reservation_currency TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_budget_reservations_live ON ai_budget_reservations(status, period_key, currency, expires_at)`,
+    // Per run and per step, which is how the reconciliation reads them.
+    `CREATE INDEX IF NOT EXISTS idx_ai_budget_reservations_run ON ai_budget_reservations(run_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_budget_reservations_node ON ai_budget_reservations(node_id, created_at)`,
+    // Retention pruning walks this column, and so does "what did the gate decide around then".
+    `CREATE INDEX IF NOT EXISTS idx_ai_budget_reservations_created ON ai_budget_reservations(created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_budget_decisions_at ON ai_budget_decisions(at)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_budget_decisions_period ON ai_budget_decisions(period_key, at)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_budget_decisions_reservation ON ai_budget_decisions(reservation_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_budget_decisions_run ON ai_budget_decisions(run_id, at)`,
   ];
 
   // Domain rename: migrate a legacy `sites` table to `accounts` (see
@@ -434,6 +654,16 @@ async function initializeDatabase() {
   }
 
   await sqlite.execute(`ALTER TABLE content_items ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'`).catch(() => undefined);
+  // CI-P3-02: what a transcription run recorded about the material it produced (source file, engine,
+  // segments). Additive and defaulted, so every existing material row keeps meaning exactly what it did.
+  await sqlite.execute(`ALTER TABLE research_materials ADD COLUMN transcript_json TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+  // CI-P3-03: the distilled result and the versions it replaced. Additive and defaulted like the
+  // transcript column above, so every existing material keeps meaning exactly what it did.
+  await sqlite.execute(`ALTER TABLE research_materials ADD COLUMN extraction_json TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
+  await sqlite.execute(`ALTER TABLE research_materials ADD COLUMN extraction_history_json TEXT NOT NULL DEFAULT '[]'`).catch(() => undefined);
+  // CI-P3-03: which material a topic's idea came from. Empty means "the user's own idea", which is every
+  // topic that existed before this column.
+  await sqlite.execute(`ALTER TABLE topics ADD COLUMN research_material_id TEXT NOT NULL DEFAULT ''`).catch(() => undefined);
   await sqlite.execute(`ALTER TABLE schedules ADD COLUMN status TEXT NOT NULL DEFAULT 'scheduled'`).catch(() => undefined);
   await sqlite.execute(`ALTER TABLE schedules ADD COLUMN content_item_id TEXT`).catch(() => undefined);
   await sqlite.execute(`ALTER TABLE schedules ADD COLUMN publish_authorized INTEGER NOT NULL DEFAULT 0`).catch(() => undefined);
@@ -463,6 +693,31 @@ async function initializeDatabase() {
 
   // Index on a metric column must run only after the ALTER TABLE above created it.
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_publish_records_metric_status ON publish_records(metric_status)`).catch(() => undefined);
+
+  // CI-P7-03-A: the ledger row's link to the budget hold it was admitted under. Additive and
+  // defaulted to `''`, so every row written before this column keeps meaning exactly what it did -
+  // "this call was not gated", which is true of all of them.
+  await sqlite
+    .execute(`ALTER TABLE ai_usage_ledger ADD COLUMN budget_reservation_id TEXT NOT NULL DEFAULT ''`)
+    .catch(() => undefined);
+  // Only after the ALTER above: an index on a column that does not exist yet is an error, not a no-op.
+  await sqlite
+    .execute(
+      `CREATE INDEX IF NOT EXISTS idx_ai_usage_ledger_budget_reservation ON ai_usage_ledger(budget_reservation_id)`,
+    )
+    .catch(() => undefined);
+
+  // CI-P7-01-05. Guarded rather than `.catch(() => undefined)`-swallowed: a price index that
+  // silently kept its old shape would let two dimensions collide on one key and nobody would ever
+  // see it. This reports what it did, and what it could not do (see the function below).
+  const priceCatalog = await migrateAiModelPriceCatalog();
+  if (priceCatalog.addedColumns.length > 0 || priceCatalog.droppedIndexes.length > 0 || priceCatalog.indexRebuilt) {
+    console.log(
+      `[db] ai_model_prices: ${priceCatalog.addedColumns.length} column(s) added, ` +
+        `${priceCatalog.droppedIndexes.length} index(es) replaced, ` +
+        `${priceCatalog.indexRebuilt ? `${priceCatalog.index} rebuilt` : "index unchanged"}.`,
+    );
+  }
 
   // Runs last on purpose: by now `accounts` has every column this build declares, so a
   // legacy table that predates one of them still migrates with all of its own columns.
@@ -559,4 +814,189 @@ async function absorbLegacyAccountRows() {
       `[db] ${left} row(s) in the legacy ${LEGACY_ACCOUNTS_TABLE} table could not be read as accounts.`,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// CI-P7-01-05: the price catalog's key gained a billing dimension
+// ---------------------------------------------------------------------------
+
+/** The unique key this build wants on the price catalog: one price per dimension per instant. */
+export const AI_MODEL_PRICE_INDEX = "idx_ai_model_prices_scope_kind_effective";
+/** The key CI-P7-01 shipped, which cannot tell two dimensions apart. */
+const LEGACY_AI_MODEL_PRICE_INDEX = "idx_ai_model_prices_scope_effective";
+const AI_MODEL_PRICE_INDEX_COLUMNS = ["provider_id", "model_id", "metered_kind", "effective_from"];
+
+/** Columns CI-P7-01-05 adds; `text` is what every row written before it means. */
+const AI_MODEL_PRICE_ADDED_COLUMNS: Array<[string, string]> = [
+  ["metered_kind", "TEXT NOT NULL DEFAULT 'text'"],
+  ["unit_price", "REAL"],
+  ["unit_label", "TEXT NOT NULL DEFAULT ''"],
+  ["declared_free", "INTEGER NOT NULL DEFAULT 0"],
+];
+
+/** One group of rows the new key cannot tell apart. */
+export type AiModelPriceDuplicateKey = {
+  providerId: string;
+  modelId: string;
+  meteredKind: string;
+  effectiveFrom: number;
+  rows: number;
+};
+
+/** What the price-catalog migration did, so a caller (or a test) can see the outcome. */
+export type AiModelPriceMigrationReport = {
+  /** Columns added to a table that predates them; empty on a database this build created. */
+  addedColumns: string[];
+  index: string;
+  /** True when the unique key now covers the dimension. */
+  indexRebuilt: boolean;
+  droppedIndexes: string[];
+  /** Non-empty when the rebuild was refused because these keys collide. */
+  duplicateKeys: AiModelPriceDuplicateKey[];
+  /** The SQLite message when the index could not be created at all. */
+  error: string | null;
+};
+
+/** Why the guard exists: two prices in force at one instant are a bug a key should catch. */
+function duplicateKeyWarning(key: AiModelPriceDuplicateKey) {
+  return `${key.providerId}/${key.modelId}/${key.meteredKind}@${key.effectiveFrom} (${key.rows} rows)`;
+}
+
+/** Every index on a table, with the key columns each one covers, in key order. */
+async function tableIndexes(table: string) {
+  const listed = await sqlite.execute({
+    sql: `SELECT name, "unique" AS is_unique FROM pragma_index_list(?)`,
+    args: [table],
+  });
+  const indexes: Array<{ name: string; unique: boolean; columns: string[] }> = [];
+  for (const row of listed.rows) {
+    const name = String(row.name);
+    const info = await sqlite.execute({
+      sql: `SELECT name FROM pragma_index_info(?) ORDER BY seqno`,
+      args: [name],
+    });
+    indexes.push({
+      name,
+      unique: Number(row.is_unique ?? 0) === 1,
+      columns: info.rows.map((column) => String(column.name)),
+    });
+  }
+  return indexes;
+}
+
+/** Rows the new key would reject, read before anything is dropped. */
+async function duplicateAiModelPriceKeys() {
+  const result = await sqlite.execute(
+    `SELECT provider_id, model_id, metered_kind, effective_from, COUNT(*) AS rows
+       FROM ${quoteIdentifier("ai_model_prices")}
+      GROUP BY provider_id, model_id, metered_kind, effective_from
+     HAVING COUNT(*) > 1`,
+  );
+  return result.rows.map((row) => ({
+    providerId: String(row.provider_id),
+    modelId: String(row.model_id),
+    meteredKind: String(row.metered_kind),
+    effectiveFrom: Number(row.effective_from),
+    rows: Number(row.rows),
+  }));
+}
+
+/**
+ * Brings the price catalog up to CI-P7-01-05: a row gains a `metered_kind`, and the unique key
+ * gains the same dimension so a text price and an image price for one model can coexist.
+ *
+ * The work is ordered so the catalog is never left unguarded, and every outcome is named:
+ *
+ * 1. **Columns first**, each one only when it is actually missing (`pragma_table_info`), so there
+ *    is no "duplicate column" error to swallow.
+ * 2. **The existing keys are read before anything is touched** (`pragma_index_list` /
+ *    `pragma_index_info`), because a rebuild that guesses is how a workspace ends up with an index
+ *    nobody meant to create.
+ * 3. **Rows that would collide are looked for first.** The new key is strictly weaker than the old
+ *    one for `text` rows, so a collision means something outside this build wrote the table; in
+ *    that case the old key is kept and the offending rows are printed rather than resolved by
+ *    silently dropping one of two competing prices.
+ * 4. **The new key is created before the old one is dropped**, so a failure leaves the previous
+ *    guarantee in place instead of an unguarded table. The failure is returned *and* logged: a
+ *    `.catch(() => undefined)` here would hide exactly the case this card is about.
+ *
+ * Idempotent: a database that already carries the key reports `indexRebuilt: false` and does
+ * nothing.
+ */
+export async function migrateAiModelPriceCatalog(): Promise<AiModelPriceMigrationReport> {
+  const report: AiModelPriceMigrationReport = {
+    addedColumns: [],
+    index: AI_MODEL_PRICE_INDEX,
+    indexRebuilt: false,
+    droppedIndexes: [],
+    duplicateKeys: [],
+    error: null,
+  };
+
+  const columns = new Set(await tableColumns("ai_model_prices"));
+  for (const [column, definition] of AI_MODEL_PRICE_ADDED_COLUMNS) {
+    if (columns.has(column)) continue;
+    await sqlite.execute(`ALTER TABLE ai_model_prices ADD COLUMN ${quoteIdentifier(column)} ${definition}`);
+    report.addedColumns.push(column);
+  }
+
+  // Compared as multisets: uniqueness does not depend on the order a key lists its columns, and
+  // this way a SQLite that answers `index_info` in another order is not mistaken for a key that
+  // needs rebuilding.
+  const wanted = [...AI_MODEL_PRICE_INDEX_COLUMNS].sort().join(",");
+  const indexes = await tableIndexes("ai_model_prices");
+  const wantedIndex = indexes.find((entry) => entry.name === AI_MODEL_PRICE_INDEX);
+  const wantedIsInPlace =
+    Boolean(wantedIndex?.unique) && [...(wantedIndex?.columns ?? [])].sort().join(",") === wanted;
+
+  if (wantedIsInPlace) {
+    // The key is already right; the one it replaced is then only dead weight.
+    if (indexes.some((entry) => entry.name === LEGACY_AI_MODEL_PRICE_INDEX)) {
+      await sqlite.execute(`DROP INDEX IF EXISTS ${quoteIdentifier(LEGACY_AI_MODEL_PRICE_INDEX)}`);
+      report.droppedIndexes.push(LEGACY_AI_MODEL_PRICE_INDEX);
+    }
+    return report;
+  }
+
+  const duplicates = await duplicateAiModelPriceKeys();
+  if (duplicates.length > 0) {
+    report.duplicateKeys = duplicates;
+    console.error(
+      `[db] ai_model_prices holds ${duplicates.length} key(s) that collide once metered_kind is part ` +
+        `of the key: ${duplicates.map(duplicateKeyWarning).join(", ")}. ` +
+        `The previous index was kept and ${AI_MODEL_PRICE_INDEX} was not created.`,
+    );
+    return report;
+  }
+
+  // A key under this name covering something else is this build's own older attempt: it has to go
+  // before the correct one can be created, and the key it replaced is still guarding the table.
+  if (wantedIndex) {
+    await sqlite.execute(`DROP INDEX IF EXISTS ${quoteIdentifier(AI_MODEL_PRICE_INDEX)}`);
+    report.droppedIndexes.push(AI_MODEL_PRICE_INDEX);
+  }
+
+  try {
+    await sqlite.execute(
+      `CREATE UNIQUE INDEX ${quoteIdentifier(AI_MODEL_PRICE_INDEX)} ` +
+        `ON ${quoteIdentifier("ai_model_prices")} (${AI_MODEL_PRICE_INDEX_COLUMNS.join(", ")})`,
+    );
+    report.indexRebuilt = true;
+  } catch (error) {
+    // Named, not swallowed: a reader of the log can tell which statement failed and why, and the
+    // report carries the same message to a test.
+    report.error = error instanceof Error ? error.message : String(error);
+    console.error(
+      `[db] Could not create ${AI_MODEL_PRICE_INDEX}: ${report.error}. ` +
+        `The previous key is still in force; two prices for different dimensions cannot coexist until this is resolved.`,
+    );
+    return report;
+  }
+
+  if (indexes.some((entry) => entry.name === LEGACY_AI_MODEL_PRICE_INDEX)) {
+    await sqlite.execute(`DROP INDEX IF EXISTS ${quoteIdentifier(LEGACY_AI_MODEL_PRICE_INDEX)}`);
+    report.droppedIndexes.push(LEGACY_AI_MODEL_PRICE_INDEX);
+  }
+
+  return report;
 }

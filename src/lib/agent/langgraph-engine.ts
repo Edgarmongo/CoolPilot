@@ -11,6 +11,8 @@ import {
 } from "@/db/repository";
 import { getBrandSettings, getLocalAgentSettings, getPromptSettings } from "@/db/repositories/settings";
 import { aiRuntime } from "@/features/ai-runtime";
+import { beginAiBudgetCall, isAiBudgetRefusal } from "@/lib/ai-budget-guard";
+import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { toolPlanSchema, type ToolPlanStep } from "@/lib/ai/schemas";
 import { defaultLocale, localeLanguageName, type Locale } from "@/lib/i18n-config";
 import { localeResources, type TranslationKey } from "@/lib/locale-resources";
@@ -149,7 +151,11 @@ function buildPlannedCall(step: ToolPlanStep, input: AgentRunInput, present: Set
   }
 }
 
-export async function planToolCalls(input: AgentRunInput, registry: ToolRegistry): Promise<PlannedToolCall[]> {
+export async function planToolCalls(
+  input: AgentRunInput,
+  registry: ToolRegistry,
+  agentRunId = "",
+): Promise<PlannedToolCall[]> {
   const catalog = toolCatalog(registry);
   const context = formatAgentChatContext(input.chatContext);
   const prompt = [
@@ -160,6 +166,23 @@ export async function planToolCalls(input: AgentRunInput, registry: ToolRegistry
     plannerGuidance(input),
   ].filter(Boolean).join("\n\n");
 
+  // CI-P7-01-04. The agent run is the business identity and `planner` the step that spent it.
+  const usageCall: AiUsageCallContext = { purpose: "agent-plan", runId: agentRunId, nodeId: "planner" };
+
+  // CI-P7-03. The planner is a model call, so it asks the budget first. The gate stands *outside* the try
+  // below on purpose: a refusal must not be turned into the fallback plan, because that fallback sends
+  // another model call (`generate_social_post_draft`) - which is exactly the "keep spending after the
+  // limit" behaviour a budget exists to stop. A refusal therefore leaves `planToolCalls` as the gate's own
+  // `AI_BUDGET_EXCEEDED`, and the run fails saying so.
+  const budget = await beginAiBudgetCall({
+    identity: usageCall,
+    purpose: usageCall.purpose,
+    capabilities: ["chat"],
+    inputText: prompt,
+  });
+  // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what
+  // was spent are compared by an id instead of correlated by purpose and time.
+  usageCall.budgetReservationId = budget.reservationId ?? undefined;
   let steps: ToolPlanStep[];
   try {
     const response = await aiRuntime.chatStructured({
@@ -167,9 +190,15 @@ export async function planToolCalls(input: AgentRunInput, registry: ToolRegistry
       systemPrompt: PLANNER_SYSTEM_PROMPT,
       schema: toolPlanSchema,
     });
+    await recordAiUsageCall({ ...usageCall, attempts: response.attempts });
     steps = response.data.steps.filter((step) => registry.has(step.tool));
-  } catch {
+  } catch (error) {
+    // A planner that cannot answer still gets the fallback plan below, exactly as before; the
+    // ledger row is written first so the failed request is not swallowed along with the error.
+    await recordAiUsageFailure(usageCall, error);
     steps = [];
+  } finally {
+    await budget.release();
   }
 
   if (steps.length === 0) {
@@ -308,6 +337,10 @@ export class LangGraphAgentEngine implements AgentEngine {
         toolResults.push({ id: call.id, name: call.name, input: resolvedInput, output, status: "completed" });
         await input.context.emit({ type: "tool_end", message: call.name, data: { output } });
       } catch (error) {
+        // CI-P7-03: a refusal is the gate's own answer, not a tool that failed. The run stops here
+        // instead of continuing to the next tool, which would only be refused again - and recording a
+        // "failed tool call" would read as a tool problem rather than as the user's own budget policy.
+        if (isAiBudgetRefusal(error)) throw error;
         const output = { error: error instanceof Error ? error.message : String(error) };
         toolResults.push({ id: call.id, name: call.name, input: resolvedInput, output, status: "failed" });
         await input.context.emit({ type: "error", message: output.error, data: { tool: call.name } });
@@ -370,7 +403,7 @@ export class LangGraphAgentEngine implements AgentEngine {
 
     await context.emit({ type: "progress", message: "Local LangGraph runtime started" });
     try {
-      const toolCalls = await planToolCalls(input, this.registry);
+      const toolCalls = await planToolCalls(input, this.registry, run.id);
       await context.emit({ type: "progress", message: `Planned ${toolCalls.length} local tool call(s)` });
       return await this.executeToolCalls({
         run,

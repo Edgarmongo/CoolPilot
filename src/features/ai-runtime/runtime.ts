@@ -9,15 +9,19 @@ import {
   type ImageGenerationRequest,
   type ImageGenerationResponse,
   type ModelAttempt,
+  type ModelAttemptKind,
   type ModelCandidate,
   type ModelCapability,
   type ModelIntent,
   type ModelRequirement,
   type ModelRoute,
   type TokenUsage,
+  type TranscriptionRequest,
+  type TranscriptionResponse,
 } from "./contracts";
 import { isFatalModelError, runWithCredentialKey } from "./key-pool";
 import { resolveRoute, type RouteResolution } from "./registry";
+import { attachModelAttempts, modelAttemptsFrom } from "./trail";
 
 /**
  * `aiRuntime` - the only entry point the rest of the app uses for model calls.
@@ -136,10 +140,14 @@ function candidateChain(pin: { model?: string; providerId?: string }, resolution
 /**
  * One model call with key rotation. Every key-level failure is appended to `attempts`
  * before the pool moves on, so the caller can see which key was rejected and why.
+ *
+ * `kind` travels with the request so a re-ask (a self-correction) is distinguishable from the
+ * original question even when it is the *keys* of that second request that fail.
  */
 async function callCandidate<T>(
   candidate: ModelCandidate,
   attempts: ModelAttempt[],
+  kind: ModelAttemptKind,
   force: boolean | undefined,
   run: (context: AdapterContext) => Promise<T>,
 ): Promise<{ value: T; keyLabel: string }> {
@@ -152,8 +160,11 @@ async function callCandidate<T>(
         force,
         onKeyFailure: ({ keyLabel, error }) => {
           attempts.push({
+            kind,
+            outcome: "failed",
             providerId: candidate.provider.providerId,
             modelId: candidate.model.modelId,
+            endpointId: candidate.endpoint.endpointId,
             credentialLabel: keyLabel,
             error: errorMessage(error),
           });
@@ -162,12 +173,17 @@ async function callCandidate<T>(
       (secret) => run(toContext(candidate, secret)),
     );
   } catch (error) {
-    // No key ever signed the call (none configured, or every key was skipped): record the
-    // model-level reason so the trail is complete either way.
+    // The pool reported no key-level failure (or no key was configured at all), so which key - if
+    // any - signed this request is not knowable here: `throw error` above never names it. The
+    // attempt is recorded anyway, because it happened; the empty label says "unattributed", and
+    // the ledger keeps its cost NULL rather than reading that as "not billed".
     if (attempts.length === before) {
       attempts.push({
+        kind,
+        outcome: "failed",
         providerId: candidate.provider.providerId,
         modelId: candidate.model.modelId,
+        endpointId: candidate.endpoint.endpointId,
         credentialLabel: "",
         error: errorMessage(error),
       });
@@ -176,7 +192,41 @@ async function callCandidate<T>(
   }
 }
 
+/**
+ * The request that produced the answer, appended to the same trail as the ones that did not.
+ *
+ * Leaving it out is what made `attempts` a list of failures: a caller could see which key was
+ * rejected and not which request was billed, so the ledger could not write a row for the call the
+ * user actually paid for.
+ */
+function winningAttempt(
+  candidate: ModelCandidate,
+  keyLabel: string,
+  usage: TokenUsage | undefined,
+  kind: ModelAttemptKind = "answer",
+): ModelAttempt {
+  return {
+    kind,
+    outcome: "success",
+    providerId: candidate.provider.providerId,
+    modelId: candidate.model.modelId,
+    endpointId: candidate.endpoint.endpointId,
+    credentialLabel: keyLabel,
+    error: "",
+    ...(usage ? { usage } : {}),
+  };
+}
+
+/** A model call. The trail's requests are `answer`s: one question, however many times it is sent. */
 export async function chat(request: ChatRequest): Promise<ChatResponse> {
+  return chatWithKind(request, "answer");
+}
+
+/**
+ * `chat` with the trail's `kind` under the caller's control, so `chatStructured` can mark the
+ * requests of its second pass as the self-correction they are. Nothing else passes `answer`.
+ */
+async function chatWithKind(request: ChatRequest, kind: ModelAttemptKind): Promise<ChatResponse> {
   const resolution = await firstResolvable(chatRequirements(request));
   const chain = resolution.candidate ? candidateChain(request, resolution) : [];
   if (chain.length === 0) {
@@ -192,6 +242,7 @@ export async function chat(request: ChatRequest): Promise<ChatResponse> {
       const { value, keyLabel } = await callCandidate(
         candidate,
         attempts,
+        kind,
         request.forceUnhealthyCredential,
         (context) =>
           adapter.chat(context, {
@@ -204,6 +255,7 @@ export async function chat(request: ChatRequest): Promise<ChatResponse> {
             systemPrompt: request.systemPrompt,
           }),
       );
+      attempts.push(winningAttempt(candidate, keyLabel, value.usage, kind));
       return {
         text: value.text,
         toolCalls: value.toolCalls,
@@ -217,14 +269,15 @@ export async function chat(request: ChatRequest): Promise<ChatResponse> {
     } catch (error) {
       lastError = error;
       // A rejected request shape repeats verbatim on the next model: stop instead of
-      // spending the whole candidate chain on the same 400.
+      // spending the whole candidate chain on the same 400. The trail goes with the error: those
+      // requests were sent, and one of them may have been billed before it was rejected.
       if (isFatalModelError(error)) {
-        throw error;
+        throw attachModelAttempts(error, attempts);
       }
     }
   }
 
-  throw lastError ?? unavailableError(resolution);
+  throw attachModelAttempts(lastError ?? unavailableError(resolution), attempts);
 }
 
 /** Same as `chat`, but the requirement comes from an intent (`intentRequirements`). */
@@ -251,20 +304,27 @@ export async function generateImage(request: ImageGenerationRequest): Promise<Im
   for (const candidate of chain) {
     const adapter = adapterFor(candidate.endpoint.protocol);
     if (!adapter.generateImage) {
-      throw new AppError("MODEL_CAPABILITY_UNAVAILABLE", {
-        status: 409,
-        message: `The ${candidate.endpoint.protocol} adapter cannot generate images yet`,
-        details: { providerId: candidate.provider.providerId, model: candidate.model.modelId },
-      });
+      throw attachModelAttempts(
+        new AppError("MODEL_CAPABILITY_UNAVAILABLE", {
+          status: 409,
+          message: `The ${candidate.endpoint.protocol} adapter cannot generate images yet`,
+          details: { providerId: candidate.provider.providerId, model: candidate.model.modelId },
+        }),
+        attempts,
+      );
     }
     const generate = adapter.generateImage.bind(adapter);
     try {
       const { value, keyLabel } = await callCandidate(
         candidate,
         attempts,
+        "answer",
         request.forceUnhealthyCredential,
         (context) => generate(context, { model: candidate.model.modelId, prompt: request.prompt, size: request.size }),
       );
+      // An image model reports no token usage, so the winning request carries none: the ledger
+      // records the call and its count, and its cost stays NULL rather than a made-up zero.
+      attempts.push(winningAttempt(candidate, keyLabel, undefined));
       return {
         images: value.images,
         model: candidate.model.modelId,
@@ -276,12 +336,96 @@ export async function generateImage(request: ImageGenerationRequest): Promise<Im
     } catch (error) {
       lastError = error;
       if (isFatalModelError(error)) {
-        throw error;
+        throw attachModelAttempts(error, attempts);
       }
     }
   }
 
-  throw lastError ?? unavailableError(resolution);
+  throw attachModelAttempts(lastError ?? unavailableError(resolution), attempts);
+}
+
+/**
+ * Speech to text (CI-P3-02), resolved the same way every other call is: the caller says *what* it wants
+ * recognised and the runtime decides which capability-resolved model and which key signs the request.
+ *
+ * `transcription` is already the intent a `speech_to_text` model satisfies (`intentRequirements`), so
+ * nothing new is invented here: this is `generateImage`'s shape - resolve, walk the candidate chain,
+ * rotate keys, report the trail. Two consequences worth naming, because they are the point of routing
+ * through the runtime instead of calling a vendor:
+ *
+ * - **A pinned provider or model is never downgraded** (the chain shortens to one), and an unpinned call
+ *   may fail over to another capable model, with every failed attempt in `attempts`.
+ * - **"Nothing is configured" is a specific error, not a 500.** With no STT credential the runtime
+ *   answers `MODEL_CREDENTIAL_MISSING` (or `MODEL_CAPABILITY_UNAVAILABLE` when no model claims the
+ *   capability at all) and the caller can say exactly what to fix - which is what makes a transcript
+ *   request fail honestly instead of producing an empty one.
+ */
+export async function transcribe(request: TranscriptionRequest): Promise<TranscriptionResponse> {
+  const resolution = await resolveRoute(
+    requirementForIntent("transcription", {
+      model: request.model,
+      providerId: request.providerId,
+      preferProviderId: request.preferProviderId,
+    }),
+  );
+  const chain = resolution.candidate ? candidateChain(request, resolution) : [];
+  if (chain.length === 0) {
+    throw unavailableError(resolution);
+  }
+
+  const attempts: ModelAttempt[] = [];
+  let lastError: unknown = null;
+
+  for (const candidate of chain) {
+    const adapter = adapterFor(candidate.endpoint.protocol);
+    if (!adapter.transcribe) {
+      throw attachModelAttempts(
+        new AppError("MODEL_CAPABILITY_UNAVAILABLE", {
+          status: 409,
+          message: `The ${candidate.endpoint.protocol} adapter cannot transcribe speech yet`,
+          details: { providerId: candidate.provider.providerId, model: candidate.model.modelId },
+        }),
+        attempts,
+      );
+    }
+    const recognize = adapter.transcribe.bind(adapter);
+    try {
+      const { value, keyLabel } = await callCandidate(
+        candidate,
+        attempts,
+        "answer",
+        request.forceUnhealthyCredential,
+        (context) =>
+          recognize(context, {
+            model: candidate.model.modelId,
+            audio: request.audio,
+            language: request.language,
+            prompt: request.prompt,
+          }),
+      );
+      // Speech recognition reports no token usage either; see `generateImage`.
+      attempts.push(winningAttempt(candidate, keyLabel, undefined));
+      return {
+        text: value.text,
+        segments: value.segments,
+        language: value.language,
+        durationMs: value.durationMs,
+        responseFormat: value.responseFormat,
+        model: candidate.model.modelId,
+        providerId: candidate.provider.providerId,
+        credentialLabel: keyLabel,
+        attempts,
+        route: toRoute(resolution, candidate),
+      } satisfies TranscriptionResponse;
+    } catch (error) {
+      lastError = error;
+      if (isFatalModelError(error)) {
+        throw attachModelAttempts(error, attempts);
+      }
+    }
+  }
+
+  throw attachModelAttempts(lastError ?? unavailableError(resolution), attempts);
 }
 
 /**
@@ -302,8 +446,18 @@ export type StructuredChatResponse<T extends z.ZodType> = {
   providerId: string;
   model: string;
   credentialLabel: string;
+  /**
+   * Both requests' figures added up, for a caller that only wants to show one total. The split
+   * lives in `attempts`, one entry per request - which is exactly what this single number cannot
+   * express, and why a re-ask used to look free.
+   */
   usage?: TokenUsage;
   route: ModelRoute;
+  /**
+   * Every request this call sent, in order. A `retried` call carries two entries with
+   * `outcome: "success"` - the first `answer` and then the `self-correction` - because both were
+   * really sent and both were really billed (CI-P7-01-04).
+   */
   attempts: ModelAttempt[];
   /** True when the first answer failed validation and the retry produced this one. */
   retried: boolean;
@@ -325,6 +479,24 @@ function mergeUsage(first?: TokenUsage, second?: TokenUsage): TokenUsage | undef
 }
 
 type StructuredParse<T extends z.ZodType> = { ok: true; data: z.infer<T> } | { ok: false; error: string };
+
+/**
+ * The self-correcting re-ask, which is the one place a *second* request exists for a reason of its
+ * own (CI-P7-01-04). Its trail entries are marked `self-correction`, and the first answer's trail is
+ * folded into any error this leg throws: that request was already sent and already billed, so losing
+ * it here would delete real money from the ledger.
+ */
+async function askAgain<T extends z.ZodType>(
+  request: StructuredChatRequest<T>,
+  messages: ChatMessage[],
+  firstAttempts: ModelAttempt[],
+): Promise<ChatResponse> {
+  try {
+    return await chatWithKind({ ...request, messages, json: true }, "self-correction");
+  } catch (error) {
+    throw attachModelAttempts(error, [...firstAttempts, ...modelAttemptsFrom(error)]);
+  }
+}
 
 function parseStructured<T extends z.ZodType>(schema: T, raw: string): StructuredParse<T> {
   let json: unknown;
@@ -384,19 +556,24 @@ export async function chatStructured<T extends z.ZodType>(
       ].join("\n"),
     },
   ];
-  const second = await chat({ ...request, messages: retryMessages, json: true });
+  const second = await askAgain(request, retryMessages, first.attempts);
   const secondParse = parseStructured(request.schema, second.text);
   if (!secondParse.ok) {
-    throw new AppError("AI_STRUCTURED_OUTPUT_INVALID", {
-      status: 502,
-      message: `Structured output validation failed: ${secondParse.error}`,
-      details: {
-        providerId: second.providerId,
-        model: second.model,
-        firstError: firstParse.error,
-        secondError: secondParse.error,
-      },
-    });
+    // Two requests really went out and really cost money, and neither produced a usable answer.
+    // The ledger gets both rows from this trail instead of the zero it used to get.
+    throw attachModelAttempts(
+      new AppError("AI_STRUCTURED_OUTPUT_INVALID", {
+        status: 502,
+        message: `Structured output validation failed: ${secondParse.error}`,
+        details: {
+          providerId: second.providerId,
+          model: second.model,
+          firstError: firstParse.error,
+          secondError: secondParse.error,
+        },
+      }),
+      [...first.attempts, ...second.attempts],
+    );
   }
 
   return {
@@ -423,5 +600,6 @@ export const aiRuntime = {
   chatForIntent,
   chatStructured,
   generateImage,
+  transcribe,
 } as const;
 

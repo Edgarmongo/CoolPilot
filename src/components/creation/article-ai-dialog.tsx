@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,8 @@ import {
   type OutputLanguage,
 } from "@/lib/ai-writing";
 import { useI18n } from "@/lib/i18n";
-import type { ContentItem, PositionRecord } from "@/lib/types";
+import type { ContentItem, PositionRecord, ResearchMaterialRecord } from "@/lib/types";
+import { GenerationSourceSelects } from "./generation-source-selects";
 
 type GenerateResponse = { item: ContentItem; images: string[]; provider?: string; model?: string };
 
@@ -62,10 +63,16 @@ export function ArticleAiDialog({
   open,
   onClose,
   onGenerated,
+  initialResearchMaterialId = "",
+  initialIncludeExtraction = false,
 }: {
   open: boolean;
   onClose: () => void;
   onGenerated: (item: ContentItem) => void;
+  /** The material a library row handed over in the URL (CI-P3-01); `""` for a plain open. */
+  initialResearchMaterialId?: string;
+  /** Whether that same URL asked for the material's stored 研究提炼 too (CI-P3-03). */
+  initialIncludeExtraction?: boolean;
 }) {
   const { t } = useI18n();
   const { data: positions = [] } = useSWR<PositionRecord[]>("/api/positions", swrFetcher);
@@ -73,6 +80,27 @@ export function ArticleAiDialog({
 
   const [topic, setTopic] = useState("");
   const [prompt, setPrompt] = useState("");
+  /**
+   * What this run reads besides the positioning (CI-P2-03): a topic from the topic library and/or a
+   * brand profile. Both travel as ids; the route reads the rows, so the prompt carries the stored text.
+   */
+  const [topicId, setTopicId] = useState("");
+  const [brandId, setBrandId] = useState("");
+  /**
+   * The research material this run reads (CI-P3-01). It arrives either from the select below or from a
+   * library row that linked here (`?researchMaterialId=`), which is why the opening value is a prop: the
+   * workspace opens this dialog on that material instead of making the user pick it a second time. Only
+   * the id travels - the route reads the stored row, so the prompt carries the material's own text.
+   */
+  const [researchMaterialId, setResearchMaterialId] = useState("");
+  /**
+   * Whether this run also reads that material's stored 研究提炼 (CI-P3-03).
+   *
+   * It is only ever *sent* as `true` when the selected material really carries a result, and the checkbox
+   * that sets it only exists then - so a flag left over from a link cannot ask the server for a
+   * distillation that is not there. The seed arrives with the material (`?includeExtraction=1`).
+   */
+  const [includeExtraction, setIncludeExtraction] = useState(false);
   const [knowledgeMode, setKnowledgeMode] = useState<KnowledgeMode>("position");
   const [positioningId, setPositioningId] = useState("");
   const [articleStyle, setArticleStyle] = useState<ArticleStyle>("advertorial");
@@ -87,6 +115,27 @@ export function ArticleAiDialog({
   const [deAi, setDeAi] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // A hand-off from the material library is applied when this dialog opens, and it is remembered: the URL
+  // keeps its parameter until the workspace drops it, so an effect that re-read it would re-apply a choice
+  // the user has since changed.
+  const appliedSeedRef = useRef("");
+  useEffect(() => {
+    if (!open || !initialResearchMaterialId) return;
+    if (appliedSeedRef.current === initialResearchMaterialId) return;
+    appliedSeedRef.current = initialResearchMaterialId;
+    window.queueMicrotask(() => {
+      setResearchMaterialId(initialResearchMaterialId);
+      // The link that carried the material also carried the request to use its distillation (CI-P3-03).
+      setIncludeExtraction(initialIncludeExtraction);
+    });
+  }, [open, initialResearchMaterialId, initialIncludeExtraction]);
+
+  // Read from the same SWR key `GenerationSourceSelects` uses, so this is the list already in the cache -
+  // not a second read. What the checkbox shows is the *stored* row: which version exists.
+  const { data: materials = [] } = useSWR<ResearchMaterialRecord[]>("/api/research", swrFetcher);
+  const selectedMaterial = materials.find((entry) => entry.id === researchMaterialId) ?? null;
+  const materialExtraction = selectedMaterial?.extraction ?? null;
 
   async function handleGenerate() {
     if (!topic.trim()) {
@@ -104,6 +153,12 @@ export function ArticleAiDialog({
         keywords: coreKeywords,
         languageCode,
         positioningId,
+        brandId,
+        topicId,
+        researchMaterialId,
+        // Only ever true when the selected material really carries a distillation: the flag is a request to
+        // use a stored result, never a claim that one exists (CI-P3-03-06).
+        includeResearchExtraction: materialExtraction ? includeExtraction : false,
         knowledgeMode,
         articleStyle,
         industry,
@@ -115,6 +170,9 @@ export function ArticleAiDialog({
       });
       setTopic("");
       setPrompt("");
+      // The topic selection goes with the subject it prefilled; the brand stays, because generating a
+      // second article for the same brand is the normal thing to do next.
+      setTopicId("");
       onGenerated(result.item);
       onClose();
     } catch {
@@ -127,6 +185,42 @@ export function ArticleAiDialog({
   return (
     <Dialog open={open} onClose={onClose} title={t("arAiTitle")} maxWidth="lg">
       <div className="grid gap-4">
+        {/* 选题 / 品牌 first, so the subject field below shows what the selection prefilled (CI-P2-03). */}
+        <GenerationSourceSelects
+          topicId={topicId}
+          brandId={brandId}
+          researchMaterialId={researchMaterialId}
+          onChange={(patch) => {
+            if (patch.topicId !== undefined) {
+              setTopicId(patch.topicId);
+              // The topic's own title becomes the visible subject, editable like any typed one; the rest
+              // of the row reaches the prompt on the server.
+              if (patch.topic) setTopic(patch.topic.title);
+            }
+            if (patch.brandId !== undefined) setBrandId(patch.brandId);
+            // The material stays selected after a run, like the brand: writing a second article from the
+            // same material is the normal thing to do next.
+            if (patch.researchMaterialId !== undefined) setResearchMaterialId(patch.researchMaterialId);
+          }}
+        />
+        {/* Offered only for a material that really has a distillation, and it says which version would be
+            used - so "带入提炼结果" can never be a checkbox that does nothing. */}
+        {materialExtraction ? (
+          <label className="flex items-start gap-3 rounded-2xl border border-violet-100 bg-violet-50/40 px-4 py-3">
+            <input
+              type="checkbox"
+              checked={includeExtraction}
+              onChange={(event) => setIncludeExtraction(event.target.checked)}
+              className="mt-1 size-4 shrink-0"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-zinc-700">
+                {t("rxUseExtraction", { version: materialExtraction.revision })}
+              </span>
+              <span className="mt-0.5 block text-xs text-zinc-400">{t("rxUseExtractionHint")}</span>
+            </span>
+          </label>
+        ) : null}
         <Field label={t("arAiTopic")}>
           <input
             value={topic}

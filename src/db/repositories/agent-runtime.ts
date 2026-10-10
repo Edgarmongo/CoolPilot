@@ -3,5 +3,6 @@ export {
   createAgentRuntimeRun,
   getAgentRuntimeRun,
   listAgentRuntimeEvents,
+  listAgentRuntimeRuns,
   updateAgentRuntimeRun,
 } from "../repository";

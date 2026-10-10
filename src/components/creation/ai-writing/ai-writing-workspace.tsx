@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Layers, PenSquare, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConsoleCard } from "@/components/ui/console-surface";
+import { apiGet } from "@/lib/api-client";
 import {
   aiWritingStepIds,
   aiWritingStepLabelKeys,
@@ -12,6 +14,8 @@ import {
   type AiWritingStepId,
 } from "@/lib/ai-writing";
 import { useI18n } from "@/lib/i18n";
+import { readTopicWritingTarget, topicMaterialText } from "@/lib/topics";
+import type { TopicRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AiWritingStepConfig } from "./ai-writing-step-config";
 import { AiWritingStepMaterial, type HotTopicItem } from "./ai-writing-step-material";
@@ -25,11 +29,46 @@ const stepIcons: Record<AiWritingStepId, React.ReactNode> = {
 
 export function AiWritingWorkspace() {
   const { t, locale } = useI18n();
+  const searchParams = useSearchParams();
+  const topicTarget = readTopicWritingTarget(searchParams);
   const [stepIndex, setStepIndex] = useState(0);
   const [config, setConfig] = useState<AiWritingConfig>(defaultAiWritingConfig);
   const [topics, setTopics] = useState<HotTopicItem[]>([]);
   const [productIds, setProductIds] = useState<string[]>([]);
   const [freeText, setFreeText] = useState("");
+  const [topicId, setTopicId] = useState("");
+  const [topicTitle, setTopicTitle] = useState("");
+  const [topicNotice, setTopicNotice] = useState("");
+  /** The topic id already carried into the form, so a re-render never overwrites what the user typed. */
+  const seededTopic = useRef("");
+
+  /**
+   * "Write about it" from the topic list (P2-01-04): the topic arrives as an id, is read once, and
+   * becomes the wizard's own free-text material, which is exactly what the user then sees and can edit.
+   * A topic that is gone says so instead of silently producing an empty wizard.
+   */
+  useEffect(() => {
+    if (!topicTarget || seededTopic.current === topicTarget) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const topic = await apiGet<TopicRecord>(`/api/topics/${encodeURIComponent(topicTarget)}`);
+        if (cancelled) return;
+        seededTopic.current = topicTarget;
+        setTopicId(topic.id);
+        setTopicTitle(topic.title);
+        setFreeText(topicMaterialText(topic));
+        setConfig((previous) => ({ ...previous, materialSource: "free" }));
+      } catch {
+        if (cancelled) return;
+        seededTopic.current = topicTarget;
+        setTopicNotice(t("tpWritingMissing"));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [topicTarget, t]);
 
   const materialCount = topics.length + productIds.length + (freeText.trim() ? 1 : 0);
   const step = aiWritingStepIds[stepIndex];
@@ -87,6 +126,12 @@ export function AiWritingWorkspace() {
             ))}
           </ol>
         </div>
+
+        {topicTitle || topicNotice ? (
+          <p className={cn("mt-3 text-xs", topicTitle ? "text-violet-600" : "text-amber-600")}>
+            {topicTitle ? t("tpFromTopic", { title: topicTitle }) : topicNotice}
+          </p>
+        ) : null}
       </ConsoleCard>
 
       <ConsoleCard>
@@ -109,6 +154,7 @@ export function AiWritingWorkspace() {
             topics={topics}
             productIds={productIds}
             freeText={freeText}
+            topicId={topicId}
             locale={locale}
           />
         ) : null}

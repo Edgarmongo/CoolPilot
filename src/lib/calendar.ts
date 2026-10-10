@@ -25,6 +25,8 @@ export type CalendarEntry = {
   scheduleId?: string;
   runId?: string;
   contentItemId?: string;
+  /** Resolved content title when the caller could read the item the entry names (CI-P2-04). */
+  contentTitle?: string;
   /** Only set for planned entries: whether the schedule is still enabled. */
   enabled?: boolean;
 };
@@ -111,6 +113,11 @@ export type BuildCalendarEntriesInput = {
   runs?: RunRecord[];
   publishRecords?: PublishRecord[];
   accounts?: Pick<AccountRecord, "id" | "name" | "platform">[];
+  /**
+   * Content titles by content item id (CI-P2-04). The caller resolves them; an id that is missing
+   * here simply leaves `contentTitle` unset instead of substituting a placeholder.
+   */
+  contentTitles?: Map<string, string>;
   /** Inclusive window, epoch milliseconds. */
   from: number;
   to: number;
@@ -123,6 +130,12 @@ export type BuildCalendarEntriesInput = {
 
 export function isFailedStatus(status: string) {
   return status === "failed" || status === "missed";
+}
+
+/** The content item a run belongs to, when the worker recorded one in the run's params. */
+export function runContentItemId(run: RunRecord): string | undefined {
+  const value = run.params.contentItemId;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 export function isSuccessStatus(status: string) {
@@ -138,6 +151,7 @@ export function buildCalendarEntries({
   runs = [],
   publishRecords = [],
   accounts = [],
+  contentTitles,
   from,
   to,
   accountId = "",
@@ -148,6 +162,8 @@ export function buildCalendarEntries({
   const accountsById = new Map(accounts.map((account) => [account.id, account]));
   const entries: CalendarEntry[] = [];
   const inRange = (at: number) => at >= from && at <= to;
+  const titleOf = (contentItemId: string | undefined) =>
+    contentItemId ? contentTitles?.get(contentItemId) || undefined : undefined;
 
   if (includePlanned) {
     for (const schedule of schedules) {
@@ -173,6 +189,7 @@ export function buildCalendarEntries({
           playbookId: schedule.playbookId,
           scheduleId: schedule.id,
           contentItemId: schedule.contentItemId,
+          contentTitle: titleOf(schedule.contentItemId),
           enabled: schedule.enabled,
         });
       }
@@ -198,6 +215,8 @@ export function buildCalendarEntries({
         playbookId: run.playbookId,
         scheduleId: run.scheduleId,
         runId: run.id,
+        contentItemId: runContentItemId(run),
+        contentTitle: titleOf(runContentItemId(run)),
       });
     }
 
@@ -216,6 +235,7 @@ export function buildCalendarEntries({
         accountName: record.accountName,
         platform: record.platform,
         contentItemId: record.contentItemId,
+        contentTitle: titleOf(record.contentItemId),
       });
     }
   }

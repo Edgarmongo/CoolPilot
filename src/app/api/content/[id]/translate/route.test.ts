@@ -39,6 +39,7 @@ const {
   jsonRequest,
   prepareChatModel,
   qwenCatalog,
+  refuseEveryAiBudgetCall,
   resetRuntime,
   stubFetch,
 } = await import("@/test/route-harness");
@@ -390,5 +391,29 @@ describe("POST /api/content/[id]/translate on aiRuntime", () => {
     // The usage row reports both attempts merged, exactly as the runtime reports them.
     const usage = (await listUsageRecords({ limit: 10 })).find((row) => row.contentItemId === fixture.target.id);
     expect(usage).toMatchObject({ inputTokens: 22, outputTokens: 14, totalTokens: 36 });
+  });
+
+  it("answers the gate's own 402 instead of translating, and records nothing", async () => {
+    // The model is configured through a catalog read first, then the transport is emptied: from this point
+    // on, any call this request makes is one the case will see.
+    stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    await refuseEveryAiBudgetCall();
+    const calls = stubFetch([]);
+    const usageBefore = (await listUsageRecords({ limit: 500 })).length;
+
+    const response = await translate(fixture.target.id, sourcePayload());
+    const payload = await response.json();
+
+    // A refusal is not a provider failure: the 502 catch above would have written a ledger row and a
+    // "the provider failed" sentence for a request that was never sent.
+    expect(response.status).toBe(402);
+    expect(payload.ok).toBe(false);
+    expect(payload.code).toBe("AI_BUDGET_EXCEEDED");
+    expect(payload.data).toBeUndefined();
+    expect(calls).toEqual([]);
+    expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
   });
 });

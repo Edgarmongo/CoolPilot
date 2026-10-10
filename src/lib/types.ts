@@ -1,3 +1,6 @@
+import type { TranscriptMetadata } from "@/lib/transcription/transcription";
+import type { ResearchExtractionRecord } from "@/lib/research-extraction/extraction";
+
 export const playbookIds = [
   "topic_article_generator",
   "ai_prompt_proxy",
@@ -6,6 +9,16 @@ export const playbookIds = [
   "topic_search_writer",
   "threads_auto_post",
   "threads_compose_post",
+  // CI-P1-04: the video render task is a playbook run, so it appears in the unified task view with the
+  // rest of the long tasks instead of needing a task table of its own. The executor lives in
+  // `src/lib/videos/video-render-task.ts` and is dispatched by `src/worker/runner.ts`.
+  "video_render",
+  // CI-P3-02: the same shape for a transcript. `src/lib/transcription/transcription-task.ts` owns it, the
+  // worker dispatches it, and the read path is `GET /api/tasks/<id>` - no transcription table.
+  "media_transcription",
+  // CI-P3-03: the same shape for a distillation. `src/lib/research-extraction/extraction-task.ts` owns
+  // it, the worker dispatches it, and `GET /api/tasks/<id>` reads it - no extraction table.
+  "research_extraction",
 ] as const;
 
 export type PlaybookId = (typeof playbookIds)[number];
@@ -17,6 +30,12 @@ export const runStatuses = [
   "warning",
   "failed",
   "cancelled",
+  /**
+   * CI-P7-03-B: the budget stopped the run *between* steps. Nothing is in flight, the steps that
+   * finished are kept, and a resume re-checks the budget and continues from them. It is a state, not a
+   * failure: a run that is going to continue is not a run that failed.
+   */
+  "paused",
 ] as const;
 
 export type RunStatus = (typeof runStatuses)[number];
@@ -113,6 +132,310 @@ export interface ContentPage {
   page: number;
   pageSize: number;
   totalPages: number;
+}
+
+// ---------------------------------------------------------------------------
+// 内容生命周期与日历 (CI-P2-04)
+//
+// The lifecycle stage is a *read* over four status vocabularies that already exist and are not being
+// replaced: `content_items.status`, `schedules.status` (+ `enabled`), `runs.status` and
+// `publish_records.status`. No column, table or migration is added, and the frozen C2 publish
+// contract is untouched - a schedule is still "a plan to run a playbook", not evidence of a publish.
+//
+// The two axes stay separate on purpose (P2-04-07): `contentStatus` is what the content item *is*,
+// while `plan` / `executions` / `publish` describe its way to a platform. A publish row that merely
+// exists (`queued` / `running` / `drafted`) is never reported as a success.
+// ---------------------------------------------------------------------------
+export const contentLifecycleStages = ["draft", "pending", "scheduled", "publishing", "published", "failed"] as const;
+
+export type ContentLifecycleStage = (typeof contentLifecycleStages)[number];
+
+/** One planned publish occurrence of a content item: an occurrence of a content-linked schedule. */
+export interface ContentLifecyclePlan {
+  at: number;
+  scheduleId: string;
+  playbookId: PlaybookId;
+  accountId?: string;
+  accountName: string;
+  platform: string;
+  /** False when the schedule is paused: the occurrence is still shown, but it is not going to run. */
+  enabled: boolean;
+  /** True when the rule expands to more than one occurrence inside the queried window. */
+  repeating: boolean;
+}
+
+/** Publish outcome per target: `records` counts every row, `published` only the successful ones. */
+export interface ContentLifecyclePlatform {
+  /** `accountId`, else the platform name, else `''` for a record that named neither. */
+  key: string;
+  accountId?: string;
+  accountName: string;
+  platform: string;
+  records: number;
+  published: number;
+  lastStatus: PublishRecordStatus;
+  lastAt: number;
+  url: string;
+}
+
+export interface ContentLifecyclePublishRollup {
+  records: number;
+  byStatus: Record<PublishRecordStatus, number>;
+  platforms: ContentLifecyclePlatform[];
+  /** The most recent row whatever its status: what the last attempt on this content actually did. */
+  latest: {
+    id: string;
+    status: PublishRecordStatus;
+    at: number;
+    platform: string;
+    accountName: string;
+    url: string;
+    title: string;
+  } | null;
+  /** True when records exist but not one of them says the content reached a platform. */
+  hasOnlyUnfinishedRecords: boolean;
+}
+
+export interface ContentLifecycleRow {
+  contentItemId: string;
+  /** False when the id no longer resolves: the row is kept because the records still exist. */
+  contentFound: boolean;
+  title: string;
+  contentType: string;
+  /** `content_items.status` verbatim, or `null` when the item is gone - never a publish status. */
+  contentStatus: ContentStatus | null;
+  stage: ContentLifecycleStage;
+  createdAt: number | null;
+  updatedAt: number | null;
+  /** Earliest plan occurrence inside the queried window; `null` when the window holds none. */
+  plan: ContentLifecyclePlan | null;
+  /** Occurrences of content-linked schedules inside the window (paused ones included). */
+  planCount: number;
+  /** The subset of `planCount` whose schedule is enabled - these are the ones that will run. */
+  enabledPlanCount: number;
+  executions: {
+    runs: number;
+    failedRuns: number;
+    lastStatus: string;
+    lastAt: number | null;
+  };
+  publish: ContentLifecyclePublishRollup;
+}
+
+export interface ContentLifecycleFilters {
+  stage: ContentLifecycleStage | "";
+  platform: string;
+  contentItemId: string;
+}
+
+export interface ContentLifecyclePlanSummary {
+  /** Content items in this answer that have at least one occurrence inside the window. */
+  plannedInWindow: number;
+  /** Of those, the ones whose plan is paused. */
+  pausedPlan: number;
+  /** Content items whose records say they reached a platform. */
+  published: number;
+  /** Content items with records that do not say any platform accepted them. */
+  unpublishedRecords: number;
+}
+
+export interface ContentLifecyclePayload {
+  range: {
+    from: number;
+    to: number;
+    /** `query` when `?from`/`?to` were honoured, `default` when the fallback window was used. */
+    source: "query" | "default";
+    /** True when a requested window was longer than the maximum and had to be shortened. */
+    clamped: boolean;
+  };
+  filters: ContentLifecycleFilters;
+  scan: {
+    /** Ids the plan/run/record readers named; the union with the explicitly requested one. */
+    referencedContent: number;
+    /** Ids that no longer resolve to a content item. */
+    missingContent: number;
+    schedules: number;
+    runs: number;
+    runsLimit: number;
+    publishRecords: number;
+    publishRecordsLimit: number;
+    /** True when a reader hit its own ceiling, so the answer is a window and not the whole library. */
+    truncated: boolean;
+  };
+  summary: {
+    matched: number;
+    total: number;
+    byStage: Record<ContentLifecycleStage, number>;
+  } & ContentLifecyclePlanSummary;
+  /** Distinct platforms seen in the answer, for the view's own filter. */
+  platforms: string[];
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+  rows: ContentLifecycleRow[];
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * 多平台内容模型 (CI-P2-05)
+ *
+ * The base content item stays what it is: platform-agnostic `title` / `body` / `postReadyText` /
+ * `imagePath` with its media in `metadata` (`images`, `videoPath`). A *platform version* is derived
+ * from that base and stored beside it in the same `metadata_json` blob under `platformVersions`, the
+ * way `type`, `images`, `themeId` and the research links already are. Nothing in this card adds a
+ * table, a column or a migration, and the existing backup/export (which carries `metadata_json`)
+ * carries the versions with their item.
+ *
+ * Two separations are the point of the model:
+ *
+ *  - **base vs product** (A1): the base is edited by the author and shared; a version is a rendition
+ *    of it for one platform, produced by the adapter in `src/lib/platform-content.ts`, and the two are
+ *    never the same object.
+ *  - **content vs history** (A2): producing a version is not publishing, and no field here records a
+ *    platform outcome. `publish_records` stays the only history, and its `(contentItemId, platform)`
+ *    is what a version keys off, so a record still points at the rendition it published.
+ * ---------------------------------------------------------------------------------------------- */
+
+/**
+ * How the publish path reaches a platform's composer, read off the profile that serves it. The route
+ * is `runConfiguredCreatePost` (`src/lib/browser-preview-session.ts`): navigate to `publishPageUrl`
+ * when there is one, click `newPostSelectors`, then treat the page as the composer.
+ *
+ *  - `new-post` - a platform-specific profile with its own "new post" entry (小红书, 大鱼号, 快传号,
+ *    淘宝光合): the path lands on the platform's page and clicks that entry.
+ *  - `direct-url` - a platform-specific profile whose publish URL already is the composer (视频号's
+ *    uploader, 知乎's `zhuanlan.zhihu.com/write` editor) - both come with `newPostSelectors: []`.
+ *  - `generic` - no platform-specific profile: no navigation, and the shared generic 发布/写文章 entry
+ *    is clicked on whatever page is open.
+ *
+ * Deliberately *not* "video uploader vs article editor": that distinction is recorded nowhere in
+ * `PlatformPublishProfile`, and `videoFirstProfile` and `articleEditorProfile` produce the same shape
+ * (`newPostSelectors: []` plus a publish URL), so the adapter does not guess it (P2-05-06).
+ */
+export const platformComposerEntries = ["new-post", "direct-url", "generic"] as const;
+export type PlatformComposerEntry = (typeof platformComposerEntries)[number];
+
+/**
+ * Where a video can go on a platform, from the two profile fields `uploadVideoToComposer` reads:
+ *
+ *  - `video-tab-then-input` - the profile lists a tab that reveals the uploader (小红书), so the path
+ *    clicks it before it looks for the file input.
+ *  - `file-input` - no tab: the path goes straight to a file input that takes a video.
+ *  - `not-supported` - the profile lists no video file input, so a video cannot be handed over.
+ *
+ * No built-in entry takes `not-supported` today (all three profile builders spread `genericProfile`,
+ * which carries the file inputs). The value exists because the adapter has to answer it rather than
+ * carry a video the page would never receive.
+ */
+export const platformVideoRoutes = ["video-tab-then-input", "file-input", "not-supported"] as const;
+export type PlatformVideoRoute = (typeof platformVideoRoutes)[number];
+
+/**
+ * What the adaptation layer knows about one platform, and nothing more. Every value is derived from
+ * code that already exists - `src/lib/publish-profiles.ts` for what the publish path does on the page,
+ * `src/lib/post-format.ts` for the only text formatter CoolPilot runs:
+ *
+ *  - `composerEntry` and `videoRoute` read the profile's own fields the way the publish path reads them.
+ *  - `titleField` / `bodyField` come from `titleSelectors` / `contentSelectors`, which are the only way
+ *    the publish path fills a title or a body. Threads is the one platform it fills no title for.
+ *  - `textLimit` / `titleLimit` are the budgets CoolPilot's own formatter enforces. `null` means "this
+ *    layer does not limit the field" - **not** "the platform allows unlimited text". A platform's real
+ *    limit that CoolPilot does not enforce is unknown here and is never guessed (P2-05-06).
+ *
+ * Two profile fields are deliberately absent because no publish path reads them:
+ * `imageInputSelectors` (the cover branch of `runConfiguredCreatePost` picks `input[type="file"]`
+ * itself, so a per-platform image claim would be a claim about a field nothing consults) and
+ * `videoUploadWaitMs` (a wait, not a property of the content).
+ */
+export interface PlatformContentProfile {
+  platform: string;
+  /** True when `publish-profiles.ts` has a platform-specific entry; false is the shared generic fallback. */
+  supported: boolean;
+  composerEntry: PlatformComposerEntry;
+  /** True when the publish path can fill a title field on this platform. */
+  titleField: boolean;
+  /** True when the publish path can fill a body field on this platform. */
+  bodyField: boolean;
+  videoRoute: PlatformVideoRoute;
+  /** Body budget CoolPilot's own formatter applies, in UTF-16 units, or `null`. */
+  textLimit: number | null;
+  /** Title budget CoolPilot's own formatter applies, or `null`. */
+  titleLimit: number | null;
+}
+
+/** `derived` = produced by the adapter; `edited` = the author changed it by hand. */
+export const platformContentVersionSources = ["derived", "edited"] as const;
+export type PlatformContentVersionSource = (typeof platformContentVersionSources)[number];
+
+/**
+ * What the adapter changed, so a version can explain itself instead of looking like the base text.
+ * A note is never a claim about a platform: it says what *this* layer did.
+ */
+export const platformContentAdaptationCodes = [
+  "text-normalized",
+  "text-truncated",
+  "text-not-offered",
+  "title-normalized",
+  "title-truncated",
+  "title-not-offered",
+  "media-not-included",
+] as const;
+export type PlatformContentAdaptationCode = (typeof platformContentAdaptationCodes)[number];
+
+export interface PlatformContentAdaptation {
+  code: PlatformContentAdaptationCode;
+  /** Present on the truncation codes: the budget that was applied. */
+  limit?: number;
+  /** Present on the truncation codes: the length before the cut. */
+  originalLength?: number;
+}
+
+/** One platform's rendition of one content item. */
+export interface PlatformContentVersion {
+  platform: string;
+  /** The title this platform gets, or `""` when its profile offers no title field (`title-not-offered`). */
+  title: string;
+  body: string;
+  /** The base item's cover: every publish path hands it over, so no platform is left without one. */
+  imagePath: string;
+  /** Local video path, or `""` when the platform's profile takes no video (`media-not-included`). */
+  videoPath: string;
+  source: PlatformContentVersionSource;
+  adaptations: PlatformContentAdaptation[];
+  /**
+   * Fingerprint of the base title/text this version was taken from (P2-05-04). When it no longer
+   * matches the base, the base moved on and the version is stale - it is reported and kept, never
+   * silently refreshed.
+   *
+   * A fingerprint rather than a timestamp on purpose: `updateContentItem` bumps the item's `updatedAt`
+   * on *every* metadata write (writing this very version included), so a timestamp could not tell "the
+   * author changed the text" apart from "we stored an image list".
+   */
+  baseFingerprint: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** What `GET /api/content/[id]/platform-versions` answers: the base, the adapters, the versions. */
+export interface PlatformContentVersionPayload {
+  contentItemId: string;
+  base: {
+    title: string;
+    body: string;
+    postReadyText: string;
+    imagePath: string;
+    images: string[];
+    videoPath: string;
+    /** The base's fingerprint right now: a version whose own fingerprint differs is stale. */
+    fingerprint: string;
+    updatedAt: number;
+  };
+  profiles: PlatformContentProfile[];
+  versions: PlatformContentVersion[];
+  /**
+   * Entries stored under `platformVersions` that this build cannot read (a newer shape, hand-edited
+   * JSON). They are counted so the view can say so, and they are preserved untouched on write.
+   */
+  unreadable: number;
 }
 
 export interface ScheduleRecord {
@@ -266,6 +589,538 @@ export interface UsageSummary {
   models: UsageModelSummary[];
 }
 
+// ---------------------------------------------------------------------------
+// AI usage ledger (CI-P7-01)
+//
+// `usage_records` above answers "how many tokens did this article cost?". The ledger
+// answers the questions that need one row per *attempt* instead of one row per successful
+// generation: which provider really signed the call, what a retry cost, what failed, how
+// long it took, which business task it belonged to, and what money that adds up to.
+//
+// The two are deliberately separate. `usage_records` keeps its exact meaning (the 用量统计
+// page reads it), and the ledger starts empty rather than back-filling claims nobody measured.
+// ---------------------------------------------------------------------------
+
+/** How one attempt ended. `interrupted` is a call whose transport died before an answer arrived. */
+export const aiUsageOutcomes = ["success", "failed", "interrupted"] as const;
+
+export type AiUsageOutcome = (typeof aiUsageOutcomes)[number];
+
+/**
+ * What produced the money figure on a ledger row. The amount alone never says which of these
+ * it is, and the difference matters: a computed cost is our arithmetic, a provider-reported
+ * cost is the vendor's own number, and `unpriced` means the call really happened but no price
+ * is known for that model - which is not the same statement as "it was free".
+ */
+export const aiUsageCostSources = [
+  /** The vendor answered with the charge itself. Rare; the only truly "actual" figure. */
+  "provider-reported",
+  /** Usage x the price snapshot stored on this row. The normal case. */
+  "computed",
+  /** The call happened, usage is known, but no price is on file for this provider+model. */
+  "unpriced",
+  /** Nothing was measured (a failed attempt), so there is no usage to price at all. */
+  "unknown",
+] as const;
+
+export type AiUsageCostSource = (typeof aiUsageCostSources)[number];
+
+/**
+ * How much of the real usage this row actually saw.
+ *
+ * `reported` - the provider returned a usage object (even if it says zero).
+ * `partial`  - the call was interrupted, so what arrived may be less than what was billed.
+ * `unknown`  - no usage object arrived at all: a failure, or a provider that does not report.
+ */
+export const aiUsageCompletenessValues = ["reported", "partial", "unknown"] as const;
+
+export type AiUsageCompleteness = (typeof aiUsageCompletenessValues)[number];
+
+/** What was metered. Text is counted in tokens; the other kinds are not, and are stored in `quantityJson`. */
+export const aiUsageMeteredKinds = ["text", "image", "video", "speech", "embedding", "agent"] as const;
+
+export type AiUsageMeteredKind = (typeof aiUsageMeteredKinds)[number];
+
+/**
+ * The unit a per-unit price is quoted in (CI-P7-01-05).
+ *
+ * A price is meaningless without its dimension: "0.35" is neither a token rate nor an image price
+ * until the unit says which. The token columns on a price row answer this for text, and these
+ * labels answer it for everything else.
+ */
+export const aiUsageUnitLabels = ["image", "second", "character", "call"] as const;
+
+export type AiUsageUnitLabel = (typeof aiUsageUnitLabels)[number];
+
+/**
+ * Which units each kind may be priced per. An empty list means the kind is token-metered and is
+ * priced by the token columns alone.
+ *
+ * This is what stops a text price from ever costing an image: a row only prices the kind it was
+ * written for, and a kind only accepts the units it is actually billed in.
+ */
+export const aiUsageKindUnits: Record<AiUsageMeteredKind, readonly AiUsageUnitLabel[]> = {
+  // Priced per million tokens: input / output / cached input.
+  text: [],
+  // Embeddings are billed on input tokens only; there is no output side to price.
+  embedding: [],
+  image: ["image"],
+  video: ["second"],
+  // Speech is billed per character by most vendors and per second of audio by the rest.
+  speech: ["character", "second"],
+  agent: ["call"],
+};
+
+/** True for the kinds whose price lives in the token columns rather than in `unitPrice`. */
+export function aiUsageKindIsTokenMetered(kind: AiUsageMeteredKind) {
+  return aiUsageKindUnits[kind].length === 0;
+}
+
+/**
+ * The currencies a price may be quoted in (CI-P7-01-05).
+ *
+ * A closed list rather than free text: the currency is copied onto every ledger row the price
+ * costs, so a typo would not be a cosmetic mistake - it would be a cost figure in a currency
+ * nobody can convert. The list may only ever grow, because rows already written name one of these.
+ */
+export const aiPriceCurrencies = ["CNY", "USD", "EUR", "HKD", "TWD", "JPY", "GBP"] as const;
+
+export type AiPriceCurrency = (typeof aiPriceCurrencies)[number];
+
+/**
+ * Where a price's numbers came from. `manual` is a person typing what their provider charges,
+ * `provider-doc` a published rate card, `imported` a machine translation of the vendor's own list.
+ *
+ * None of these makes a ledger figure "the actual charge": only a charge the vendor itself reported
+ * does, which is what `provider-reported` means in `aiUsageCostSources`.
+ */
+export const aiPriceSources = ["manual", "provider-doc", "imported"] as const;
+
+export type AiPriceSource = (typeof aiPriceSources)[number];
+
+export interface AiUsageTokens {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  /** Tokens served from the prompt cache, when the provider prices them differently. */
+  cachedInputTokens: number;
+  /** Reasoning tokens, when the provider reports them apart from the output. */
+  reasoningTokens: number;
+}
+
+/**
+ * The price that was in force when the row was written, copied onto the row.
+ *
+ * Copying rather than referencing is the point: editing a price tomorrow must not restate what
+ * yesterday's call cost. `priceVersion` names the catalog revision the copy came from.
+ */
+export interface AiUsagePricingBasis {
+  /**
+   * Which dimension this price costs. Copied from the catalog row so the frozen snapshot still
+   * says what it was for, and so a price written for one kind can never be applied to another.
+   */
+  meteredKind: AiUsageMeteredKind;
+  currency: string;
+  /** Per million tokens. Zero on the kinds that are not token-metered - they price by `unitPrice`. */
+  inputPerMillion: number;
+  outputPerMillion: number;
+  /** Absent when the provider does not price cached input separately. */
+  cachedInputPerMillion?: number;
+  /** The price per `unitLabel` for the kinds the token columns cannot price. Absent on token rows. */
+  unitPrice?: number;
+  unitLabel?: AiUsageUnitLabel;
+  priceVersion: string;
+  source: string;
+}
+
+export interface AiUsageLedgerEntry {
+  id: string;
+  /** Which business call this was: `article`, `knowledge`, `profile`, `extraction`, `agent`… */
+  purpose: string;
+  outcome: AiUsageOutcome;
+  /** Provider that *actually signed* the request, which is not always the one the user picked. */
+  providerId: string;
+  modelId: string;
+  endpointId: string;
+  /** Masked key label (`****1234`). Never the key itself. */
+  credentialLabel: string;
+  /**
+   * The position of this request in its call: 0 is the first request the call sent, and the row
+   * with the highest index is the one whose answer the caller used. A retry is therefore *a row
+   * after the first*, not a row before a winner - and the index alone cannot say why it happened
+   * (a rotated key, a demoted model and a self-correction all look the same). Read the predecessor
+   * through `parentUsageId` to tell them apart instead of inferring from the number.
+   */
+  attemptIndex: number;
+  /** Business identity, empty when the caller declared none. */
+  taskId: string;
+  runId: string;
+  nodeId: string;
+  /** The attempt this one retried, when it is a retry. */
+  parentUsageId: string;
+  /** The media artifact or content item this call produced, when it produced one. */
+  outputAssetId: string;
+  contentItemId: string;
+  /**
+   * The budget hold this request was admitted under (CI-P7-03-A), empty when it was not gated.
+   *
+   * It is the link between the gate's own record (`ai_budget_reservations`) and what this row states
+   * the call cost, so "what was held" and "what was spent" are compared by joining an id instead of
+   * being guessed from a purpose and a timestamp.
+   */
+  budgetReservationId: string;
+  meteredKind: AiUsageMeteredKind;
+  tokens: AiUsageTokens;
+  completeness: AiUsageCompleteness;
+  /** Modality-specific units (image count/resolution, video seconds, speech characters). */
+  quantityJson: string;
+  /** `null` when no cost can be claimed. Never `0` as a stand-in for "unknown". */
+  costAmount: number | null;
+  costCurrency: string;
+  costSource: AiUsageCostSource;
+  pricing: AiUsagePricingBasis | null;
+  durationMs: number;
+  /** The failure this attempt hit, empty on success. */
+  errorSummary: string;
+  createdAt: number;
+}
+
+/** One row of the price catalog. `resolveModelPrice()` reads the newest effective row. */
+export interface AiModelPrice {
+  id: string;
+  providerId: string;
+  /** `*` means "any model of this provider", used as the fallback when no exact row matches. */
+  modelId: string;
+  /** Which dimension this row prices. A `text` row can never cost an `image` call. */
+  meteredKind: AiUsageMeteredKind;
+  currency: string;
+  inputPerMillion: number;
+  outputPerMillion: number;
+  cachedInputPerMillion?: number;
+  /** Per `unitLabel`; absent (NULL) on the token-metered rows that do not use it. */
+  unitPrice?: number;
+  /** `''` on token rows, otherwise the unit `unitPrice` is quoted in. */
+  unitLabel: AiUsageUnitLabel | "";
+  /**
+   * True when every zero on this row is a deliberate price ("this model is free"), not a field
+   * nobody filled in. A row is only allowed to be all-zero when it says so (CI-P7-01-05).
+   */
+  declaredFree: boolean;
+  priceVersion: string;
+  source: string;
+  effectiveFrom: number;
+  notes: string;
+  createdAt: number;
+}
+
+/**
+ * A catalog row as the page reads it, with the one thing a browser cannot work out for itself:
+ * whether this row is the one the **server** would cost a call with right now.
+ *
+ * The server marks it rather than the page, because the server is the side that writes the ledger -
+ * "in force" has to mean the instant the recorder would ask about, not whatever clock the browser
+ * happens to have.
+ */
+export interface AiModelPriceView extends AiModelPrice {
+  inForce: boolean;
+}
+
+export interface AiUsageLedgerTotals {
+  attempts: number;
+  successes: number;
+  failures: number;
+  interrupted: number;
+  retries: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  durationMs: number;
+  /** Sum of the rows whose cost is a real figure (`computed` or `provider-reported`). */
+  costAmount: number;
+  /** Attempts whose money cannot be stated, broken out so a partial figure is never read as the total. */
+  unpricedAttempts: number;
+  /** Attempts that were never measured at all (failures), likewise broken out. */
+  unmeasuredAttempts: number;
+  /** Every attempt in the window had a stateable cost - only then is `costAmount` a total. */
+  costIsComplete: boolean;
+}
+
+export interface AiUsageLedgerGroup {
+  key: string;
+  label: string;
+  attempts: number;
+  totalTokens: number;
+  costAmount: number;
+  hasUnpricedAttempts: boolean;
+}
+
+/**
+ * How many attempts carried each `cost_source` (CI-P7-02).
+ *
+ * The headline money figure never says which of the four states produced it, and the difference is
+ * the whole point: a computed figure is our arithmetic over a price snapshot, a provider-reported
+ * one is the vendor's own charge, and `unpriced` / `unknown` are rows where no figure may be stated
+ * at all. A reader that wants to say "this much of the bill is estimated" needs these counts, so
+ * they are counted here rather than guessed from the total.
+ */
+export interface AiUsageLedgerCostSourceCount {
+  source: AiUsageCostSource;
+  attempts: number;
+  /** Sum of the rows of this source that stated a figure; `null` when none did. Never 0 as a stand-in. */
+  costAmount: number | null;
+}
+
+/**
+ * Money kept apart per currency.
+ *
+ * Ledger rows carry the currency of the price snapshot that cost them. Adding a CNY row to a USD
+ * one would produce a number in no currency at all, and there is no exchange rate in this database
+ * to convert with - so the totals are per currency and the page shows them that way.
+ */
+export interface AiUsageLedgerCurrencyTotal {
+  /** The currency on the priced rows. `''` is a row whose figure arrived without one. */
+  currency: string;
+  amount: number;
+  /** How many rows this amount covers. */
+  attempts: number;
+}
+
+/** One local-calendar day of ledger activity, for the cost trend. */
+export interface AiUsageLedgerDayPoint {
+  /**
+   * Start-of-day timestamp of that day on this machine's calendar - the same rule
+   * `usageRangeStart` uses, so a day bucket and a window cannot mean different things.
+   */
+  dayStart: number;
+  attempts: number;
+  totalTokens: number;
+  /** Only the rows that could state a figure. */
+  costAmount: number;
+  /** Rows that could not, so a day is never read as a cheap day when it was an unknown one. */
+  unpricedAttempts: number;
+}
+
+export interface AiUsageLedgerSummary {
+  from: number;
+  to: number;
+  totals: AiUsageLedgerTotals;
+  byPurpose: AiUsageLedgerGroup[];
+  byModel: AiUsageLedgerGroup[];
+  /** Attempts per `cost_source`, in the vocabulary's own order (CI-P7-02). */
+  byCostSource: AiUsageLedgerCostSourceCount[];
+  /** Amounts per currency. Never one number across currencies (CI-P7-02). */
+  costByCurrency: AiUsageLedgerCurrencyTotal[];
+  /** Per local day, oldest first (CI-P7-02). */
+  byDay: AiUsageLedgerDayPoint[];
+}
+
+/**
+ * What the AI 成本与质量优化中心's first page reads (CI-P7-02).
+ *
+ * One request carries both readings of the same window on purpose: the ledger's per-attempt money
+ * view and the older `usage_records` view of what was actually delivered. They answer different
+ * questions ("what did we send" vs "what did we get"), and the page compares them - so fetching them
+ * through separate calls would only invite the two halves to describe different windows.
+ */
+export interface AiCostCenterPayload {
+  range: number;
+  ledger: AiUsageLedgerSummary;
+  /** The 用量统计 figures, kept as helper indicators instead of being dropped (CI-P7-02). */
+  usage: UsageSummary;
+  catalog: {
+    meteredKinds: AiUsageMeteredKind[];
+    /** The dimensions that already have a price in force - a call in any other kind is `unpriced`. */
+    pricedKinds: AiUsageMeteredKind[];
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 调用明细与追溯 (CI-P7-02-04 / CI-P7-02-05)
+//
+// One attempt is one row. Retries are rows of their own - never merged into the winner - and the
+// reason a retry happened is read from the *predecessor row* (`parentUsageId`), never inferred from
+// `attemptIndex`: a rotated key, a demoted model and a self-correction all have an index above 0.
+// ---------------------------------------------------------------------------
+
+/**
+ * How one request relates to the request before it in the same call.
+ *
+ * `unresolved-predecessor` is the honest fourth answer: the row says it followed another one, but
+ * that other row is not in the scanned window, so which kind of retry it was cannot be stated.
+ */
+export const aiUsageCallRetryKinds = [
+  "first-request",
+  "self-correction",
+  "after-failed-request",
+  "unresolved-predecessor",
+] as const;
+
+export type AiUsageCallRetryKind = (typeof aiUsageCallRetryKinds)[number];
+
+/** The predecessor row, as read - not as guessed from an index. */
+export interface AiUsageCallPredecessor {
+  id: string;
+  attemptIndex: number;
+  outcome: AiUsageOutcome;
+  providerId: string;
+  modelId: string;
+  endpointId: string;
+  credentialLabel: string;
+}
+
+/** Which recorded identity fields differ between a retry and the request it followed. */
+export const aiUsageCallRetryChanges = ["provider", "model", "endpoint", "credential"] as const;
+
+export type AiUsageCallRetryChange = (typeof aiUsageCallRetryChanges)[number];
+
+export interface AiUsageCallRetry {
+  kind: AiUsageCallRetryKind;
+  /** The predecessor's id as it is recorded on this row, empty on a call's first request. */
+  parentUsageId: string;
+  /** The predecessor itself, `null` when it is outside the scanned window. */
+  parent: AiUsageCallPredecessor | null;
+  /** True when a predecessor was recorded but could not be read - never reported as "no retry". */
+  parentOutsideScan: boolean;
+  /** Facts read off the two rows; the *reason* for a retry is not recorded anywhere. */
+  changed: AiUsageCallRetryChange[];
+}
+
+/** One call - every request it sent, including the ones that failed - as a single money statement. */
+export interface AiUsageCallGroupInfo {
+  /** The id of the call's first request. */
+  rootId: string;
+  /** How many requests this call sent (within the rows the answer covers). */
+  attempts: number;
+  failedRequests: number;
+  /** This row's position in the call, lowest first. */
+  index: number;
+  /** Only the requests that stated a figure; unpriced / unmeasured ones are counted below. */
+  costByCurrency: AiUsageLedgerCurrencyTotal[];
+  unpricedAttempts: number;
+  unmeasuredAttempts: number;
+  costIsComplete: boolean;
+}
+
+/** A content item a ledger row points at, resolved. `found: false` means the pointed-at id is gone. */
+export interface AiUsageCallContentTrace {
+  id: string;
+  title: string;
+  status: string;
+  found: boolean;
+}
+
+/** The business task a call belonged to, resolved through the task library (P7-02-05). */
+export interface AiUsageCallTaskTrace {
+  id: string;
+  /** `playbook` / `agent` / `schedule` - the task library's own kinds. */
+  kind: string;
+  type: string;
+  status: string;
+  /** The literal the source row holds, kept so a mapping never hides what was stored. */
+  rawStatus: string;
+}
+
+/** Which recorded field the task identity came from, so an empty one stays visible. */
+export const aiUsageCallTaskRefs = ["taskId", "runId"] as const;
+
+export type AiUsageCallTaskRef = (typeof aiUsageCallTaskRefs)[number];
+
+/**
+ * 内容 → 业务任务 → 执行节点 → 模型调用 (CI-P7-02-05).
+ *
+ * Every field is copied from the row or resolved from a real record; nothing is filled in. An id
+ * that no record holds is reported as missing rather than as a plausible-looking label.
+ */
+export interface AiUsageCallTrace {
+  contentItemId: string;
+  /** `null` when the row names no content item. */
+  content: AiUsageCallContentTrace | null;
+  taskId: string;
+  runId: string;
+  nodeId: string;
+  outputAssetId: string;
+  /** Which field the task was found through - `null` when neither names a task. */
+  taskRef: AiUsageCallTaskRef | null;
+  task: AiUsageCallTaskTrace | null;
+}
+
+/** One request, in full: the ledger row itself plus what can be read out of it and its neighbours. */
+export interface AiUsageCallView {
+  entry: AiUsageLedgerEntry;
+  /** Modality units (`quantityJson`), parsed; `{}` when the row recorded none. */
+  quantity: Record<string, unknown>;
+  retry: AiUsageCallRetry;
+  group: AiUsageCallGroupInfo;
+  trace: AiUsageCallTrace;
+}
+
+/** The filters the 调用明细 view applies; every empty value means "no filter". */
+export interface AiCostCenterCallFilters {
+  purpose: string;
+  outcome: AiUsageOutcome | "";
+  costSource: AiUsageCostSource | "";
+  /** `providerId::modelId`, the same key the overview groups by. */
+  model: string;
+  /** Only the requests that were not their call's first. */
+  retryOnly: boolean;
+  contentItemId: string;
+  taskId: string;
+}
+
+/** 单篇内容成本 (CI-P7-02-05): what one content item's calls added up to. */
+export interface AiUsageCallContentCost {
+  /** `''` collects the rows that named no content item - shown as unclassified, never dropped. */
+  contentItemId: string;
+  content: AiUsageCallContentTrace | null;
+  attempts: number;
+  totalTokens: number;
+  costByCurrency: AiUsageLedgerCurrencyTotal[];
+  unpricedAttempts: number;
+  unmeasuredAttempts: number;
+  costIsComplete: boolean;
+  /** The business tasks and execution nodes this content's calls came from, both sorted. */
+  taskIds: string[];
+  nodeIds: string[];
+}
+
+/** What the 调用明细 tab reads (CI-P7-02-04 / 05). */
+export interface AiCostCenterCallsPayload {
+  range: number;
+  from: number;
+  to: number;
+  filters: AiCostCenterCallFilters;
+  scan: {
+    /** Rows read out of the window. */
+    rows: number;
+    /** The read's ceiling, so a page can tell a full scan from a truncated one. */
+    limit: number;
+    /** True when the read hit its ceiling and older rows in the window were not looked at. */
+    truncated: boolean;
+    /** True when some identity could not be resolved because the lookup budget was spent. */
+    traceCapped: boolean;
+  };
+  /** How many attempts the filters matched (not how many are on this page). */
+  matched: number;
+  /** The matched set added up, so the page never quotes the window's total as the filter's. */
+  totals: AiUsageLedgerTotals;
+  /** The matched set's money per currency - a CNY figure is never added to a USD one. */
+  matchedCostByCurrency: AiUsageLedgerCurrencyTotal[];
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+  calls: AiUsageCallView[];
+  /** Per-content cost, computed over the window's rows so it does not move with the table's filters. */
+  byContent: AiUsageCallContentCost[];
+  /** The filter choices the window's data actually offers, so a filter is never offered empty. */
+  options: {
+    purposes: string[];
+    outcomes: AiUsageOutcome[];
+    costSources: AiUsageCostSource[];
+    models: Array<{ key: string; label: string }>;
+  };
+}
+
+
 export type AgentChatRole = "user" | "assistant" | "system" | "tool";
 /** Only the local runtime remains; chat messages are always produced locally. */
 export type AgentChatMode = "local";
@@ -299,6 +1154,13 @@ export interface LocalAgentSettings {
   geminiImageModel: string;
   openAIImageModel: string;
   openAIImageSize: string;
+  /**
+   * Base URL of the OpenAI-compatible *image* service, independent of the text one
+   * (CI-AI-IMG-CONFIG-02, decision Q1/Q4). Empty means "not configured": the image path never
+   * inherits `openAIBaseUrl`, so a text-only endpoint such as DeepSeek cannot silently receive
+   * image requests.
+   */
+  openAIImageBaseUrl: string;
   agentPermissions: AgentPermissions;
 }
 
@@ -421,6 +1283,52 @@ export interface AutomationContext {
 
 export type ProductStatus = "active" | "archived";
 
+/** `active` topics are the ones being worked on; `archived` ones keep their history (P2-01-01). */
+export type TopicStatus = "active" | "archived";
+
+export interface TopicRecord {
+  id: string;
+  title: string;
+  description: string;
+  keywords: string[];
+  /** Where the idea came from: `manual`, a hot-topic platform name, or anything the user typed. */
+  source: string;
+  sourceUrl: string;
+  status: TopicStatus;
+  /**
+   * The article generated from this topic (`null` until one is). The wizard's entry writes it
+   * (P2-01-05), so the topic list can hand the article back to the editor.
+   */
+  contentItemId: string | null;
+  /**
+   * The research material this topic was distilled from (CI-P3-03); `""` when the idea is the user's own.
+   *
+   * It is provenance, not material: a topic created from a 选题建议 records where the idea came from, and
+   * the article generated from the topic carries its own `metadata.topicId`. Nothing reads this column to
+   * inject text into a prompt - a suggestion is not a source fact.
+   */
+  researchMaterialId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * One brand profile (品牌资料, CI-P2-02). The writing wizard selects one and the generation entry
+ * injects it; `updatedAt` doubles as the version an article records (`metadata.brandVersion`), which
+ * is how an edit made *after* a generation stays visible on the article.
+ */
+export interface BrandRecord {
+  id: string;
+  name: string;
+  description: string;
+  targetAudience: string;
+  tone: string;
+  keywords: string[];
+  bannedWords: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ProductRecord {
   id: string;
   name: string;
@@ -472,6 +1380,66 @@ export interface KnowledgeBaseRecord {
   fileName: string;
   /** Empty string means the entry is available to every positioning. */
   positionId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Where a research material's text came from (CI-P3-01; `audio`/`video` added by CI-P3-02). */
+export const researchMaterialKinds = ["text", "url", "file", "audio", "video"] as const;
+
+export type ResearchMaterialKind = (typeof researchMaterialKinds)[number];
+
+/**
+ * What has really happened to a research material's source (CI-P3-01).
+ *
+ * The four states are the card's own list, and none of them may be inferred from an empty `content`:
+ * `draft` is a source nobody has read yet, `ready` a page (or file) that was read, `empty` a read that
+ * found no usable text, `failed` a read that did not succeed. A record that says `failed` never carries
+ * text pretending to be that page's 正文.
+ */
+export const researchMaterialStatuses = ["draft", "ready", "empty", "failed"] as const;
+
+export type ResearchMaterialStatus = (typeof researchMaterialStatuses)[number];
+/**
+ * One research material (研究素材, CI-P3-01): a text note, a web page, or an imported file, kept so a
+ * generation can read its text.
+ *
+ * The source and its text are two fields on purpose. `sourceUrl` is where the material came from and
+ * `content` is what was actually read (or typed); a record whose page could not be read has a url, no
+ * text, and the status that says so.
+ */
+export interface ResearchMaterialRecord {
+  id: string;
+  title: string;
+  kind: ResearchMaterialKind;
+  content: string;
+  sourceUrl: string;
+  status: ResearchMaterialStatus;
+  /** Why the last read ended the way it did (`HTTP 404`, `读取成功但没有正文`, ...); empty when there is nothing to explain. */
+  statusMessage: string;
+  /** The source page's `og:image` found while reading; empty when none was found. */
+  imageUrl: string;
+  /** The imported file's name, for `kind: "file"`. */
+  fileName: string;
+  tags: string[];
+  /** When the source was last read successfully; `null` until one was. */
+  fetchedAt: number | null;
+  /**
+   * What a transcription run recorded about this material (CI-P3-02), or `null` when this material did
+   * not come from one. It is deliberately structured rather than a string: the console reads the
+   * engine's segments out of it to show a timestamped transcript beside the editable text.
+   */
+  transcript: TranscriptMetadata | null;
+  /**
+   * The current 研究提炼 of this material (CI-P3-03), or `null` when nobody has distilled it yet.
+   *
+   * It is deliberately structured rather than a string: the console reads the summary, the points, the
+   * facts with their original excerpts and the model's topic suggestions out of it, and it decides
+   * "已核实" from the material's own text rather than from anything stored here.
+   */
+  extraction: ResearchExtractionRecord | null;
+  /** The versions this extraction replaced, newest first; empty when this is the only one. */
+  extractionHistory: ResearchExtractionRecord[];
   createdAt: number;
   updatedAt: number;
 }
@@ -719,4 +1687,195 @@ export interface AppStoreListing {
   agents: AppStoreAgent[];
   categoryCounts: Record<AppStoreCategory, number>;
   total: number;
+}
+
+/**
+ * A budget hold as it is stored and read back (CI-P7-03-A).
+ *
+ * `amount` is a **ceiling** - the highest figure the estimate could reach - and never what the call
+ * spent; the money is the ledger row's `costAmount`, and the two are compared in the reconciliation
+ * rather than merged here. `settledAt` is `null` while the hold is live, which is the real answer
+ * rather than a 0.
+ */
+export interface AiBudgetReservation {
+  id: string;
+  periodKey: string;
+  periodStart: number;
+  periodEnd: number;
+  currency: string;
+  amount: number;
+  policy: string;
+  estimateKind: string;
+  estimateMethod: string;
+  purpose: string;
+  meteredKind: AiUsageMeteredKind;
+  providerId: string;
+  modelId: string;
+  routeResolved: boolean;
+  /** Which run and step the hold belongs to; empty when the caller declared none. */
+  runId: string;
+  nodeId: string;
+  taskId: string;
+  contentItemId: string;
+  /** The process instance that took the hold. A fact about who, never a claim about liveness. */
+  owner: string;
+  status: AiBudgetReservationStatus;
+  /** `released` when the call reported back, `expired` when its TTL passed, `''` while held. */
+  settleKind: string;
+  createdAt: number;
+  expiresAt: number;
+  settledAt: number | null;
+  updatedAt: number;
+}
+
+/** `held` is live and counts against the period; the other two do not. */
+export type AiBudgetReservationStatus = "held" | "settled" | "expired";
+
+/** Which gate spoke: one model request, or a playbook step before its request exists. */
+export type AiBudgetDecisionGate = "call" | "node";
+
+/** The three verdicts a decision can carry. `off` means the user turned the budget off entirely. */
+export type AiBudgetDecisionStatus = "off" | "allowed" | "blocked";
+
+/**
+ * One stored decision - what the gate saw and what it said, refusals included.
+ *
+ * It stores only what a decision is made of: reason codes, amounts and counts. No prompt, no
+ * response and no credential is part of a decision, and the nullable amounts are the honest "nobody
+ * stated one" (`null`), never a 0 that would read as a figure.
+ */
+export interface AiBudgetDecisionRecord {
+  id: string;
+  /** The gate's own clock rather than the insert time: it belongs to the instant it decided about. */
+  at: number;
+  gate: AiBudgetDecisionGate;
+  status: AiBudgetDecisionStatus;
+  reasons: string[];
+  policy: string;
+  unknownCostPolicy: string;
+  enforcement: string;
+  periodKey: string;
+  currency: string;
+  limitAmount: number | null;
+  spentAmount: number;
+  spentIsComplete: boolean;
+  spentTruncated: boolean;
+  reservedAmount: number;
+  remainingAmount: number | null;
+  projectedMin: number | null;
+  projectedMax: number | null;
+  certainty: string;
+  estimateKind: string;
+  estimateMethod: string;
+  estimateNotes: string[];
+  estimateAmountMin: number | null;
+  estimateAmountMax: number | null;
+  purpose: string;
+  runId: string;
+  nodeId: string;
+  taskId: string;
+  contentItemId: string;
+  providerId: string;
+  modelId: string;
+  routeResolved: boolean;
+  /** The hold this verdict took; empty when it took none, which is why nothing was held. */
+  reservationId: string;
+  reservationAmount: number | null;
+  reservationCurrency: string;
+  createdAt: number;
+}
+
+/**
+ * What the holds and the ledger say about each other, per hold (CI-P7-03-A).
+ *
+ * This vocabulary exists so "the budget record and the AI ledger agree" is a statement a reader can
+ * check, and so the ways they *disagree* have names instead of being averaged away:
+ */
+export type AiBudgetReconciliationVerdict =
+  /** The hold is still live: its call has not reported back yet. */
+  | "held"
+  /** The TTL passed and no ledger row links to it: nothing was ever sent, so nothing was spent. */
+  | "expired-unspent"
+  /** The TTL passed but ledger rows do link to it: the call did happen and its process died. */
+  | "expired-with-ledger"
+  /** Released, but no ledger row links to it. The reconciler cannot tell "nothing was sent" from
+   * "the ledger write failed" - which is why this is its own verdict rather than a 0. */
+  | "no-ledger"
+  /** Linked rows exist and at least one of them states no figure: the sum is a floor. */
+  | "ledger-unknown"
+  /** Linked rows were billed in another currency than the hold's: nothing was subtracted. */
+  | "currency-mismatch"
+  /** The linked rows state less than the hold: the hold was a real ceiling. */
+  | "under-reserved"
+  /** The linked rows state **more** than the hold: the estimate was short. */
+  | "over-reserved"
+  /** The linked rows state exactly the hold. */
+  | "matched";
+
+/** The ledger's side of one hold, as a join rather than a guess. */
+export interface AiBudgetReconciliationLedger {
+  /** How many ledger rows name this hold. */
+  rows: number;
+  /** Their stated money, in the hold's currency; `null` when not one of them stated a figure. */
+  statedAmount: number | null;
+  /** Rows that state no figure because the catalog has no price for them. */
+  unpricedRows: number;
+  /** Rows that state no figure because nothing arrived to charge for (`unknown`). */
+  unmeasuredRows: number;
+  otherCurrencyRows: number;
+  otherCurrencies: string[];
+}
+
+export interface AiBudgetReconciliationRow {
+  reservationId: string;
+  purpose: string;
+  runId: string;
+  nodeId: string;
+  taskId: string;
+  contentItemId: string;
+  meteredKind: AiUsageMeteredKind;
+  providerId: string;
+  modelId: string;
+  periodKey: string;
+  currency: string;
+  /** The stored status. */
+  status: AiBudgetReservationStatus;
+  /**
+   * True when the hold has expired - either its row says `expired` (a sweep marked it) or its TTL has
+   * passed and nothing has marked it yet. Every reader treats the second as expired from that instant,
+   * so the stored status may lag while this flag cannot.
+   */
+  expired: boolean;
+  reservedAmount: number;
+  createdAt: number;
+  expiresAt: number;
+  settledAt: number | null;
+  settleKind: string;
+  ledger: AiBudgetReconciliationLedger;
+  verdict: AiBudgetReconciliationVerdict;
+}
+
+export interface AiBudgetReconciliationTotals {
+  reservations: number;
+  /** Holds that are live right now (not expired), by their ceiling. */
+  heldAmount: number;
+  /** Ceilings of the holds whose calls reported back. */
+  settledAmount: number;
+  /** Ceilings of the holds whose TTL passed. */
+  expiredAmount: number;
+  /** What the linked ledger rows state, in the holds' own currencies added per currency. */
+  ledgerStatedByCurrency: Record<string, number>;
+  /** How many holds ended in each verdict. Every verdict appears, including the zeroes. */
+  verdicts: Record<AiBudgetReconciliationVerdict, number>;
+}
+
+/** One reconciliation read: the rows, and the sums over them. */
+export interface AiBudgetReconciliation {
+  /** The window that was read, `null` when the caller stated none (then it is "everything kept"). */
+  from: number | null;
+  to: number | null;
+  rows: AiBudgetReconciliationRow[];
+  totals: AiBudgetReconciliationTotals;
+  /** True when the row ceiling cut the answer short, so the totals are a floor. */
+  truncated: boolean;
 }

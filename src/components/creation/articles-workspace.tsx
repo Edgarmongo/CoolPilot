@@ -9,10 +9,14 @@ import { ConsolePagination } from "@/components/ui/console-pagination";
 import { consoleInputClass } from "@/components/ui/console-surface";
 import { Dialog } from "@/components/ui/dialog";
 import { apiDelete, apiGet, apiPost, swrFetcher } from "@/lib/api-client";
+import { resolveArtifactImageSrc } from "@/lib/artifact-image-url";
+import { contentImageList } from "@/lib/content-images";
 import { useI18n } from "@/lib/i18n";
 import { articleEditorPath, readArticleEditorTarget } from "@/lib/editor-link";
 import { localizedPath } from "@/lib/i18n-config";
 import { knowledgeCharacterCount } from "@/lib/knowledge-base";
+import { contentSourceKey } from "@/lib/content-source";
+import { readResearchMaterialExtractionTarget, readResearchMaterialWritingTarget } from "@/lib/research";
 import type { TranslationKey } from "@/lib/locale-resources";
 import type { ContentItem, ContentPage } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -38,27 +42,10 @@ const statusClass: Record<Exclude<StatusFilter, "all">, string> = {
   failed: "bg-rose-100 text-rose-700",
 };
 
-/** Where an article came from, derived from the item metadata. */
-function articleSourceKey(item: ContentItem): TranslationKey {
-  const metadata = item.metadata ?? {};
-  if (metadata.aiWriting) return "arSourceWizard";
-  const generation = String(metadata.generationType ?? "");
-  if (generation.startsWith("url")) return "arSourceUrl";
-  if (generation === "topic") return "arSourceAi";
-  return "arSourceManual";
-}
-
 function articleImages(item: ContentItem): string[] {
-  const value = item.metadata?.images;
-  if (Array.isArray(value)) return value.filter((entry): entry is string => typeof entry === "string");
-  return item.imagePath ? [item.imagePath] : [];
-}
-
-function imageUrl(path: string) {
-  if (!path) return "";
-  if (/^https?:\/\//i.test(path)) return path;
-  const fileName = path.split(/[\\/]/).pop() ?? "";
-  return fileName ? `/api/agent/artifacts?file=${encodeURIComponent(fileName)}` : "";
+  // C4: one reader for the ordered image list (cover first), shared with the editor and the publish
+  // adapter, instead of this file keeping its own copy of the `metadata.images` fallback rule.
+  return contentImageList(item);
 }
 
 function formatDateTime(timestamp: number) {
@@ -106,20 +93,54 @@ export function ArticlesWorkspace() {
       return;
     }
     if (openedTargetRef.current === editorTarget) return;
-    openedTargetRef.current = editorTarget;
     let live = true;
     void (async () => {
       try {
         const item = await apiGet<ContentItem>(`/api/content/${encodeURIComponent(editorTarget)}`);
-        if (live) setEditingItem(item);
+        if (!live) return;
+        // The id is remembered when the attempt *settles*, never when it starts: a run that is
+        // cancelled while its request is in flight (React repeats one setup/cleanup cycle per
+        // client-side mount in development, and `t` is a dependency) must stay able to open the
+        // item, and marking the entry as consumed up front would strand the deep link on the list.
+        // Same shape as the `?topicId=` entry of the AI writing wizard (`ai-writing-workspace.tsx`).
+        openedTargetRef.current = editorTarget;
+        setEditingItem(item);
       } catch {
-        if (live) setNotice(t("arEditorOpenFailed"));
+        if (!live) return;
+        openedTargetRef.current = editorTarget;
+        setNotice(t("arEditorOpenFailed"));
       }
     })();
     return () => {
       live = false;
     };
   }, [editorTarget, t]);
+
+  /**
+   * The hand-off from a research material (CI-P3-01): `?researchMaterialId=<id>` opens this workspace's
+   * generation dialog on that material, so a library row is one click away from an article. Like the editor
+   * entry above, it is consumed once and dropped from the URL - a reload lands on the list rather than
+   * reopening a run the user did not start again. The id is only a *selection*: `POST /api/content/generate`
+   * reads the stored row when the run happens, so no copy of the text passes through this component.
+   */
+  const researchTarget = readResearchMaterialWritingTarget(searchParams);
+  const researchExtractionTarget = readResearchMaterialExtractionTarget(searchParams);
+  const [aiResearchMaterialId, setAiResearchMaterialId] = useState("");
+  const consumedResearchRef = useRef("");
+
+  useEffect(() => {
+    if (!researchTarget) {
+      consumedResearchRef.current = "";
+      return;
+    }
+    if (consumedResearchRef.current === researchTarget) return;
+    consumedResearchRef.current = researchTarget;
+    window.queueMicrotask(() => {
+      setAiResearchMaterialId(researchTarget);
+      setAiOpen(true);
+    });
+    window.history.replaceState(null, "", localizedPath(locale, articleEditorPath));
+  }, [researchTarget, locale]);
 
   async function openCreate() {
     setCreating(true);
@@ -273,7 +294,7 @@ export function ArticlesWorkspace() {
                         {images[0] ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={imageUrl(images[0])}
+                            src={resolveArtifactImageSrc(images[0])}
                             alt=""
                             className="size-9 shrink-0 rounded-xl border border-sky-100 object-cover"
                           />
@@ -287,7 +308,7 @@ export function ArticlesWorkspace() {
                         </span>
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-zinc-500">{t(articleSourceKey(item))}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-zinc-500">{t(contentSourceKey(item.metadata))}</td>
                     <td className="whitespace-nowrap px-3 py-3 text-zinc-500">
                       {knowledgeCharacterCount(item.body)}
                       {t("kbCharUnit")}
@@ -341,6 +362,8 @@ export function ArticlesWorkspace() {
 
       <ArticleAiDialog
         open={aiOpen}
+        initialResearchMaterialId={aiResearchMaterialId}
+        initialIncludeExtraction={researchExtractionTarget}
         onClose={() => setAiOpen(false)}
         onGenerated={(item) => {
           setNotice(t("arGenerated", { title: item.title }));

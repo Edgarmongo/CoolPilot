@@ -1,8 +1,10 @@
 import path from "node:path";
 import { z } from "zod";
 import { createContentItem, updateContentItemImage } from "@/db/repository";
-import { aiRuntime } from "@/features/ai-runtime";
+import { aiRuntime, type StructuredChatResponse } from "@/features/ai-runtime";
 import { imagePromptSchema } from "@/lib/ai/schemas";
+import { beginAiBudgetCall } from "@/lib/ai-budget-guard";
+import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { artifactsRoot } from "@/lib/paths";
 import { generateTopicPost } from "@/lib/scraper";
 import { runSiteBrowserTool } from "@/lib/browser-preview";
@@ -189,23 +191,51 @@ export function createDefaultToolRegistry() {
       outputSchema: z.object({ prompt: z.string(), provider: z.string(), model: z.string() }),
       requiresApproval: (_input, context) => needsApproval(context.settings.agentPermissions.generateImage),
       async execute(input, context) {
-        const response = await aiRuntime.chatStructured({
-          messages: [
-            {
-              role: "user",
-              content: [
-                "Create one concise image generation prompt for a social media post.",
-                "If post context is provided, the image must illustrate that post context and must not invent an unrelated scene.",
-                "The prompt field must mention composition, subject, style, lighting, and aspect ratio.",
-                `Topic: ${input.topic}`,
-                input.postContext ? `Post context: ${input.postContext}` : "",
-                input.style ? `Style: ${input.style}` : "",
-              ].filter(Boolean).join("\n"),
-            },
-          ],
-          schema: imagePromptSchema,
-          systemPrompt: context.systemPrompt,
+        // CI-P7-01-04. The agent run that called the tool is the identity; the tool name is the
+        // step. The ledger row is written here, before the registry turns a throw into a failed
+        // tool call.
+        const usageCall: AiUsageCallContext = {
+          purpose: "agent-tool",
+          runId: context.agentRunId,
+          nodeId: "generate_image_prompt",
+        };
+        let response: StructuredChatResponse<typeof imagePromptSchema>;
+        const promptText = [
+          "Create one concise image generation prompt for a social media post.",
+          "If post context is provided, the image must illustrate that post context and must not invent an unrelated scene.",
+          "The prompt field must mention composition, subject, style, lighting, and aspect ratio.",
+          `Topic: ${input.topic}`,
+          input.postContext ? `Post context: ${input.postContext}` : "",
+          input.style ? `Style: ${input.style}` : "",
+        ].filter(Boolean).join("\n");
+
+        // CI-P7-03. An agent's tool call is a model call like any other, so it asks the budget first -
+        // and it asks it inside the tool, where the request is built, rather than once per agent run.
+        // The gate measures the same text the request will carry. A refusal is thrown from here, before
+        // the try below, so it writes no ledger row (nothing was sent) and the engine stops the run on
+        // it instead of recording a failed tool call the next step would carry on from.
+        const budget = await beginAiBudgetCall({
+          identity: usageCall,
+          purpose: usageCall.purpose,
+          capabilities: ["chat"],
+          inputText: promptText,
         });
+        // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what
+        // was spent are compared by an id instead of correlated by purpose and time.
+        usageCall.budgetReservationId = budget.reservationId ?? undefined;
+        try {
+          response = await aiRuntime.chatStructured({
+            messages: [{ role: "user", content: promptText }],
+            schema: imagePromptSchema,
+            systemPrompt: context.systemPrompt,
+          });
+        } catch (error) {
+          await recordAiUsageFailure(usageCall, error);
+          throw error;
+        } finally {
+          await budget.release();
+        }
+        await recordAiUsageCall({ ...usageCall, attempts: response.attempts });
         return { prompt: response.data.prompt.trim(), provider: response.providerId, model: response.model };
       },
     })
@@ -221,7 +251,13 @@ export function createDefaultToolRegistry() {
       outputSchema: z.object({ path: z.string(), provider: z.string(), model: z.string() }),
       requiresApproval: (_input, context) => needsApproval(context.settings.agentPermissions.generateImage),
       async execute(input) {
-        const generated = await callImageGenerationEndpoint(input);
+        // C4: the content context the tool was given travels with the request, so the ledger row this
+        // generation writes is attributable to that item; the association below is the item's own copy.
+        const generated = await callImageGenerationEndpoint({
+          prompt: input.prompt,
+          provider: input.provider,
+          contentItemId: input.contentItemId,
+        });
         if (input.contentItemId) {
           await updateContentItemImage({
             itemId: input.contentItemId,

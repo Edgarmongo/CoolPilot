@@ -10,6 +10,10 @@ const contentTypes: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".png": "image/png",
   ".webp": "image/webp",
+  // F1 of `docs/p1-card-01-defect-f1-f3-plan.md`: `.gif` is in both the library's extension set and
+  // the upload whitelist, so a stored GIF is an input the app hands to this route - without the
+  // mapping it was refused as if it were not an image at all.
+  ".gif": "image/gif",
 };
 
 export async function GET(request: Request) {

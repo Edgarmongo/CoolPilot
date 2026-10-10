@@ -207,6 +207,8 @@ export async function POST(request: Request) {
       messages: messagesAfterUser,
       locale,
       jobDone: local.status !== "queued" && local.status !== "running" && local.status !== "paused",
+      // CI-P7-01-04: the title's own model call is attributed to the run that produced it.
+      runId: local.run.id,
     });
     return ok({
       mode: "local",

@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import useSWR from "swr";
 import { CheckCircle2, PenLine, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { apiPost } from "@/lib/api-client";
+import { apiPost, swrFetcher } from "@/lib/api-client";
+import { resolveArtifactImageSrc } from "@/lib/artifact-image-url";
 import { articleEditorHref } from "@/lib/editor-link";
 import {
   audienceLabelKeys,
@@ -17,6 +19,7 @@ import {
 } from "@/lib/ai-writing";
 import { useI18n } from "@/lib/i18n";
 import { localizedPath, type Locale } from "@/lib/i18n-config";
+import type { BrandRecord } from "@/lib/types";
 import type { HotTopicItem } from "./ai-writing-step-material";
 
 export type AiWritingResult = {
@@ -26,18 +29,12 @@ export type AiWritingResult = {
   model?: string;
 };
 
-function imageUrl(path: string) {
-  if (!path) return "";
-  if (/^https?:\/\//i.test(path)) return path;
-  const fileName = path.split(/[\\/]/).pop() ?? "";
-  return fileName ? `/api/agent/artifacts?file=${encodeURIComponent(fileName)}` : "";
-}
-
 export function AiWritingStepOutput({
   config,
   topics,
   productIds,
   freeText,
+  topicId,
   locale,
   onGenerated,
 }: {
@@ -45,6 +42,8 @@ export function AiWritingStepOutput({
   topics: HotTopicItem[];
   productIds: string[];
   freeText: string;
+  /** The topic this run was opened from, when it was (CI-P2-01); recorded as provenance. */
+  topicId?: string;
   locale: Locale;
   onGenerated?: () => void;
 }) {
@@ -52,6 +51,9 @@ export function AiWritingStepOutput({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<AiWritingResult | null>(null);
+  /** The selected brand's name, so the summary the user reviews before generating names it (CI-P2-02). */
+  const { data: brands = [] } = useSWR<BrandRecord[]>("/api/brands", swrFetcher);
+  const selectedBrand = brands.find((brand) => brand.id === config.brandId) ?? null;
 
   async function generate() {
     setLoading(true);
@@ -62,6 +64,9 @@ export function AiWritingStepOutput({
         topics: topics.map((topic) => ({ title: topic.title, source: topic.source, url: topic.url })),
         productIds,
         freeText,
+        // Provenance only: the topic's text already travelled as `freeText`, and this is what lets the
+        // stored article and the topic list point at each other afterwards (CI-P2-01).
+        topicId: topicId ?? "",
       });
       setResult(data);
       onGenerated?.();
@@ -83,6 +88,9 @@ export function AiWritingStepOutput({
   if (config.industry !== "general") chips.push(t(industryDomainLabelKeys[config.industry]));
   if (config.targetPlatform) chips.push(config.targetPlatform);
   if (config.coreKeywords) chips.push(`#${config.coreKeywords}`);
+  // The brand is a generation input, not decoration: it is shown in the summary that precedes the
+  // "generate" button, next to everything else the run will send (P2-02-03).
+  if (selectedBrand) chips.push(selectedBrand.name);
 
   return (
     <div className="space-y-5">
@@ -168,7 +176,7 @@ export function AiWritingStepOutput({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   key={image}
-                  src={imageUrl(image)}
+                  src={resolveArtifactImageSrc(image)}
                   alt=""
                   className="aspect-square w-full rounded-xl border border-sky-100 object-cover"
                 />

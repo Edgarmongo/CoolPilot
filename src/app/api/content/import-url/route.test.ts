@@ -32,12 +32,15 @@ const {
   prepareChatModel,
   qwenCatalog,
   resetRuntime,
+  routeTestDataDir,
   stubFetch,
   unavailable,
 } = await import("@/test/route-harness");
 const { POST } = await import("./route");
 const { listContentItems, listUsageRecords } = await import("@/db/repository");
 const { countTextCharacters } = await import("@/lib/usage");
+const fs = await import("node:fs/promises");
+const path = await import("node:path");
 
 const importUrl = "http://localhost/api/content/import-url";
 const sourceUrl = "https://example.com/posts/desk";
@@ -60,6 +63,19 @@ const htmlResponse = (html: string, status = 200) =>
 const pageTitle = "桌面收纳指南";
 const pageMarker = "先清空桌面，再按手感分区。";
 const pageImage = "https://cdn.example.test/cover.png";
+const coverBytes = "page-cover-bytes";
+
+/**
+ * The page's `og:image`, as the downloader C4 runs reads it: an accepted content type and the bytes. The
+ * harness' `jsonResponse()` answers `json()`, and the downloader needs `arrayBuffer()`.
+ */
+const imageResponse = (bytes: string, status = 200) =>
+  ({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers({ "content-type": "image/png" }),
+    arrayBuffer: async () => Uint8Array.from(Buffer.from(bytes)).buffer as ArrayBuffer,
+  }) as unknown as Response;
 const pageHtml = [
   "<html><head>",
   `<meta property="og:title" content="${pageTitle}" />`,
@@ -80,6 +96,8 @@ const draftBody = "清空桌面、按手感分区、常用的放手边。";
  */
 const successfulRoutes = () => [
   { match: (target: string) => target.startsWith("https://example.com"), respond: () => htmlResponse(pageHtml) },
+  // C4: the page's cover is downloaded into the workspace, so a successful import makes this call too.
+  { match: (target: string) => target === pageImage, respond: () => imageResponse(coverBytes) },
   { match: (target: string) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
   {
     match: (target: string) => target.includes("/chat/completions"),
@@ -115,9 +133,24 @@ describe("POST /api/content/import-url on aiRuntime", () => {
       title: draftTitle,
       status: "ready",
       sourceUrls: [sourceUrl],
-      // The page's own image is kept as the draft's image, which is what the article editor renders.
-      imagePath: pageImage,
     });
+    // C4: the page's own image is brought into the workspace, so the draft's cover is a local file the
+    // publish path can ship - and the address it came from is recorded beside it, not thrown away.
+    const cover = payload.data.item.imagePath as string;
+    expect(cover).toMatch(/^online-\d+-[A-Za-z0-9_-]{8}\.png$/);
+    expect(payload.data.item.metadata.images).toEqual([cover]);
+    expect(payload.data.item.metadata.imageAssets).toEqual([
+      expect.objectContaining({
+        reference: cover,
+        fileName: cover,
+        source: "remote",
+        external: false,
+        remoteUrl: pageImage,
+      }),
+    ]);
+    expect(payload.data.item.metadata).not.toHaveProperty("imageLocalizationFailures");
+    // The download really happened: the bytes are on disk under the reference the item stored.
+    expect(await fs.readFile(path.join(routeTestDataDir, "artifacts", cover), "utf-8")).toBe(coverBytes);
     expect(payload.data.item.body).toContain(draftBody);
     expect(payload.data.item.postReadyText).toContain(draftTitle);
     expect(payload.data.item.postReadyText).toContain(draftBody);
@@ -162,11 +195,36 @@ describe("POST /api/content/import-url on aiRuntime", () => {
       model: "none",
       generationType: "url_import",
     });
-    // No model was prepared and none was asked for: the page is the only request this case makes.
+    // The cover is localized on this path too - it is the same item, whatever produced the body.
+    expect(payload.data.item.imagePath).toMatch(/^online-/);
+    // No model was prepared and none was asked for: the page and its cover are the only two requests.
     expect(chatCalls(calls)).toHaveLength(0);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     const usage = (await listUsageRecords({ limit: 10 })).find((row) => row.contentItemId === payload.data.item.id);
     expect(usage).toBeUndefined();
+  });
+
+  it("keeps the cover address and names the failure when the image cannot be downloaded", async () => {
+    // The page answers, the cover 404s: `stubFetch` answers an unplanned call with a loud 404, so the
+    // download fails exactly the way an unreachable host does in the app.
+    const calls = stubFetch([
+      { match: (target: string) => target.startsWith("https://example.com"), respond: () => htmlResponse(pageHtml) },
+    ]);
+
+    const response = await post({ url: sourceUrl, rewrite: false });
+    const payload = await response.json();
+
+    // The import still succeeds: a page whose image is unreachable is not a page that failed to import.
+    expect(response.status).toBe(201);
+    expect(payload.data.item.imagePath).toBe(pageImage);
+    expect(payload.data.item.metadata.images).toEqual([pageImage]);
+    // What must not happen is a silent claim: the reference is marked as having no local copy, and the
+    // address is named as a failure instead of being presented as a cover that came in.
+    expect(payload.data.item.metadata.imageAssets).toEqual([
+      expect.objectContaining({ fileName: "", source: "remote", external: true, remoteUrl: pageImage }),
+    ]);
+    expect(payload.data.item.metadata.imageLocalizationFailures).toEqual([pageImage]);
+    expect(calls.filter((call) => call.url === pageImage)).toHaveLength(1);
   });
 
   it("answers 500 UNKNOWN_ERROR when the page cannot be read, instead of escaping with no envelope", async () => {

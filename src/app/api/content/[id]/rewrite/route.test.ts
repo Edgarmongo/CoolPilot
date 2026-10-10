@@ -43,6 +43,7 @@ vi.mock("@/lib/ai/compat", () => {
  * (`src/test/route-harness.ts`), so it has to be the first `await` here.
  */
 const {
+  allowEveryAiBudgetCall,
   authorizationsOf,
   bodyOf,
   chatCalls,
@@ -51,6 +52,7 @@ const {
   jsonResponse,
   prepareChatModel,
   qwenCatalog,
+  refuseEveryAiBudgetCall,
   resetRuntime,
   runtime,
   runtimeRepository,
@@ -202,6 +204,9 @@ beforeAll(async () => {
 describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
   beforeEach(async () => {
     vi.unstubAllGlobals();
+    // The shipped budget row is `off`; a case that wants a refusal states the refusal itself, and this
+    // puts the row back so the other cases here keep calling the model.
+    await allowEveryAiBudgetCall();
     await resetRuntime();
   });
 
@@ -540,6 +545,29 @@ describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
     expect(payload.code).toBe("UNKNOWN_ERROR");
     expect(payload.message).toBe("EMPTY_RESULT");
     expect(chatCalls(calls)).toHaveLength(1);
+    expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
+    expect(await getContentItem(fixture.target.id)).toEqual(before);
+  });
+
+  it("answers the gate's own 402 AI_BUDGET_EXCEEDED instead of calling the model at all", async () => {
+    await refuseEveryAiBudgetCall();
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: draftReply },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const before = await getContentItem(fixture.target.id);
+    const usageBefore = (await listUsageRecords({ limit: 500 })).length;
+
+    const response = await rewrite(fixture.target.id, rewritePayload());
+    const payload = await response.json();
+
+    // The refusal is the gate's, not the provider's: `failFromError` passes its own code and its 402
+    // through unchanged, nothing was sent, nothing was recorded, and the article is untouched.
+    expect(response.status).toBe(402);
+    expect(payload.code).toBe("AI_BUDGET_EXCEEDED");
+    expect(payload.message).toContain("refused this call before it was sent");
+    expect(chatCalls(calls)).toHaveLength(0);
     expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
     expect(await getContentItem(fixture.target.id)).toEqual(before);
   });

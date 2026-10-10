@@ -18,6 +18,10 @@ import path from "node:path";
  * the draft, not in the client's next request. And it is consumable exactly once: `takePublishReceipt`
  * is the only reader, and reading is taking, which is the idempotency the verify route relies on (D1).
  *
+ * Since C2-1a the route has a second half to its answer: not only the page it landed on, but what
+ * that page *took* (`drafted` and its per-field `evidence`). Both reach the client and both land on
+ * the receipt, so "a draft was prepared" is the prefill's observation rather than the route's 200.
+ *
  * `preparePublishDraft` itself is mocked - driving a real platform editor is Playwright's business,
  * not this contract's - so the cases stay about the receipt.
  */
@@ -25,8 +29,18 @@ const dataDir = mkdtempSync(path.join(tmpdir(), "coolpilot-publish-draft-"));
 process.env.SOCIAL_AUTO_POST_DB_URL = `file:${path.join(dataDir, "publish.db").replace(/\\/g, "/")}`;
 process.env.SOCIAL_AUTO_POST_DATA_DIR = dataDir;
 
+/** The mocked prefill's answer, mutable per case: the route has to pass on what it is given. */
+const prepare = vi.hoisted(() => ({
+  result: {
+    url: "https://www.threads.net/post/edit/threads-1",
+    drafted: true,
+    evidence: { title: "filled", text: "filled", media: "not_offered" },
+    loginRequired: false,
+  },
+}));
+
 vi.mock("@/lib/publish", () => ({
-  preparePublishDraft: async () => ({ url: "https://www.threads.net/post/edit/threads-1" }),
+  preparePublishDraft: async () => prepare.result,
 }));
 
 const { POST } = await import("./route");
@@ -53,6 +67,10 @@ async function mustCreateAccount() {
 
 afterEach(() => {
   closeFakeSessions();
+  // Back to the default answer, so one case's refused prefill cannot decide the next one's receipt.
+  prepare.result.drafted = true;
+  prepare.result.evidence = { title: "filled", text: "filled", media: "not_offered" };
+  prepare.result.loginRequired = false;
 });
 
 describe("POST /api/publish/draft", () => {
@@ -73,7 +91,15 @@ describe("POST /api/publish/draft", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
-      data: { accountId: account.id, url: "https://www.threads.net/post/edit/threads-1" },
+      data: {
+        accountId: account.id,
+        url: "https://www.threads.net/post/edit/threads-1",
+        // C2-1a: the panel decides between "ready to edit" and "the page took nothing" from this, so
+        // the observation the prefill made has to reach it - and the receipt below keeps the same
+        // answer, so what was prepared does not depend on the client having read it.
+        drafted: true,
+        evidence: { title: "filled", text: "filled", media: "not_offered" },
+      },
     });
     expect(takePublishReceipt(account.id)).toMatchObject({
       contentItemId: "item-1",
@@ -81,7 +107,68 @@ describe("POST /api/publish/draft", () => {
       contentType: "article",
       method: "manual",
       terminal: "local",
+      // Where the draft landed, so a verify can tell "the author is still on the draft page" from
+      // "the session moved on" without guessing from the URL's shape (C2 fix A).
+      editorUrl: "https://www.threads.net/post/edit/threads-1",
+      drafted: true,
+      evidence: { title: "filled", text: "filled", media: "not_offered" },
       draftedAt: expect.any(Number),
+    });
+  });
+
+  it("passes on a draft the platform page refused, so the panel does not call it an editor", async () => {
+    const account = await mustCreateAccount();
+    openFakeSession(account.id, { url: "https://www.threads.net/" });
+    // 小红书's creator home, as the smoke measured it: the run answers with the page it reached and
+    // says the page took none of the content.
+    prepare.result = {
+      url: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=video",
+      drafted: false,
+      evidence: { title: "empty", text: "empty", media: "not_offered" },
+      loginRequired: false,
+    };
+
+    const response = await draft({
+      accountIds: [account.id],
+      title: "桌面收纳指南",
+      text: "桌面收纳指南 的正文。",
+      contentType: "article",
+      contentItemId: "item-4",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: { drafted: false, evidence: { title: "empty", text: "empty" } },
+    });
+    // The receipt records the refusal too. The draft still happened on the platform - the author may
+    // well finish it by hand - so the receipt is not withheld; what it carries is what the run saw.
+    expect(takePublishReceipt(account.id)).toMatchObject({
+      contentItemId: "item-4",
+      drafted: false,
+      evidence: { title: "empty", text: "empty", media: "not_offered" },
+    });
+  });
+
+  it("passes on a login wall rather than reporting a prepared draft", async () => {
+    const account = await mustCreateAccount();
+    openFakeSession(account.id, { url: "https://www.threads.net/" });
+    // The other way a run ends without a draft: the platform wanted a sign-in, so nothing was offered
+    // and nothing is claimed - the panel has to send the author to Account Management, not to a login
+    // page it calls an editor.
+    prepare.result = {
+      url: "https://www.threads.net/login",
+      drafted: false,
+      evidence: { title: "not_offered", text: "not_offered", media: "not_offered" },
+      loginRequired: true,
+    };
+
+    const response = await draft({ accountIds: [account.id], title: "桌面收纳指南", contentItemId: "item-5" });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: { drafted: false, loginRequired: true },
     });
   });
 

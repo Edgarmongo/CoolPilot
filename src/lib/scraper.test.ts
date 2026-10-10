@@ -139,9 +139,32 @@ async function prepareModel(providerId: string, modelId: string, secret: string)
   return target;
 }
 
+/**
+ * The two budget states a call site's refusal case needs (CI-P7-03), stated here the way this file
+ * states its other fixtures: `src/test/route-harness.ts` keeps the shared copy, and this file - like
+ * `src/lib/ai/generate.test.ts` - owns its own database, transport and credential pool instead.
+ *
+ * `refuseEveryAiBudgetCall()` is a refusal no catalog can accidentally satisfy: the limit is 0 and
+ * `unknownCostPolicy: "block"` also refuses a call whose cost cannot be stated, so the refusal is the
+ * user's settings speaking rather than a missing price row.
+ */
+async function refuseEveryAiBudgetCall() {
+  const { updateAiBudgetSettings } = await import("@/db/repositories/settings");
+  await updateAiBudgetSettings({ policy: "block", monthlyLimit: 0, currency: "CNY", unknownCostPolicy: "block" });
+}
+
+/** The shipped default, for the cases that keep calling models after a refusal case has run. */
+async function allowEveryAiBudgetCall() {
+  const { updateAiBudgetSettings } = await import("@/db/repositories/settings");
+  await updateAiBudgetSettings({ policy: "off", monthlyLimit: null, currency: "CNY", unknownCostPolicy: "allow" });
+}
+
 describe("scraper generators on aiRuntime", () => {
   beforeEach(async () => {
     vi.unstubAllGlobals();
+    // The shipped budget row is `off`; a case that wants a refusal states the refusal itself, and this
+    // puts the row back so the other cases here keep calling the model.
+    await allowEveryAiBudgetCall();
     await resetRuntime();
   });
 
@@ -281,6 +304,45 @@ describe("scraper generators on aiRuntime", () => {
     // Not flattened into `AI rewrite failed: ...`: the code is what `api/content/import-url` and
     // `worker/runner.ts` are meant to read.
     expect((error as Error).message).not.toContain("AI rewrite failed");
+    expect(chatCalls(calls)).toEqual([]);
+  });
+
+  it("refuses the rewrite before it is sent, with the gate's own error rather than the legacy wording", async () => {
+    await refuseEveryAiBudgetCall();
+    const calls = stubFetch([
+      { match: (url) => url.includes("dashscope") && url.endsWith("/models"), respond: qwenCatalog },
+      { match: (url) => url.includes("/chat/completions"), respond: () => draftReply({ title: "Never", body: "Never sent" }) },
+    ]);
+    const row = await prepareModel("qwen", "qwen3-max", "sk-stub-qwen");
+    await registry.setModelDefaultForCapability("chat", row?.id ?? "");
+
+    // The gate stands outside the `try`, so the refusal is neither flattened into the legacy
+    // `AI rewrite failed: …` wrapper (that wording means "the provider failed") nor written to the
+    // ledger - nothing left this process.
+    const error: unknown = await rewriteArticle({ title: "Article title", text: "Article body" }).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(AppError);
+    expect(error).toMatchObject({ code: "AI_BUDGET_EXCEEDED", status: 402 });
+    expect((error as Error).message).not.toContain("AI rewrite failed");
+    expect(chatCalls(calls)).toEqual([]);
+  });
+
+  it("refuses the topic draft before it is sent, on the very same budget", async () => {
+    await refuseEveryAiBudgetCall();
+    const calls = stubFetch([
+      { match: (url) => url.includes("dashscope") && url.endsWith("/models"), respond: qwenCatalog },
+      { match: (url) => url.includes("/chat/completions"), respond: () => draftReply({ title: "Never", body: "Never sent" }) },
+    ]);
+    const row = await prepareModel("qwen", "qwen3-max", "sk-stub-qwen");
+    await registry.setModelDefaultForCapability("chat", row?.id ?? "");
+
+    // This entry has no error contract of its own - it rethrows - so what the caller branches on is the
+    // gate's own code and status, and the wire stays empty.
+    await expect(
+      generateTopicPost({ topic: "Cold start", language: "Traditional Chinese", systemPrompt: "Write for Threads." }),
+    ).rejects.toMatchObject({ code: "AI_BUDGET_EXCEEDED", status: 402 });
     expect(chatCalls(calls)).toEqual([]);
   });
 });

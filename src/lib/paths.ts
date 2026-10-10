@@ -12,7 +12,8 @@ import { resolveAppDataDir } from "@/lib/runtime-config";
  *
  * **Initializing** a path creates it, and only a writer that needs a directory to exist asks for
  * one: `ensureDataRoot()`, `ensureBrowserProfilesRoot()`, `ensureArtifactsRoot()`,
- * `ensureVideosRoot()`, `ensureProductImagesRoot()`, `ensureBrandLogosRoot()`. Pairing the two at
+ * `ensureVideosRoot()`, `ensureMediaRoot()`, `ensureProductImagesRoot()`, `ensureBrandLogosRoot()`.
+ * Pairing the two at
  * the write rather than inside the accessor is also what keeps a `GET` from leaving an empty
  * section behind in a workspace that has none.
  *
@@ -94,6 +95,22 @@ export function videosRoot() {
 
 export function ensureVideosRoot() {
   return initialize(videosRoot());
+}
+
+/**
+ * The section for audio and video a user imported as transcription input (CI-P3-02).
+ *
+ * It is a section of its own rather than a corner of `videos/` for one reason the product cares about:
+ * `videos/` is the library of *publishable* videos, and a talk imported to be transcribed is not a
+ * candidate for publishing until someone decides it is - so mixing the two would make every
+ * transcription import appear in the publishing composer's picker.
+ */
+export function mediaRoot() {
+  return path.join(dataRoot(), "media");
+}
+
+export function ensureMediaRoot() {
+  return initialize(mediaRoot());
 }
 
 /** The product photos a user uploaded, inside the uploads section. */

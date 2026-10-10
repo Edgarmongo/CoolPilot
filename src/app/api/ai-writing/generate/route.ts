@@ -1,4 +1,5 @@
 import { listProducts } from "@/db/repositories/products";
+import { linkTopicContentItem } from "@/db/repositories/topics";
 import { generateArticle } from "@/lib/article-generation";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
 import type { AiWritingMaterial } from "@/lib/ai-writing";
@@ -18,7 +19,9 @@ export const dynamic = "force-dynamic";
  * What only this entry knows: `topics`/`productIds`/`freeText` are its own payload shape, the selected
  * products are read here because they are both material and image source (F-C3-5), this console's title
  * fallback is `topic -> freeText -> "未命名文章"`, and the source urls are the same topic urls the stored
- * article records and the image resolver may read.
+ * article records and the image resolver may read. `topicId` (CI-P2-01) is provenance of the same kind:
+ * the text already travelled as `freeText`, and this id is what lets the stored article and the topic
+ * point at each other afterwards.
  *
  * The model call goes through `generateArticle` into `aiRuntime` (batch P3-A3 of
  * `docs/generate-migration-p3.md`): provider order, model choice, key rotation, failover and
@@ -29,7 +32,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const parsed = await parseJson(request, aiWritingGenerateSchema);
   if (parsed.error) return fail("INVALID_PAYLOAD", 400, parsed.error);
-  const { config, topics, productIds, freeText } = parsed.data;
+  const { config, topics, productIds, freeText, topicId } = parsed.data;
 
   const allProducts = await listProducts();
   const selectedProducts = productIds.length ? allProducts.filter((product) => productIds.includes(product.id)) : [];
@@ -53,6 +56,7 @@ export async function POST(request: Request) {
   try {
     const result = await generateArticle({
       positioningId: config.positioningId,
+      brandId: config.brandId,
       config,
       material,
       titleFallback: topics[0]?.title || freeText.slice(0, 20) || "未命名文章",
@@ -63,8 +67,20 @@ export async function POST(request: Request) {
       provenance: {
         type: "article",
         aiWriting: { ...config, topics: topics.map((topic) => topic.title), productIds },
+        ...(topicId ? { topicId } : {}),
       },
     });
+
+    // The topic keeps a link back (P2-01-05). Neither a topic that has since been deleted nor a link
+    // write that fails may turn a stored article into an error: the article is the primary effect and
+    // is already committed, so this is reported and the response still carries the generation.
+    if (topicId && result.item) {
+      try {
+        await linkTopicContentItem(topicId, result.item.id);
+      } catch (error) {
+        console.warn(`[ai-writing] Could not link topic ${topicId} to content ${result.item.id}.`, error);
+      }
+    }
 
     return ok(result, { status: 201 });
   } catch (error) {

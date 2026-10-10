@@ -1,10 +1,36 @@
 import { createContentItem, createUsageRecord } from "@/db/repository";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
+import { storedImagePatch, contentImageFailuresKey } from "@/lib/content-image-assets";
+import { fetchRemoteImageToArtifacts } from "@/lib/remote-image";
 import { fetchArticleText, rewriteArticle } from "@/lib/scraper";
 import { importUrlSchema } from "@/lib/validation";
 import { countTextCharacters } from "@/lib/usage";
 
 export const runtime = "nodejs";
+
+/**
+ * The imported page's own image, brought into the workspace (C4).
+ *
+ * `fetchArticleText()` reports the page's `og:image` as the remote address it is, and before C4 the item
+ * stored that address as its cover - a reference the publish path then dropped silently
+ * (`docs/e2e-core-loop-verification.md` §8.1). C4's direction (`docs/creator-workflow-audit.md` §6.3) is
+ * that an external image enters the workspace at creation time, so it is downloaded into `artifacts/` and
+ * the item keeps the `online-*` file name, with the address it came from recorded beside it.
+ *
+ * A download that fails does not fail the import: the item keeps the address as its stored reference,
+ * its provenance marks that reference `external`, and the address is named in
+ * `metadata.imageLocalizationFailures` - so a cover the publish path cannot ship is visible on the item
+ * itself instead of appearing only when a publish comes back empty.
+ */
+async function localizeCover(remoteUrl: string) {
+  if (!remoteUrl) return { imagePath: "", remoteUrl: "", localized: false, failure: "" };
+  try {
+    const fileName = await fetchRemoteImageToArtifacts({ url: remoteUrl });
+    return { imagePath: fileName, remoteUrl, localized: true, failure: "" };
+  } catch {
+    return { imagePath: remoteUrl, remoteUrl, localized: false, failure: remoteUrl };
+  }
+}
 
 /**
  * Imports one URL as a content item, optionally rewriting it into a post draft.
@@ -41,18 +67,30 @@ export async function POST(request: Request) {
           usage: undefined,
         };
 
+    const cover = await localizeCover(article.imageUrl || "");
+    // The item's own keys, in the order it has always written them; C4 adds the cover's identity and
+    // origin only when the page really has an image, so an image-less import stores exactly what it did.
+    const metadata: Record<string, unknown> = {
+      provider: content.provider,
+      model: content.model,
+      sourceTitle: article.title,
+      generationType: parsed.data.rewrite ? "url_rewrite" : "url_import",
+    };
+    if (cover.imagePath) {
+      Object.assign(
+        metadata,
+        storedImagePatch([cover.imagePath], cover.localized ? { [cover.imagePath]: { remoteUrl: cover.remoteUrl } } : {}),
+      );
+    }
+    if (cover.failure) metadata[contentImageFailuresKey] = [cover.failure];
+
     const item = await createContentItem({
       title: content.title,
       body: content.body,
       postReadyText: content.postReadyText,
       sourceUrls: [parsed.data.url],
-      imagePath: article.imageUrl,
-      metadata: {
-        provider: content.provider,
-        model: content.model,
-        sourceTitle: article.title,
-        generationType: parsed.data.rewrite ? "url_rewrite" : "url_import",
-      },
+      imagePath: cover.imagePath,
+      metadata,
       status: "ready",
     });
     if (parsed.data.rewrite) {

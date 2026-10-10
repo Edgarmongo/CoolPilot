@@ -54,6 +54,7 @@ function emptyWorkspace(): WorkspaceManifest {
     artifacts: { fileCount: 0, totalBytes: 0, linked: 0, unlinked: 0 },
     browserProfiles: { total: 0, linked: 0, unlinked: 0, unlinkedProfiles: [] },
     videos: { exists: false, fileCount: 0, totalBytes: 0 },
+    media: { exists: false, fileCount: 0, totalBytes: 0 },
     uploads: {
       exists: false,
       fileCount: 0,
@@ -75,6 +76,7 @@ function makeWorkspace(patch: ManifestPatch = {}): WorkspaceManifest {
     artifacts: { ...base.artifacts, ...patch.artifacts },
     browserProfiles: { ...base.browserProfiles, ...patch.browserProfiles },
     videos: { ...base.videos, ...patch.videos },
+    media: base.media,
     uploads: base.uploads,
     unaccounted: { ...base.unaccounted, ...patch.unaccounted },
   };

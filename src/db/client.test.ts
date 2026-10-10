@@ -341,3 +341,237 @@ describe("legacy sites table migration", () => {
     expect(await rowsLeftInSites(second.sqlite)).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CI-P7-01-05: the price catalog's key gained a billing dimension
+// ---------------------------------------------------------------------------
+
+/** The table CI-P7-01 shipped: no `metered_kind`, no per-unit price, no free declaration. */
+const LEGACY_PRICE_DDL = `CREATE TABLE ai_model_prices (
+  id TEXT PRIMARY KEY,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL DEFAULT '*',
+  currency TEXT NOT NULL DEFAULT 'CNY',
+  input_per_million REAL NOT NULL DEFAULT 0,
+  output_per_million REAL NOT NULL DEFAULT 0,
+  cached_input_per_million REAL,
+  price_version TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'manual',
+  effective_from INTEGER NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+)`;
+
+const LEGACY_PRICE_INDEX = "idx_ai_model_prices_scope_effective";
+
+type LegacyPriceRow = {
+  id: string;
+  providerId: string;
+  modelId: string;
+  inputPerMillion: number;
+  outputPerMillion: number;
+  priceVersion: string;
+  effectiveFrom: number;
+};
+
+/**
+ * Writes a price catalog the way an older build left it, before this build is ever imported.
+ *
+ * `legacyIndex: false` writes the shape two rows of the same provider, model and instant fit into -
+ * which is not something this build can produce, and is exactly why the migration checks before it
+ * rebuilds anything.
+ */
+async function seedLegacyPriceCatalog(
+  fileName: string,
+  rows: LegacyPriceRow[],
+  { legacyIndex = true }: { legacyIndex?: boolean } = {},
+) {
+  const connection = createClient({ url: fileUrl(fileName) });
+  try {
+    await connection.execute(LEGACY_PRICE_DDL);
+    if (legacyIndex) {
+      await connection.execute(
+        `CREATE UNIQUE INDEX ${LEGACY_PRICE_INDEX} ON ai_model_prices(provider_id, model_id, effective_from)`,
+      );
+    }
+    for (const row of rows) {
+      await connection.execute({
+        sql: `INSERT INTO ai_model_prices
+                (id, provider_id, model_id, currency, input_per_million, output_per_million, price_version, effective_from, created_at)
+              VALUES (?, ?, ?, 'CNY', ?, ?, ?, ?, ?)`,
+        args: [
+          row.id,
+          row.providerId,
+          row.modelId,
+          row.inputPerMillion,
+          row.outputPerMillion,
+          row.priceVersion,
+          row.effectiveFrom,
+          row.effectiveFrom,
+        ],
+      });
+    }
+  } finally {
+    connection.close();
+  }
+}
+
+async function columnNames(connection: Client, table: string) {
+  const result = await connection.execute({ sql: `SELECT name FROM pragma_table_info(?)`, args: [table] });
+  return result.rows.map((row) => String(row.name));
+}
+
+async function indexNames(connection: Client, table: string) {
+  const result = await connection.execute({ sql: `SELECT name FROM pragma_index_list(?)`, args: [table] });
+  return result.rows.map((row) => String(row.name));
+}
+
+async function indexColumns(connection: Client, index: string) {
+  const result = await connection.execute({
+    sql: `SELECT name FROM pragma_index_info(?) ORDER BY seqno`,
+    args: [index],
+  });
+  return result.rows.map((row) => String(row.name)).sort();
+}
+
+/**
+ * The migration is the part of a price catalog a working form cannot demonstrate: a workspace
+ * written by the previous build has no `metered_kind` column, and a key that cannot tell a text
+ * price from an image price. What matters is not which statements run but what the workspace can do
+ * afterwards - read every price it had, hold one price per dimension at one instant, refuse a
+ * genuine duplicate - and what it says when it cannot get there.
+ */
+describe("price catalog migration", () => {
+  const legacyDeepseek: LegacyPriceRow = {
+    id: "legacy-1",
+    providerId: "deepseek",
+    modelId: "deepseek-chat",
+    inputPerMillion: 2,
+    outputPerMillion: 8,
+    priceVersion: "2026-01",
+    effectiveFrom: 1_700_000_000_000,
+  };
+
+  it("reads a catalog written before the dimension existed and gives it the key this build wants", async () => {
+    await seedLegacyPriceCatalog("price-legacy.db", [legacyDeepseek]);
+
+    const { sqlite, ensureDatabase, AI_MODEL_PRICE_INDEX } = await openDatabase("price-legacy.db");
+    await ensureDatabase();
+
+    // Every row written before the column existed means `text`, and a workspace must not lose it.
+    const repository = await import("@/db/repositories/ai-usage-ledger");
+    const rows = await repository.listAiModelPrices();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      meteredKind: "text",
+      inputPerMillion: 2,
+      outputPerMillion: 8,
+      priceVersion: "2026-01",
+      unitLabel: "",
+      declaredFree: false,
+    });
+
+    const columns = await columnNames(sqlite, "ai_model_prices");
+    expect(columns).toEqual(
+      expect.arrayContaining(["metered_kind", "unit_price", "unit_label", "declared_free"]),
+    );
+
+    // The key now covers the dimension, and the key it replaced is gone rather than left behind.
+    expect(await indexColumns(sqlite, AI_MODEL_PRICE_INDEX)).toEqual([
+      "effective_from",
+      "metered_kind",
+      "model_id",
+      "provider_id",
+    ]);
+    expect(await indexNames(sqlite, "ai_model_prices")).not.toContain(LEGACY_PRICE_INDEX);
+  });
+
+  it("holds one price per dimension from one instant once migrated, and still refuses a duplicate", async () => {
+    const { effectiveFrom } = legacyDeepseek;
+    await seedLegacyPriceCatalog("price-dimensions.db", [legacyDeepseek]);
+
+    const { ensureDatabase } = await openDatabase("price-dimensions.db");
+    await ensureDatabase();
+    const repository = await import("@/db/repositories/ai-usage-ledger");
+
+    // The row the legacy build wrote is the text price at that instant; an image price for the very
+    // same provider, model and instant is a different row, not a collision.
+    await repository.createAiModelPrice({
+      providerId: "deepseek",
+      modelId: "deepseek-chat",
+      meteredKind: "image",
+      currency: "USD",
+      unitPrice: 0.04,
+      unitLabel: "image",
+      priceVersion: "2026-01",
+      effectiveFrom,
+    });
+    const text = await repository.resolveModelPrice("deepseek", "deepseek-chat", effectiveFrom + 1, "text");
+    const image = await repository.resolveModelPrice("deepseek", "deepseek-chat", effectiveFrom + 1, "image");
+    expect(text?.priceVersion).toBe("2026-01");
+    expect(image?.unitPrice).toBe(0.04);
+
+    // A second text price at that same instant is still a duplicate, and still says so in words.
+    await expect(
+      repository.createAiModelPrice({
+        providerId: "deepseek",
+        modelId: "deepseek-chat",
+        inputPerMillion: 3,
+        outputPerMillion: 9,
+        priceVersion: "2026-01b",
+        effectiveFrom,
+      }),
+    ).rejects.toMatchObject({ code: "AI_PRICE_CONFLICT", status: 409 });
+  });
+
+  it("refuses to rebuild over rows it cannot tell apart, names them, and drops nothing", async () => {
+    const effectiveFrom = 1_700_000_000_000;
+    // Two rows a key that includes the dimension cannot tell apart. This build cannot write them,
+    // so a table like this was written by something else - and the migration's job is to report
+    // that rather than to pick a winner between two competing prices.
+    await seedLegacyPriceCatalog(
+      "price-duplicates.db",
+      [
+        { id: "dupe-1", providerId: "dupe", modelId: "m", inputPerMillion: 1, outputPerMillion: 1, priceVersion: "a", effectiveFrom },
+        { id: "dupe-2", providerId: "dupe", modelId: "m", inputPerMillion: 2, outputPerMillion: 2, priceVersion: "b", effectiveFrom },
+      ],
+      { legacyIndex: false },
+    );
+
+    const { sqlite, migrateAiModelPriceCatalog, AI_MODEL_PRICE_INDEX } = await openDatabase(
+      "price-duplicates.db",
+    );
+    const report = await migrateAiModelPriceCatalog();
+
+    expect(report.indexRebuilt).toBe(false);
+    expect(report.error).toBeNull();
+    expect(report.duplicateKeys).toEqual([
+      { providerId: "dupe", modelId: "m", meteredKind: "text", effectiveFrom, rows: 2 },
+    ]);
+    // A key that cannot be created is not replaced by one that pretends the rows are unique.
+    expect(await indexNames(sqlite, "ai_model_prices")).not.toContain(AI_MODEL_PRICE_INDEX);
+
+    // Nothing was dropped on the way to that answer: both rows are still there to be looked at.
+    const repository = await import("@/db/repositories/ai-usage-ledger");
+    expect(await repository.listAiModelPrices()).toHaveLength(2);
+  });
+
+  it("changes nothing when the catalog migration runs again", async () => {
+    await seedLegacyPriceCatalog("price-repeat.db", [legacyDeepseek]);
+
+    const { sqlite, ensureDatabase, migrateAiModelPriceCatalog, AI_MODEL_PRICE_INDEX } =
+      await openDatabase("price-repeat.db");
+    await ensureDatabase();
+    const columnsAfterFirstRun = await columnNames(sqlite, "ai_model_prices");
+
+    const again = await migrateAiModelPriceCatalog();
+    expect(again).toMatchObject({ addedColumns: [], indexRebuilt: false, droppedIndexes: [], error: null });
+    expect(await columnNames(sqlite, "ai_model_prices")).toEqual(columnsAfterFirstRun);
+    expect(await indexColumns(sqlite, AI_MODEL_PRICE_INDEX)).toEqual([
+      "effective_from",
+      "metered_kind",
+      "model_id",
+      "provider_id",
+    ]);
+  });
+});

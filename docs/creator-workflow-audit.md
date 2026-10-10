@@ -339,6 +339,31 @@ verified success existed only in `publish-run-panel`'s tab state: the `publish_r
   request keeps its shape - `evidence` is additive, and the panel reads only `published` and `url`),
   `/api/publish` and its one-shot semantics, `src/lib/threads.ts`, the platform profiles, and all three
   locales.
+- **The follow-up batch, and the freeze (C2-1).** C2 landed the fact; a second batch closed the parts of it
+  that were still the client's word, recorded in `docs/assisted-publishing-engine.md` (status: shipped, §10)
+  with no schema change and no new route. Four fences: **C2-1a** the draft reports what the page took
+  *per piece* (`DraftFieldOutcome = filled / empty / not_offered`, `draftPrepared` true on any `filled` or
+  on an all-`not_offered` draft), so "prepared" stops meaning "the prefill did not throw" and a page that
+  took nothing fails the run with `publishDraftEmpty`; **C2-1b** `PublishVerification` gains
+  `outcome: waiting / published / unknown`, and the verify route writes **only** on `published` - "I cannot
+  tell" (a moved page with no statement) is now a state the database can be told about instead of a guess;
+  **C2-1c** the session keeps a bounded `framenavigated` journal with a cause tag, so `evidence` can say
+  *why* a URL was believed, and the confirmation a page showed while the journal was watching is a signal
+  like any other; **C2-1d** `src/lib/publish-run-teardown.ts` (`liveRuns` / `runTeardownNeedsConfirm`, pure
+  because the vitest environment is `node`) makes `ContentPublishDialog` ask before 关闭 abandons a live
+  run. The batch also closed this section's last open item, on the same real post: one assisted 小红书 run
+  wrote exactly one row - `chLJV5Wyo9qrUh7Af9GpQ`, content item `jGFZ4CJpqpD9WEd2f0hMD`,
+  `status = published`, `url` = 小红书's success screen, `message` = the observation that authorized it -
+  and moved that item `ready` -> `posted`. Suite at the freeze: 574 tests / 88 files, `tsc --noEmit` clean,
+  `eslint .` at 0 errors (one pre-existing `react-hooks/exhaustive-deps` warning in
+  `src/components/agent-chat/chat-conversation.tsx`, untouched by this batch).
+- **Still open after C2-1, deliberately**: the per-platform post-URL shapes (the adapter seam), and one
+  located twin left alone - `verifyPublishResult` in `browser-preview-session.ts`, which serves the
+  *automatic* `publish: true` path and still reads "the URL changed" as published; it belongs to
+  `/api/publish`'s own contract and gets the same treatment when that path is sliced. §8 item 4's negative
+  half (a run that walks away from the editor) is pinned in the harness but not yet measured live.
+- **Next**: C4's image identity (§5, C4) - the one audit finding C2-1 deliberately left standing, and the
+  subject of the batch after this one.
 ### P5-C3 - the audit that pins the two generate routes before they are merged
 
 C0's F-C0-1 ("the generate tail is implemented twice") is now measured and sliced in
@@ -347,7 +372,8 @@ output of the service they share, and Cut A (the tail - positioning → prompt �
 item → usage row) proposed as the first cut, with the two HTTP entries otherwise unchanged (their payloads,
 guards and envelopes stay, per §6.2 above). No product code changed for that audit, and both route tests
 stay unmodified as the regression net. C2's own manual Assisted Publish smoke - a real `publish_records`
-row plus `content_items.status = posted` - is still the last open item of C2.
+row plus `content_items.status = posted` - was the last open item of C2 and is closed by the C2-1 batch
+(§7, P5-C2); the published evidence lives in `docs/assisted-publishing-engine.md` §10.
 
 
 

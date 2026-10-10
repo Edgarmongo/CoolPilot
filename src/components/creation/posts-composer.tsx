@@ -5,21 +5,17 @@ import useSWR from "swr";
 import { Check, Plus, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { apiPost, swrFetcher } from "@/lib/api-client";
+import { apiPost, swrFetcher, ApiClientError, apiErrorTranslationKey } from "@/lib/api-client";
+import { resolveArtifactImageSrc } from "@/lib/artifact-image-url";
 import { useI18n } from "@/lib/i18n";
 import type { TranslationKey } from "@/lib/locale-resources";
 import type { PublishSiteResult } from "@/lib/publish";
+import { reportedPublishResults } from "@/lib/publish-groups";
+import { summarizePublishResults, type PublishRunSummary } from "@/lib/publish-results";
 import type { ContentItem, AccountRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type ImageLibraryEntry = { fileName: string; url: string };
-
-function resolveImageUrl(path: string) {
-  if (!path) return "";
-  if (/^https?:\/\//i.test(path)) return path;
-  const fileName = path.split(/[\\/]/).pop() ?? "";
-  return fileName ? `/api/agent/artifacts?file=${encodeURIComponent(fileName)}` : "";
-}
 
 const publishStatusKey: Record<PublishSiteResult["status"], TranslationKey> = {
   published: "publishResultPublished",
@@ -27,6 +23,13 @@ const publishStatusKey: Record<PublishSiteResult["status"], TranslationKey> = {
   login_required: "publishResultLoginRequired",
   unsupported: "publishResultUnsupported",
   failed: "publishResultFailed",
+};
+
+/** The run notice is not a boolean: a batch can half-succeed, and the banner has to say which. */
+const noticeToneClass: Record<"success" | "warning" | "error", string> = {
+  success: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  warning: "border-amber-200 bg-amber-50 text-amber-900",
+  error: "border-rose-200 bg-rose-50 text-rose-800",
 };
 
 /** Maximum number of characters allowed in the post body. */
@@ -46,6 +49,7 @@ export function PostsComposer() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [notice, setNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState<"success" | "warning" | "error">("success");
   const [error, setError] = useState("");
   const [results, setResults] = useState<PublishSiteResult[] | null>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
@@ -76,6 +80,32 @@ export function PostsComposer() {
     setImages((prev) => (prev.includes(fileName) ? prev.filter((entry) => entry !== fileName) : [...prev, fileName].slice(0, 9)));
   }
 
+  /**
+   * The banner names which of the three things happened. "Publish task submitted" is only true when
+   * every account delivered; the other two say what is left to do - check the records before retrying
+   * - so a batch that half succeeded can never read as a success (A2 of the card).
+   */
+  function showNotice(summary: PublishRunSummary) {
+    if (summary.outcome === "succeeded") {
+      setNotice(t("pcPublished"));
+      setNoticeTone("success");
+      return;
+    }
+    if (summary.outcome === "partial") {
+      setNotice(t("pcPublishPartial", { count: summary.delivered, failed: summary.requested - summary.delivered }));
+      setNoticeTone("warning");
+      return;
+    }
+    setNotice(t("pcPublishAllFailed", { failed: summary.requested - summary.delivered }));
+    setNoticeTone("error");
+  }
+
+  /** `error_<CODE>` when the API named a code, the raw message otherwise. */
+  function describeError(err: unknown) {
+    if (err instanceof ApiClientError && err.code) return t(apiErrorTranslationKey(err, "unknownError"));
+    return err instanceof Error ? err.message : t("unknownError");
+  }
+
   async function handlePublish() {
     if (!content.trim()) {
       setError(t("pcNeedContent"));
@@ -92,7 +122,7 @@ export function PostsComposer() {
         type: "post",
         images,
       });
-      const data = await apiPost<{ results: PublishSiteResult[] }>("/api/publish", {
+      const data = await apiPost<{ results: PublishSiteResult[]; summary?: PublishRunSummary }>("/api/publish", {
         accountIds: selectedAccountIds,
         title: item.title,
         text: content,
@@ -104,13 +134,29 @@ export function PostsComposer() {
         contentItemId: item.id,
       });
       setResults(data.results);
-      setNotice(t("pcPublished"));
-      setContent("");
-      setTitle("");
-      setImages([]);
-      setSelectedAccountIds([]);
+      // Prefer the server's verdict; a server older than this field is still handled correctly,
+      // because the same rule can be applied here to the `results` it did send.
+      const summary = data.summary ?? summarizePublishResults(data.results);
+      showNotice(summary);
+      // Nothing was submitted unless every account delivered, so 已提交发布任务 would be exactly the
+      // lie this card fixes - and the form below is deliberately left filled: retyping the post is not
+      // a fair price for a run that half succeeded or failed.
+      if (summary.outcome === "succeeded") {
+        setContent("");
+        setTitle("");
+        setImages([]);
+        setSelectedAccountIds([]);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // 5b: a batch the server could not finish still hands back what it did manage to evaluate, and
+      // dropping that would hide accounts the platform may already have taken. The panel gets the
+      // server's own results, and the banner is the verdict those results add up to.
+      const reported = reportedPublishResults(err);
+      if (reported) {
+        setResults(reported);
+        showNotice(summarizePublishResults(reported));
+      }
+      setError(describeError(err));
     } finally {
       setPublishing(false);
     }
@@ -119,9 +165,7 @@ export function PostsComposer() {
   return (
     <div className="space-y-4">
       {notice ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
-          {notice}
-        </div>
+        <div className={cn("rounded-2xl border px-4 py-2 text-sm", noticeToneClass[noticeTone])}>{notice}</div>
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -169,7 +213,7 @@ export function PostsComposer() {
                 className="size-20 overflow-hidden rounded-xl border border-sky-100"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={resolveImageUrl(fileName)} alt="" className="size-20 object-cover" />
+                <img src={resolveArtifactImageSrc(fileName)} alt="" className="size-20 object-cover" />
               </button>
             ))}
             <button

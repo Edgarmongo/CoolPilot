@@ -2,7 +2,9 @@ import { z } from "zod";
 import { createKnowledgeBase } from "@/db/repositories/knowledge-base";
 import { createUsageRecord } from "@/db/repository";
 import { aiRuntime } from "@/features/ai-runtime";
-import { fail, ok, parseJson } from "@/lib/api";
+import { fail, failFromError, ok, parseJson } from "@/lib/api";
+import { beginAiBudgetCall, type AiBudgetCallHandle } from "@/lib/ai-budget-guard";
+import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import {
   guessKnowledgeCategory,
   isKnowledgeBaseCategory,
@@ -46,6 +48,10 @@ const systemPrompt = [
  * with `source: "fallback"`, so the pasted text is never lost. `failFromError` (and with it D-P3-3's
  * code/status pass-through) does not apply here: there is no failure for the dialog to read, and the
  * payload guard the handler runs before the call is the only answer this route words itself.
+ *
+ * A budget refusal (CI-P7-03) is the one exception, and knowingly so: it is not an AI failure but the
+ * user's own instruction to stop spending, so it is answered with the gate's `AI_BUDGET_EXCEEDED` and its
+ * 402 rather than absorbed into a local parse the user would read as a successful smart import.
  */
 export async function POST(request: Request) {
   const parsed = await parseJson(request, knowledgeBaseSmartImportSchema);
@@ -53,13 +59,36 @@ export async function POST(request: Request) {
 
   const raw = parsed.data.content;
   const positionId = parsed.data.positionId;
+  // CI-P7-01-04. The ledger's identity for this call is its `purpose`: the entry the model produces
+  // is a knowledge row, which the ledger has no column for, and the paste carries no id of its own.
+  const usageCall: AiUsageCallContext = { purpose: "knowledge" };
+  const prompt = `请把以下原始内容整理成一条知识条目：\n\n${raw.slice(0, 8000)}`;
+
+  // CI-P7-03. ... (see the header: a refusal is not an AI failure, so it is answered rather than absorbed)
+  let budget: AiBudgetCallHandle;
+  try {
+    budget = await beginAiBudgetCall({
+      identity: usageCall,
+      purpose: usageCall.purpose,
+      capabilities: ["chat"],
+      inputText: prompt,
+    });
+    // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what
+    // was spent are compared by an id instead of correlated by purpose and time.
+    usageCall.budgetReservationId = budget.reservationId ?? undefined;
+  } catch (error) {
+    return failFromError(error, "UNKNOWN_ERROR", 500);
+  }
 
   try {
     const response = await aiRuntime.chatStructured({
-      messages: [{ role: "user", content: `请把以下原始内容整理成一条知识条目：\n\n${raw.slice(0, 8000)}` }],
+      messages: [{ role: "user", content: prompt }],
       systemPrompt,
       schema: aiKnowledgeSchema,
     });
+    // Recorded as soon as the answer arrives, not after the row is stored: the request was billed
+    // either way, and the catch below only writes again when a *runtime* error carried a trail.
+    await recordAiUsageCall({ ...usageCall, attempts: response.attempts });
     const data = response.data;
     const category = isKnowledgeBaseCategory(data.category) ? data.category : guessKnowledgeCategory(`${data.title}\n${data.content}`);
     const weight = isKnowledgeBaseWeight(data.weight) ? data.weight : "medium";
@@ -83,10 +112,15 @@ export async function POST(request: Request) {
       wordCount: countTextCharacters(data.content),
     });
     return ok({ item, source: "ai" as const, provider: response.providerId, model: response.model }, { status: 201 });
-  } catch {
-    // No provider configured / provider failure: fall back to a deterministic local parse.
+  } catch (error) {
+    // No provider configured / provider failure: fall back to a deterministic local parse. The
+    // ledger gets the failed requests first (an error with no trail - nothing configured - writes
+    // nothing, which is the truth rather than a gap).
+    await recordAiUsageFailure(usageCall, error);
     const draft = parseKnowledgeFromRawText(raw);
     const item = await createKnowledgeBase({ ...draft, origin: "ai", positionId });
     return ok({ item, source: "fallback" as const }, { status: 201 });
+  } finally {
+    await budget.release();
   }
 }

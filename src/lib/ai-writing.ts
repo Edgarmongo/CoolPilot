@@ -198,6 +198,12 @@ export type AiWritingConfig = {
   knowledgeMode: KnowledgeMode;
   /** Empty string = the account's default positioning. */
   positioningId: string;
+  /**
+   * The brand profile (品牌资料) this run writes as (CI-P2-02); empty string = none. It travels as an
+   * id rather than a copy of the fields, so the prompt is always built from the record that exists at
+   * generation time - the same record whose `updatedAt` the article stores as its brand version.
+   */
+  brandId: string;
 };
 
 export const defaultAiWritingConfig: AiWritingConfig = {
@@ -214,6 +220,7 @@ export const defaultAiWritingConfig: AiWritingConfig = {
   deAi: true,
   knowledgeMode: "position",
   positioningId: "",
+  brandId: "",
 };
 
 export type AiWritingMaterialTopic = { title: string; source: string; url: string };
@@ -243,6 +250,33 @@ export type AiWritingPositioning = {
   bannedWords: string[];
 };
 
+/** The six fields a brand profile (品牌资料) contributes to a prompt (P2-02-03). */
+export type AiWritingBrand = {
+  name: string;
+  description: string;
+  targetAudience: string;
+  tone: string;
+  keywords: string[];
+  bannedWords: string[];
+};
+
+/**
+ * Order-preserving de-duplication for the banned list, which has two sources (P2-02-03): a word the
+ * positioning bans and a word the brand bans are both words this article must not use, and listing
+ * either one twice only invites the model to quote it.
+ */
+function uniqueWords(values: string[]) {
+  const seen = new Set<string>();
+  const words: string[] = [];
+  for (const value of values) {
+    const word = value.trim();
+    if (!word || seen.has(word)) continue;
+    seen.add(word);
+    words.push(word);
+  }
+  return words;
+}
+
 function materialsBlock(material: AiWritingMaterial) {
   const parts: string[] = [];
   if (material.topics.length) {
@@ -268,16 +302,28 @@ function materialsBlock(material: AiWritingMaterial) {
 export function buildArticleSystemPrompt(input: {
   config: AiWritingConfig;
   positioning?: AiWritingPositioning;
+  /** The brand profile (品牌资料) this run writes as; absent means "no brand context" (CI-P2-02). */
+  brand?: AiWritingBrand;
 }): string {
+  const { config, positioning, brand } = input;
   const lines: string[] = [];
-  lines.push(input.positioning?.personaRole?.trim() || "你是一位资深自媒体写作助手，擅长创作可直接发布的社交媒体文章。");
-  if (input.positioning) {
-    if (input.positioning.toneStyle) lines.push(`语气风格：${input.positioning.toneStyle}`);
-    if (input.positioning.contentDirection) lines.push(`内容方向：${input.positioning.contentDirection}`);
-    if (input.positioning.writingGuide) lines.push(`写作准则：\n${input.positioning.writingGuide}`);
-    if (input.positioning.bannedWords.length) lines.push(`禁止出现：${input.positioning.bannedWords.join("、")}`);
+  lines.push(positioning?.personaRole?.trim() || "你是一位资深自媒体写作助手，擅长创作可直接发布的社交媒体文章。");
+  if (positioning) {
+    if (positioning.toneStyle) lines.push(`语气风格：${positioning.toneStyle}`);
+    if (positioning.contentDirection) lines.push(`内容方向：${positioning.contentDirection}`);
+    if (positioning.writingGuide) lines.push(`写作准则：\n${positioning.writingGuide}`);
   }
-  if (input.config.deAi) {
+  // The brand's identity and voice are system-level, like the positioning's: they govern how the
+  // article sounds rather than what it is about (P2-02-03).
+  if (brand) {
+    if (brand.name) lines.push(`品牌：${brand.name}`);
+    if (brand.description) lines.push(`品牌简介：${brand.description}`);
+    if (brand.targetAudience) lines.push(`品牌目标受众：${brand.targetAudience}`);
+    if (brand.tone) lines.push(`品牌语气：${brand.tone}`);
+  }
+  const bannedWords = uniqueWords([...(positioning?.bannedWords ?? []), ...(brand?.bannedWords ?? [])]);
+  if (bannedWords.length) lines.push(`禁止出现：${bannedWords.join("、")}`);
+  if (config.deAi) {
     lines.push("去 AI 味：使用自然口语化表达，句式长短交错，避免排比堆砌与机械过渡词，读起来像真人写的。");
   }
   return lines.join("\n");
@@ -289,14 +335,18 @@ export function buildArticlePrompt(input: {
   knowledge: string[];
   audienceLabel: string;
   industryLabel: string;
+  /** The selected brand profile; its audience and keywords are prompt-level material (CI-P2-02). */
+  brand?: AiWritingBrand;
 }): string {
-  const { config, materials, knowledge } = input;
+  const { config, materials, knowledge, brand } = input;
   const lines = [
     `请写一篇约 ${config.wordCount} 字的文章。`,
     `写作风格：${articleStylePrompt[config.articleStyle]}`,
     `输出语言：${outputLanguagePrompt[config.language]}。`,
     input.industryLabel ? `行业领域：${input.industryLabel}。` : "",
     `目标受众：${input.audienceLabel}。`,
+    brand?.targetAudience ? `品牌目标受众：${brand.targetAudience}。` : "",
+    brand?.keywords.length ? `品牌关键词：${brand.keywords.join("、")}，请自然融入正文，不要生硬堆砌。` : "",
     config.targetPlatform ? `发布平台：${config.targetPlatform}，请适配该平台的语气与篇幅。` : "",
     config.coreKeywords ? `标题需自然包含以下关键词：${config.coreKeywords}。` : "",
     "",

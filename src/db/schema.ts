@@ -146,6 +146,52 @@ export const products = sqliteTable("products", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/**
+ * A topic (选题) is the thing a creator writes *about*, kept before any article exists
+ * (CI-P2-01 of `docs/coolpilot-capability-integration-plan.md`).
+ *
+ * `content_item_id` is the association the card asks for (P2-01-05): the article produced from this
+ * topic, once the wizard has generated one. It is nullable because a topic is useful before it has
+ * ever been written about, and it follows `schedules.content_item_id`'s shape - one column naming the
+ * content it belongs to - rather than a second join table.
+ */
+export const topics = sqliteTable("topics", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  keywordsJson: text("keywords_json").notNull().default("[]"),
+  /** Where the idea came from: `manual`, `hot_topic`, or a platform name the user typed. */
+  source: text("source").notNull().default("manual"),
+  sourceUrl: text("source_url").notNull().default(""),
+  /** `active` | `archived` - archive instead of delete, so the history stays readable. */
+  status: text("status").notNull().default("active"),
+  contentItemId: text("content_item_id"),
+  /**
+   * The research material a *suggestion* this topic came from belongs to (CI-P3-03).
+   *
+   * Empty for every topic a user or a hot-topic source created, which is why it is a plain defaulted
+   * column: a topic that came from a distillation records where the idea came from, and the article
+   * generated from the topic keeps its own `metadata.topicId` - the two links are what make
+   * 「文章 → 选题 → 素材」 answerable without a second copy of any text.
+   */
+  researchMaterialId: text("research_material_id").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const brands = sqliteTable("brands", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  targetAudience: text("target_audience").notNull().default(""),
+  /** How the brand sounds (语气): free text, handed to the model as a voice constraint. */
+  tone: text("tone").notNull().default(""),
+  keywordsJson: text("keywords_json").notNull().default("[]"),
+  bannedWordsJson: text("banned_words_json").notNull().default("[]"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const knowledgeBase = sqliteTable("knowledge_base", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
@@ -382,4 +428,296 @@ export const positions = sqliteTable("positions", {
   dataJson: text("data_json").notNull().default("{}"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
+});
+
+/**
+ * Research materials (研究素材, CI-P3-01 of `docs/coolpilot-capability-integration-plan.md`): the third
+ * kind of input a generation reads besides a topic and a brand.
+ *
+ * `status` is the column `knowledge_base` does not have, and the reason this is a table of its own: it
+ * says what *actually happened* when someone tried to read the source, so 「尚未抓取」/「读取失败」/
+ * 「没有正文」 can be shown and stored as they are instead of being guessed from an empty `content`.
+ * `fetched_at` is null until a read succeeded, and `image_url` is whatever `og:image` the read found -
+ * a source-page image, never a downloaded file.
+ */
+export const researchMaterials = sqliteTable("research_materials", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  /** `text` / `url` / `file`. */
+  kind: text("kind").notNull().default("text"),
+  content: text("content").notNull().default(""),
+  sourceUrl: text("source_url").notNull().default(""),
+  /** `draft` (not read yet) / `ready` / `empty` / `failed`. */
+  status: text("status").notNull().default("draft"),
+  statusMessage: text("status_message").notNull().default(""),
+  imageUrl: text("image_url").notNull().default(""),
+  fileName: text("file_name").notNull().default(""),
+  tagsJson: text("tags_json").notNull().default("[]"),
+  fetchedAt: integer("fetched_at"),
+  /**
+   * What a transcription run recorded about this material (CI-P3-02): the source file, the engine and
+   * model that recognised it, the language, the duration and the engine's segments. Empty for every
+   * material that did not come from a transcription, which is what keeps this column from having to be
+   * read as "unknown" - `''` means "no transcription", and a JSON body means one happened.
+   */
+  transcriptJson: text("transcript_json").notNull().default(""),
+  /**
+   * The current 研究提炼 (CI-P3-03): the digest a distillation run produced from this material, plus
+   * which version of the material it read and which model wrote it.
+   *
+   * `''` means "no extraction on this material", which is a different statement from "the extraction is
+   * empty" - an empty result is refused by the run (`EXTRACTION_EMPTY`) instead of being stored. The
+   * column is written only by `saveResearchExtraction()`, which never touches `content`, `status` or
+   * `transcript_json`: the original text and the transcript stay exactly what they were.
+   */
+  extractionJson: text("extraction_json").notNull().default(""),
+  /**
+   * The versions this one replaced, newest first, capped by `researchExtractionHistoryLimit`.
+   *
+   * It exists so "第 2 版是从第 1 版改来的" is a fact of the record rather than a claim: regenerating
+   * pushes the current version in here instead of overwriting it out of existence, and the versions a
+   * user only *edited* never enter it (an edit is not a new generation).
+   */
+  extractionHistoryJson: text("extraction_history_json").notNull().default("[]"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/**
+ * The AI usage ledger (CI-P7-01): one row per model *attempt*, not per successful generation.
+ *
+ * `usage_records` above counts finished work. The ledger exists because the questions a cost
+ * centre has to answer cannot be answered from a table that only hears about successes:
+ * what a retry cost, which provider actually signed the call after a failover, how long it
+ * took, which business task it belonged to, and what money it adds up to.
+ *
+ * Three columns carry the honesty rules, and they are deliberately not defaults a writer can
+ * forget:
+ * - `cost_amount` is NULL whenever no figure can be claimed. It is never 0 standing in for
+ *   "unknown" - `cost_source` says which of the four states this row is in.
+ * - `completeness` records how much of the real usage was seen, so a provider that reports
+ *   nothing is stored as `unknown` rather than as zeros.
+ * - `pricing_json` is a *copy* of the price that was in force, so editing a price tomorrow
+ *   cannot restate what yesterday's call cost.
+ *
+ * The business identity columns (`task_id`, `run_id`, `node_id`, `parent_usage_id`,
+ * `output_asset_id`) are empty strings rather than NULL, matching the convention already used
+ * for `ai_model_endpoints.endpoint_id`: SQLite treats NULLs as distinct in a UNIQUE index, and
+ * an empty string lets "no task declared" be an ordinary value.
+ */
+export const aiUsageLedger = sqliteTable("ai_usage_ledger", {
+  id: text("id").primaryKey(),
+  /** `article` / `knowledge` / `profile` / `extraction` / `agent` / `chat-title` … */
+  purpose: text("purpose").notNull().default(""),
+  /** `success` / `failed` / `interrupted`. */
+  outcome: text("outcome").notNull().default("success"),
+  /** The provider that really signed the request, which is not always the one the user picked. */
+  providerId: text("provider_id").notNull().default(""),
+  modelId: text("model_id").notNull().default(""),
+  /** The endpoint the call went out through, so a failover is visible as a different endpoint. */
+  endpointId: text("endpoint_id").notNull().default(""),
+  /** Masked key label (`****1234`). The key itself never reaches this table. */
+  credentialLabel: text("credential_label").notNull().default(""),
+  /** 0 for the first attempt on a call; 1, 2… for the attempts that preceded the winner. */
+  attemptIndex: integer("attempt_index").notNull().default(0),
+  taskId: text("task_id").notNull().default(""),
+  runId: text("run_id").notNull().default(""),
+  nodeId: text("node_id").notNull().default(""),
+  /** The attempt this one retried, when it is a retry. */
+  parentUsageId: text("parent_usage_id").notNull().default(""),
+  /** The artifact or content item this call produced, when it produced one. */
+  outputAssetId: text("output_asset_id").notNull().default(""),
+  contentItemId: text("content_item_id").notNull().default(""),
+  /**
+   * The budget hold (CI-P7-03-A) this request was admitted under, empty when it was not gated.
+   *
+   * This is the *link* between the two records of one call - the hold the gate took before sending
+   * and the money the row below states afterwards - so reconciliation is a join on an id rather than
+   * a guess from (purpose, run, node, time). An empty value is a real answer: every row written
+   * before this column existed, and every call the gate did not hold anything for.
+   */
+  budgetReservationId: text("budget_reservation_id").notNull().default(""),
+  /** `text` / `image` / `video` / `speech` / `embedding` / `agent`. */
+  meteredKind: text("metered_kind").notNull().default("text"),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  totalTokens: integer("total_tokens").notNull().default(0),
+  cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+  reasoningTokens: integer("reasoning_tokens").notNull().default(0),
+  /**
+   * How much of the real usage was seen: `reported` (a usage object arrived), `partial`
+   * (interrupted), `unknown` (nothing arrived). NEVER inferred from zero tokens.
+   */
+  completeness: text("completeness").notNull().default("unknown"),
+  /** Modality-specific units for the kinds that are not token-metered. */
+  quantityJson: text("quantity_json").notNull().default("{}"),
+  /** NULL, never 0, when no cost can be claimed. */
+  costAmount: real("cost_amount"),
+  costCurrency: text("cost_currency").notNull().default(""),
+  /** `provider-reported` / `computed` / `unpriced` / `unknown`. */
+  costSource: text("cost_source").notNull().default("unknown"),
+  /** The frozen price snapshot this row was costed with; `'null'` when it was not costed. */
+  pricingJson: text("pricing_json").notNull().default("null"),
+  durationMs: integer("duration_ms").notNull().default(0),
+  errorSummary: text("error_summary").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+});
+
+/**
+ * The price catalog (CI-P7-01). `resolveModelPrice()` reads the newest row that is already
+ * effective for a provider+model, falling back to the provider's `*` row.
+ *
+ * A row is never edited to change a price: a new row with a later `effective_from` is added,
+ * which is what makes "what did this cost in March?" answerable from the ledger's own snapshots.
+ */
+export const aiModelPrices = sqliteTable("ai_model_prices", {
+  id: text("id").primaryKey(),
+  providerId: text("provider_id").notNull(),
+  /** `*` means "any model of this provider"; used when no exact row matches. */
+  modelId: text("model_id").notNull().default("*"),
+  /**
+   * Which dimension this row prices (CI-P7-01-05). Rows written before the column existed are
+   * `text`: that is the only thing the catalog could price at the time.
+   */
+  meteredKind: text("metered_kind").notNull().default("text"),
+  /** ISO 4217 code. The ledger stores the currency it was costed in, not the one shown today. */
+  currency: text("currency").notNull().default("CNY"),
+  inputPerMillion: real("input_per_million").notNull().default(0),
+  outputPerMillion: real("output_per_million").notNull().default(0),
+  /** NULL when the provider does not price cached input separately. */
+  cachedInputPerMillion: real("cached_input_per_million"),
+  /** Price per `unit_label`; NULL on the token-metered rows, which do not use it. */
+  unitPrice: real("unit_price"),
+  /** `''` on token rows, otherwise the unit `unit_price` is quoted in. */
+  unitLabel: text("unit_label").notNull().default(""),
+  /** True when this row's zeros are a deliberate "free", not an unstated price. */
+  declaredFree: integer("declared_free", { mode: "boolean" }).notNull().default(false),
+  /** The catalog revision this row belongs to; copied onto every ledger row it costs. */
+  priceVersion: text("price_version").notNull().default(""),
+  /** Where the numbers came from: `manual` / `provider-doc` / `imported`. */
+  source: text("source").notNull().default("manual"),
+  effectiveFrom: integer("effective_from").notNull(),
+  notes: text("notes").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+});
+
+/**
+ * A budget hold, persisted (CI-P7-03-A).
+ *
+ * Before this table, "the calls in flight" were a `Map` in one process: a second process (a worker
+ * beside a dev server, or the same app restarted) kept its own holds, so two of them could each pass
+ * a check against the same free budget and together overshoot. The hold now lives in the database
+ * every process reads, which is what makes the next process *see* it.
+ *
+ * The rules this table is shaped by:
+ *
+ * - **One hold, one row, one status.** `held` is live; `settled` means the call reported back;
+ *   `expired` means its TTL passed and it was reaped. A row is never deleted while it is `held`.
+ * - **A hold is a ceiling, not a cost.** It is `aiBudgetReservationAmount(estimate)` - the highest
+ *   figure the estimate could reach - and it is deliberately *not* what the call spent. What the call
+ *   spent is the ledger row's own `cost_amount`, and the two are compared by
+ *   `reconcileAiBudgetReservations` rather than conflated here.
+ * - **TTL, not a heartbeat.** `aiBudgetReservationTtlMs` after `created_at` the hold stops counting
+ *   from the instant `expires_at` passes, whether or not anything has reaped it yet. A crash therefore
+ *   over-reserves for at most that long and can never under-reserve.
+ * - **`owner` is a fact, not a liveness check.** It records which process instance took the hold.
+ *   Nothing infers that a process is dead - a restart cannot know that - so recovery is the TTL and
+ *   the shared row, never a guess.
+ */
+export const aiBudgetReservations = sqliteTable("ai_budget_reservations", {
+  id: text("id").primaryKey(),
+  /** The calendar month the hold counts against (`budgetPeriodOf`), so a reader needs no re-derivation. */
+  periodKey: text("period_key").notNull(),
+  /** The half-open window the period's ledger rows are read from, frozen onto the row. */
+  periodStart: integer("period_start").notNull(),
+  periodEnd: integer("period_end").notNull(),
+  /** The currency of `amount` and of the limit it was compared with. */
+  currency: text("currency").notNull(),
+  /** The held ceiling. Never 0 and never a stand-in for an unknown cost: those hold nothing. */
+  amount: real("amount").notNull(),
+  /** The policy in force when the hold was taken, for the audit of a refusal that came later. */
+  policy: text("policy").notNull().default(""),
+  /** `estimate` when a figure was held; kept so a reader can tell which estimate the ceiling came from. */
+  estimateKind: text("estimate_kind").notNull().default(""),
+  estimateMethod: text("estimate_method").notNull().default(""),
+  purpose: text("purpose").notNull().default(""),
+  meteredKind: text("metered_kind").notNull().default("text"),
+  providerId: text("provider_id").notNull().default(""),
+  modelId: text("model_id").notNull().default(""),
+  /** True when the provider/model came from `resolveRoute`, so a later mismatch is explainable. */
+  routeResolved: integer("route_resolved", { mode: "boolean" }).notNull().default(false),
+  /** Business identity: which run and step this hold belongs to, empty when the caller declared none. */
+  runId: text("run_id").notNull().default(""),
+  nodeId: text("node_id").notNull().default(""),
+  taskId: text("task_id").notNull().default(""),
+  contentItemId: text("content_item_id").notNull().default(""),
+  /** Which process instance took the hold. Informational; no "is it alive" claim is made anywhere. */
+  owner: text("owner").notNull().default(""),
+  /** `held` / `settled` / `expired`. */
+  status: text("status").notNull().default("held"),
+  /** Why it stopped being `held`: `released` (the call reported back) / `expired` (the TTL passed). */
+  settleKind: text("settle_kind").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  settledAt: integer("settled_at"),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/**
+ * Every budget decision the gate made (CI-P7-03-A), refusals included.
+ *
+ * A refusal used to exist only for as long as one 402 response: the arithmetic behind it was gone by
+ * the time anyone asked "why did this run stop". This table is that answer, and it is written for
+ * *both* outcomes - an `allowed` row is what makes a later refusal explainable ("the budget had room
+ * at 10:00 and none at 10:04" is a comparison of two of these rows).
+ *
+ * What it stores is only what a decision is made of: reason codes, amounts, counts and the period.
+ * No prompt, no response, no credential and no key ever reaches this table - the estimate records the
+ * *length* of an input and forgets the text.
+ *
+ * `limit_amount` and `remaining_amount` are nullable on purpose: "no ceiling stated" is a NULL, never
+ * a 0, exactly as the ledger refuses to store an unstated cost as 0.
+ */
+export const aiBudgetDecisions = sqliteTable("ai_budget_decisions", {
+  id: text("id").primaryKey(),
+  /** The gate's own clock, not the insert time: a decision belongs to the instant it decided about. */
+  at: integer("at").notNull(),
+  /** `call` (one model request) or `node` (a step of a playbook, before its request exists). */
+  gate: text("gate").notNull(),
+  /** `off` / `allowed` / `blocked`. */
+  status: text("status").notNull(),
+  reasonsJson: text("reasons_json").notNull().default("[]"),
+  policy: text("policy").notNull().default(""),
+  unknownCostPolicy: text("unknown_cost_policy").notNull().default(""),
+  enforcement: text("enforcement").notNull().default(""),
+  periodKey: text("period_key").notNull(),
+  currency: text("currency").notNull().default(""),
+  /** NULL when no ceiling is stated - the same absence the settings hold. */
+  limitAmount: real("limit_amount"),
+  spentAmount: real("spent_amount").notNull().default(0),
+  spentIsComplete: integer("spent_is_complete", { mode: "boolean" }).notNull().default(true),
+  spentTruncated: integer("spent_truncated", { mode: "boolean" }).notNull().default(false),
+  reservedAmount: real("reserved_amount").notNull().default(0),
+  remainingAmount: real("remaining_amount"),
+  projectedMin: real("projected_min"),
+  projectedMax: real("projected_max"),
+  certainty: text("certainty").notNull().default(""),
+  estimateKind: text("estimate_kind").notNull().default(""),
+  estimateMethod: text("estimate_method").notNull().default(""),
+  estimateNotesJson: text("estimate_notes_json").notNull().default("[]"),
+  estimateAmountMin: real("estimate_amount_min"),
+  estimateAmountMax: real("estimate_amount_max"),
+  purpose: text("purpose").notNull().default(""),
+  runId: text("run_id").notNull().default(""),
+  nodeId: text("node_id").notNull().default(""),
+  taskId: text("task_id").notNull().default(""),
+  contentItemId: text("content_item_id").notNull().default(""),
+  providerId: text("provider_id").notNull().default(""),
+  modelId: text("model_id").notNull().default(""),
+  routeResolved: integer("route_resolved", { mode: "boolean" }).notNull().default(false),
+  /** The hold this verdict took, empty when it took none (an unknown cost holds nothing). */
+  reservationId: text("reservation_id").notNull().default(""),
+  reservationAmount: real("reservation_amount"),
+  reservationCurrency: text("reservation_currency").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
 });

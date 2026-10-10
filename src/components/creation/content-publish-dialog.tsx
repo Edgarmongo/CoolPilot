@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { apiPost, swrFetcher } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
+import { runTeardownNeedsConfirm, type RunLifecycleStatus } from "@/lib/publish-run-teardown";
 import type { ContentItem, AccountRecord } from "@/lib/types";
 import { PublishRunPanel } from "./publish-run-panel";
 
@@ -27,6 +28,10 @@ export function ContentPublishDialog({
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [runAccounts, setRunAccounts] = useState<AccountRecord[] | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  /** The live run's tab statuses, reported by the panel: this is what a close would abandon (C2-1d). */
+  const [runStatuses, setRunStatuses] = useState<RunLifecycleStatus[]>([]);
+  /** Set when the author asked to close while a run is live - the dialog asks instead of obeying. */
+  const [confirmAbandon, setConfirmAbandon] = useState(false);
 
   useEffect(() => {
     if (!item) return;
@@ -34,6 +39,8 @@ export function ContentPublishDialog({
       setSelectedAccountIds([]);
       setRunAccounts(null);
       setFullscreen(false);
+      setRunStatuses([]);
+      setConfirmAbandon(false);
     });
   }, [item]);
 
@@ -49,28 +56,58 @@ export function ContentPublishDialog({
     if (chosen.length > 0) setRunAccounts(chosen);
   }
 
+  /** Drops the dialog's own state. Both outcomes of the question end here. */
+  function finishClose() {
+    setRunAccounts(null);
+    setFullscreen(false);
+    setRunStatuses([]);
+    setConfirmAbandon(false);
+    onClose();
+  }
+
+  /**
+   * Abandons the run: best-effort delete any draft we created, then stop the sessions.
+   *
+   * This is the only place that throws the author's draft away, and since C2-1d it is reached only
+   * after the author has asked for it (`confirmAbandon`) or when the run was already over. Closing
+   * the panel used to do this on its own, which cost anyone who closed the window meaning to come
+   * back to it later the draft, the session, and any way to name either.
+   */
+  function abandonRun() {
+    const chosen = runAccounts;
+    if (chosen) {
+      void (async () => {
+        await Promise.all(
+          chosen.map((account) => apiPost("/api/publish/discard", { accountId: account.id }).catch(() => undefined)),
+        );
+        await Promise.all(
+          chosen.map((account) =>
+            fetch(`/api/browser-profiles/${account.id}/preview`, { method: "DELETE" }).catch(() => undefined),
+          ),
+        );
+      })();
+    }
+    finishClose();
+  }
+
+  /**
+   * Closing, from the X, the overlay, ESC or the panel's 关闭 - the panel routes its close here
+   * instead of stopping sessions itself (C2-1d). With a run that is live (preparing, in the editor, or
+   * moved without a confirmation) the answer is a question; otherwise nothing is at stake and the
+   * dialog just closes.
+   */
+  function requestClose() {
+    if (runAccounts && runTeardownNeedsConfirm(runStatuses)) {
+      setConfirmAbandon(true);
+      return;
+    }
+    abandonRun();
+  }
+
   return (
     <Dialog
       open={Boolean(item)}
-      onClose={() => {
-        if (runAccounts) {
-          const accounts = runAccounts;
-          void (async () => {
-            // Abandoning: best-effort delete any draft we created, then stop sessions.
-            await Promise.all(
-              accounts.map((account) => apiPost("/api/publish/discard", { accountId: account.id }).catch(() => undefined)),
-            );
-            await Promise.all(
-              accounts.map((account) =>
-                fetch(`/api/browser-profiles/${account.id}/preview`, { method: "DELETE" }).catch(() => undefined),
-              ),
-            );
-          })();
-        }
-        setRunAccounts(null);
-        setFullscreen(false);
-        onClose();
-      }}
+      onClose={requestClose}
       title={runAccounts ? t("publishRunning") : t("publishSelectAccounts")}
       maxWidth={runAccounts ? "2xl" : "lg"}
       fullscreen={Boolean(runAccounts) && fullscreen}
@@ -88,6 +125,25 @@ export function ContentPublishDialog({
         ) : null
       }
     >
+      {/*
+        C2-1d: the author asked to close while a session is still theirs. Closing used to stop every
+        session and delete the platform draft, so this asks first - and "keep working" just dismisses
+        the question, leaving the session, the draft and the panel exactly as they were.
+      */}
+      {confirmAbandon ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+          <p>{t("publishCloseConfirm")}</p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setConfirmAbandon(false)}>
+              {t("publishCloseStay")}
+            </Button>
+            <Button variant="danger" size="sm" onClick={abandonRun}>
+              {t("publishCloseAbandon")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {item ? (
         runAccounts ? (
           <PublishRunPanel
@@ -97,6 +153,8 @@ export function ContentPublishDialog({
             fullscreen={fullscreen}
             onClose={onClose}
             onPublished={onPublished}
+            onRequestClose={requestClose}
+            onStatusesChange={setRunStatuses}
           />
         ) : (
         <div className="space-y-4">

@@ -27,7 +27,15 @@ import {
   positionTones,
   publishRecordStatuses,
   accountPlatforms,
+  researchMaterialKinds,
+  aiPriceCurrencies,
+  aiPriceSources,
+  aiUsageMeteredKinds,
+  aiUsageUnitLabels,
 } from "./types";
+import { topicStatuses } from "./topics";
+import { researchExtractionOutputSchema } from "./research-extraction/extraction";
+import { aiBudgetPolicies, aiBudgetUnknownCostPolicies } from "./ai-budget";
 
 export const siteInputSchema = z.object({
   name: z.string().trim().min(1),
@@ -88,6 +96,37 @@ export const contentGenerateSchema = z.object({
   agentId: z.string().trim().optional(),
   // Extended writing config used by the article-creation page.
   positioningId: z.string().trim().optional().default(""),
+  /**
+   * The brand profile (品牌资料) this run writes as (CI-P2-02 / CI-P2-03). The same contract as the
+   * wizard's `config.brandId`: an empty string means "none selected", so a client that does not send
+   * the field keeps working and injects no brand context, and an id that names nothing is still no
+   * brand - never a fallback to another one.
+   */
+  brandId: z.string().trim().max(60).optional().default(""),
+  /**
+   * The topic (选题) this run is writing about (CI-P2-01 / CI-P2-03). Unlike the wizard's field of the
+   * same name - where the text already travelled as material and the id is only provenance - this one is
+   * *read*: the route loads the row, so the topic's own description, keywords and source reach the
+   * prompt and its source page may feed the image resolver.
+   */
+  topicId: z.string().trim().max(60).optional().default(""),
+  /**
+   * The research material (研究素材) this run is written from (CI-P3-01). Like `topicId`, this one is
+   * *read*: the route loads the row, so the material's own text reaches the prompt and its source page
+   * may feed the image resolver - the browser sends an id, never a copy of the text. An empty string is
+   * every client that predates the field, and an id that names nothing contributes nothing.
+   */
+  researchMaterialId: z.string().trim().max(60).optional().default(""),
+  /**
+   * Whether this run also reads the material's stored 研究提炼 (CI-P3-03).
+   *
+   * It is a *permission*, not a claim, and it defaults to `false` so that every client that predates the
+   * field - and every run that does not ask - reaches the model with exactly the material text it reached
+   * it with before. When it is `true` the route appends the digest (`researchExtractionPromptText`), and
+   * the provenance records the version that was appended; when the material has no stored extraction the
+   * flag changes nothing and nothing is recorded, because there is nothing to read.
+   */
+  includeResearchExtraction: z.boolean().optional().default(false),
   knowledgeMode: z.enum(knowledgeModes).optional().default("position"),
   articleStyle: z.enum(articleStyles).optional().default("advertorial"),
   industry: z.enum(industryDomains).optional().default("general"),
@@ -108,6 +147,26 @@ export const contentPatchSchema = z.object({
   status: z.enum(["draft", "ready", "posted", "failed"]).optional(),
   /** Typesetting theme chosen in the article editor. */
   themeId: z.enum(articleThemeIds).optional(),
+});
+
+/**
+ * `POST /api/content/[id]/platform-versions` (CI-P2-05). `derive` re-runs the adapter over the base
+ * content; `save` stores what the author wrote for that platform. The platform name is checked against
+ * `accountPlatforms` in the route, the same list the account dialog and the publish route validate
+ * against.
+ */
+export const platformVersionUpsertSchema = z.object({
+  platform: z.string().trim().min(1).max(60),
+  mode: z.enum(["derive", "save"]).optional().default("derive"),
+  title: z.string().max(2000).optional(),
+  body: z.string().max(50000).optional(),
+});
+
+/** PATCH edits the text of an existing version; its media and its provenance stay as they are. */
+export const platformVersionPatchSchema = z.object({
+  platform: z.string().trim().min(1).max(60),
+  title: z.string().max(2000).optional(),
+  body: z.string().max(50000).optional(),
 });
 
 /** Article rewrite modes offered by the “AI 改写” dialog. */
@@ -150,6 +209,12 @@ export const aiWritingGenerateSchema = z.object({
     deAi: z.boolean().optional().default(true),
     knowledgeMode: z.enum(knowledgeModes),
     positioningId: z.string().trim().optional().default(""),
+    /**
+     * The brand profile (品牌资料) this run writes as (CI-P2-02). Like `positioningId`, an empty
+     * string means "none selected": a client that does not send the field keeps working and injects
+     * no brand context, and the id is never a way to reach another brand's data.
+     */
+    brandId: z.string().trim().max(60).optional().default(""),
   }),
   topics: z
     .array(
@@ -164,6 +229,12 @@ export const aiWritingGenerateSchema = z.object({
     .default([]),
   productIds: z.array(z.string().trim().min(1)).max(30).optional().default([]),
   freeText: z.string().trim().max(8000).optional().default(""),
+  /**
+   * The topic (选题) this run is writing about, when the user arrived from the topic list
+   * (CI-P2-01). It is provenance, not material: the text already travelled as `freeText`, and this id
+   * is what lets the stored article and the topic point at each other.
+   */
+  topicId: z.string().trim().max(60).optional().default(""),
 });
 
 export const contentCreateSchema = z.object({
@@ -171,6 +242,12 @@ export const contentCreateSchema = z.object({
   body: z.string().optional().default(""),
   postReadyText: z.string().optional().default(""),
   type: z.string().trim().optional().default("article"),
+  /**
+   * The origin the 来源 column shows (CI-SC-01). The canvas entry points record `mindmap` /
+   * `whiteboard`; an empty value means "no recorded origin" and the list keeps reading that as
+   * 手动录入, so nothing changes for the callers that never send it.
+   */
+  source: z.string().trim().max(40).optional().default(""),
   sourceUrls: z.array(z.string().trim().url()).optional().default([]),
   images: z.array(z.string().trim()).optional().default([]),
   /** Stored video file name; only used by video content items. */
@@ -192,9 +269,16 @@ export const localAgentSettingsSchema = z.object({
   groqKey: z.string().optional(),
   openAIKey: z.string().optional(),
   openRouterKey: z.string().optional(),
+  // Image credentials are stored under their own provider refs, never the text provider's
+  // (CI-AI-IMG-CONFIG-02, Q1/Q2).
+  openAIImageKey: z.string().optional(),
+  geminiImageKey: z.string().optional(),
   geminiModel: z.string().trim().optional(),
   groqModel: z.string().trim().optional(),
   openAIBaseUrl: z.string().trim().url().optional(),
+  // An OpenAI-compatible image endpoint that is independent of the text one. The empty string is a
+  // valid value ("not configured") and never falls back to `openAIBaseUrl` (Q4).
+  openAIImageBaseUrl: z.union([z.string().trim().url(), z.literal("")]).optional(),
   openAIModel: z.string().trim().optional(),
   openRouterBaseUrl: z.string().trim().url().optional(),
   openRouterModel: z.string().trim().optional(),
@@ -261,6 +345,54 @@ export const productPatchSchema = z.object({
   status: z.enum(["active", "archived"]).optional(),
 });
 
+/** A topic the user adds by hand, imports from a hot-topic list, or edits later (CI-P2-01). */
+export const topicInputSchema = z.object({
+  title: z.string().trim().min(1),
+  description: z.string().trim().optional().default(""),
+  keywords: z.array(z.string().trim()).max(30).optional().default([]),
+  source: z.string().trim().max(60).optional().default("manual"),
+  sourceUrl: z.string().trim().max(600).optional().default(""),
+  status: z.enum(topicStatuses).optional().default("active"),
+});
+
+/**
+ * PATCH variant. `contentItemId` is deliberately absent: which article a topic produced is written by
+ * the generation entry alone (`linkTopicContentItem`), never by a payload the browser sends.
+ */
+export const topicPatchSchema = z.object({
+  title: z.string().trim().min(1).optional(),
+  description: z.string().trim().optional(),
+  keywords: z.array(z.string().trim()).max(30).optional(),
+  source: z.string().trim().max(60).optional(),
+  sourceUrl: z.string().trim().max(600).optional(),
+  status: z.enum(topicStatuses).optional(),
+});
+
+/**
+ * One brand profile (品牌资料, CI-P2-02 of `docs/coolpilot-capability-integration-plan.md`).
+ *
+ * The six fields the card asks for, and nothing else: 品牌名称 / 简介 / 目标受众 / 语气 / 关键词 /
+ * 禁用表达. `keywords` and `bannedWords` are list-shaped, stored as JSON like `products.keywords_json`.
+ */
+export const brandInputSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(4000).optional().default(""),
+  targetAudience: z.string().trim().max(2000).optional().default(""),
+  tone: z.string().trim().max(2000).optional().default(""),
+  keywords: z.array(z.string().trim()).max(30).optional().default([]),
+  bannedWords: z.array(z.string().trim()).max(50).optional().default([]),
+});
+
+/** PATCH variant without defaults, so a partial edit never resets untouched columns. */
+export const brandPatchSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().max(4000).optional(),
+  targetAudience: z.string().trim().max(2000).optional(),
+  tone: z.string().trim().max(2000).optional(),
+  keywords: z.array(z.string().trim()).max(30).optional(),
+  bannedWords: z.array(z.string().trim()).max(50).optional(),
+});
+
 export const knowledgeBaseInputSchema = z.object({
   title: z.string().trim().min(1),
   content: z.string().optional().default(""),
@@ -298,6 +430,38 @@ export const knowledgeBaseSmartImportSchema = z.object({
 export const knowledgeBaseProductImportSchema = z.object({
   positionId: z.string().trim().optional().default(""),
   productIds: z.array(z.string().trim().min(1)).optional().default([]),
+});
+
+/**
+ * One research material the user adds or edits by hand (CI-P3-01 of
+ * `docs/coolpilot-capability-integration-plan.md`).
+ *
+ * `status` is deliberately absent, on purpose and for the same reason `topicPatchSchema` has no
+ * `contentItemId`: what happened to a source is the outcome of a *read*, not something a form may
+ * assert. The route derives the honest case (a note with text is `ready`, a source URL nobody has read
+ * yet is `draft`) and only the fetch entry ever writes `empty` / `failed` - so no client can post a
+ * "读取成功" a read did not produce.
+ */
+export const researchMaterialInputSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  /**
+   * No default here on purpose: the route reads an omitted kind off the payload (a source url with no kind
+   * is a link, a body with no url is a note), which a schema default would shadow by filling the field in
+   * before the route ever sees it.
+   */
+  kind: z.enum(researchMaterialKinds).optional(),
+  content: z.string().max(200_000).optional().default(""),
+  sourceUrl: z.string().trim().max(600).optional().default(""),
+  tags: z.array(z.string().trim()).max(30).optional().default([]),
+});
+
+/** PATCH variant without defaults, so a partial edit never resets untouched columns. */
+export const researchMaterialPatchSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  kind: z.enum(researchMaterialKinds).optional(),
+  content: z.string().max(200_000).optional(),
+  sourceUrl: z.string().trim().max(600).optional(),
+  tags: z.array(z.string().trim()).max(30).optional(),
 });
 
 /** "Get dataset list" payload used by the Dify connection drawer. */
@@ -596,6 +760,31 @@ export const aiModelProbeSchema = z.object({
   capability: aiModelCapabilitySchema,
 });
 
+/**
+ * The three payloads of 研究提炼 (CI-P3-03 of `docs/coolpilot-capability-integration-plan.md`).
+ *
+ * `researchExtractionCreateSchema` is a *request*: the material id travels in the path, so only the
+ * caller's optional dedupe key is read from the body - an empty body and an unknown field are the same
+ * request, which is what keeps a client that predates the key working.
+ *
+ * `researchExtractionEditSchema` is the user's edit of a stored result, and it is built from the very
+ * schema the model answers (`researchExtractionOutputSchema`): the same field names, the same limits, the
+ * same item shapes. A patch therefore cannot introduce a field the record does not have - and it cannot
+ * be empty either, because "保存" with nothing changed is not an edit.
+ */
+export const researchExtractionCreateSchema = z.object({
+  idempotencyKey: z.string().trim().max(120).optional().default(""),
+});
+
+export const researchExtractionEditSchema = researchExtractionOutputSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, { message: "an edit must change at least one field" });
+
+export const researchExtractionTopicSchema = z.object({
+  /** Which `topicSuggestions` entry to turn into a topic, by index - the only thing that identifies one. */
+  index: z.number().int().min(0).max(99),
+});
+
 export const aiChatSchema = z.object({
   messages: z
     .array(
@@ -616,5 +805,96 @@ export const aiChatSchema = z.object({
   json: z.boolean().optional(),
   /** Troubleshooting switch: use a key the pool would skip (cooling down / marked invalid). */
   forceUnhealthyCredential: z.boolean().optional(),
+});
+
+/**
+ * A ceiling rather than a judgement about what a model may cost: it is there so a misplaced decimal
+ * point, or a pasted integer, is refused instead of being charged. 1,000,000 per million tokens is
+ * a thousand per token - no published rate is anywhere near it.
+ */
+const aiPriceMaxRate = 1_000_000;
+
+/**
+ * Ten years is longer than any rate card anyone has published, so a timestamp beyond it is a typo -
+ * seconds where milliseconds were meant, or a year typed into a date field - rather than a plan.
+ * Evaluated once at import: this bound only has to be roughly right, and a fixed one keeps a test
+ * from depending on when it ran.
+ */
+const aiPriceMaxEffectiveFrom = Date.now() + 10 * 365 * 86_400_000;
+
+/**
+ * CI-P7-01-05: one row of the price catalog, as the models page (and any future importer) hands it
+ * over.
+ *
+ * This schema decides *format*: which dimensions and units exist, which currencies are accepted,
+ * how long a version may be, how far ahead a price may take effect. What a row has to *mean* - that
+ * a token row states both its rates, that a unit row names one of the units it is billed in, that
+ * an all-zero row has to be declared free - is asserted by `createAiModelPrice`, so the rule holds
+ * for every writer rather than only for the one that has a form in front of it.
+ *
+ * Money fields are deliberately *not* defaulted here: a rate that was not stated must reach the
+ * repository as "not stated" (absent), where it is refused, instead of arriving as a 0 that reads
+ * like a free model.
+ */
+export const aiModelPriceInputSchema = z.object({
+  providerId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .regex(/^\S+$/, "a provider id carries no whitespace"),
+  /** `*` prices every model of that provider that has no row of its own. */
+  modelId: z.string().trim().min(1).max(128).optional().default("*"),
+  meteredKind: z.enum(aiUsageMeteredKinds).optional().default("text"),
+  /** Required: the currency is copied onto every ledger row this price costs. */
+  currency: z.enum(aiPriceCurrencies),
+  inputPerMillion: z.number().finite().min(0).max(aiPriceMaxRate).optional(),
+  outputPerMillion: z.number().finite().min(0).max(aiPriceMaxRate).optional(),
+  cachedInputPerMillion: z.number().finite().min(0).max(aiPriceMaxRate).nullable().optional(),
+  unitPrice: z.number().finite().min(0).max(aiPriceMaxRate).nullable().optional(),
+  unitLabel: z.union([z.enum(aiUsageUnitLabels), z.literal("")]).optional().default(""),
+  declaredFree: z.boolean().optional().default(false),
+  /** Required: a snapshot whose revision is blank cannot say which catalog it came from. */
+  priceVersion: z.string().trim().min(1).max(64),
+  source: z.enum(aiPriceSources).optional().default("manual"),
+  effectiveFrom: z.number().int().min(0).max(aiPriceMaxEffectiveFrom).optional(),
+  notes: z.string().trim().max(500).optional().default(""),
+});
+
+/**
+ * CI-P7-03: the budget the user sets for AI spending, and what should happen when a call would
+ * cross it.
+ *
+ * `monthlyLimit: null` is "no ceiling stated" and is deliberately **not** defaulted to 0: a 0 limit
+ * would read as "spend nothing", which is a decision nobody made. `currency` comes from the same
+ * closed list the price catalog uses, because a limit is only comparable with costs quoted in the
+ * currency it was written in - and this database holds no exchange rate to convert with.
+ *
+ * Every field is required here (no defaults): the body is written by one form that owns all four, and
+ * a missing field would otherwise silently reset a setting the user had made.
+ */
+export const aiBudgetSettingsSchema = z.object({
+  policy: z.enum(aiBudgetPolicies),
+  monthlyLimit: z.number().finite().min(0).max(aiPriceMaxRate).nullable(),
+  currency: z.enum(aiPriceCurrencies),
+  unknownCostPolicy: z.enum(aiBudgetUnknownCostPolicies),
+});
+
+/**
+ * CI-P7-03: what one not-yet-sent call is expected to cost, as the 预算与预估 tab asks it.
+ *
+ * `inputText` is capped rather than unbounded: the estimate only counts characters, and a body the
+ * size of a book would be a caller mistake rather than an estimate. Nothing here is stored or logged
+ * - the text is measured and dropped, which is why the answer carries counts and amounts but never
+ * the text back.
+ */
+export const aiCostEstimateRequestSchema = z.object({
+  providerId: z.string().trim().max(64).optional().default(""),
+  modelId: z.string().trim().max(128).optional().default(""),
+  meteredKind: z.enum(aiUsageMeteredKinds).optional().default("text"),
+  inputText: z.string().max(200_000).optional().default(""),
+  inputTokens: z.number().int().min(0).max(50_000_000).optional(),
+  maxOutputTokens: z.number().int().min(1).max(aiPriceMaxRate).nullable().optional().default(null),
+  quantity: z.number().finite().min(0).max(1_000_000).nullable().optional().default(null),
 });
 

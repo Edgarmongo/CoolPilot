@@ -33,6 +33,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * runtime, the registry, the router, the key pool, the provider adapter - and only the *transport* is
  * stubbed. Nothing here asserts that a mock was called.
  *
+ * CI-AI-IMG-CONFIG-03 changed one thing the AI stage depends on: the image request is routed to the
+ * provider that *owns* images (`openai-image` / `gemini-image`), whose endpoint is the one
+ * `openAIImageBaseUrl` names - never the text provider's. The stage itself, and the best-effort
+ * `catch { break }` around it, are exactly as P3-B-2 froze them.
+ *
  * P4 deleted the three legacy modules this file used to mock with a throwing factory (`@/lib/ai`,
  * `@/lib/ai/generate`, `@/lib/ai/compat`). The guard is structural now: reviving one of them fails
  * `tsc` and module resolution instead of a single test file (`docs/generate-migration-p3.md`, P4).
@@ -125,6 +130,38 @@ const pageRoutes = (urls: string[]) =>
     respond: () => htmlResponse(page(`https://cdn.example.com/${url.split("/").pop()}.png`)),
   }));
 
+/** The remote image a page points at, as the wire the C4 downloader reads (`ok`, type, bytes). */
+const remoteImageBytes = "remote-image-bytes";
+
+function binaryResponse(bytes: string, contentType: string, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers({ "content-type": contentType }),
+    text: async () => bytes,
+    json: async () => ({}),
+    arrayBuffer: async () => Uint8Array.from(Buffer.from(bytes)).buffer as ArrayBuffer,
+  } as unknown as Response;
+}
+
+/** The `og:image` address `pageRoutes()` writes for a page url - the address C4 has to download. */
+const cdnUrlOf = (url: string) => `https://cdn.example.com/${url.split("/").pop()}.png`;
+
+/**
+ * Every page plus the image each one names, so the `web` stage can localize it: C4 downloads the
+ * `og:image` into `artifacts/` instead of storing the address as the cover.
+ */
+const localizableRoutes = (urls: string[]) => [
+  ...pageRoutes(urls),
+  ...urls.map((url) => ({
+    match: (target: string) => target === cdnUrlOf(url),
+    respond: () => binaryResponse(remoteImageBytes, "image/png"),
+  })),
+];
+
+/** A stored artifact by its name: the strategy answers with file names, files live in artifacts. */
+const fileOf = (fileName: string) => path.join(artifactsDir, fileName);
+
 /** The bytes are recognisable on purpose: "the file on disk is the decoded answer" is one assertion. */
 const pngBytes = "fake-png-bytes";
 const encoded = (value: string) => Buffer.from(value).toString("base64");
@@ -156,16 +193,28 @@ const openAIRoutes = (reply: () => Response) => [
   { match: (url: string) => url.includes("/images/generations"), respond: reply },
 ];
 
+/**
+ * The endpoint the image settings name (CI-AI-IMG-CONFIG-03). `openAIImageBaseUrl` is the only field an
+ * OpenAI-compatible image request may be signed against, so a host of its own makes a fallback onto the
+ * text provider visible in the wire assertion rather than only in a status.
+ */
+const imageBaseUrl = "https://images.example.test/v1";
+
 /** The usual fixture: one credential, one callable image model, the image capability default. */
-const prepareOpenAIImage = () => prepareImageModel("openai", "gpt-image-1", "sk-stub-openai");
+const prepareOpenAIImage = () => prepareImageModel("openai-image", "gpt-image-1", "sk-stub-openai-image");
 
 describe("resolveArticleImages on aiRuntime", () => {
   beforeEach(async () => {
     vi.unstubAllGlobals();
     await resetRuntime();
-    // The two settings this path reads are restored here, because a case may pin the other provider
-    // and nothing else resets them.
-    await updateLocalAgentSettings({ imageProvider: "openai", openAIImageSize: "1024x1024" });
+    // The three settings this path reads are restored here, because a case may pin the other provider,
+    // another size or another URL and nothing else resets them. The URL is what gives the image
+    // provider an endpoint at all (Q4): `prepareImageModel()` reconciles it before reading a catalog.
+    await updateLocalAgentSettings({
+      imageProvider: "openai",
+      openAIImageSize: "1024x1024",
+      openAIImageBaseUrl: imageBaseUrl,
+    });
     await clearArtifacts();
     await fs.rm(sourceDir, { recursive: true, force: true });
   });
@@ -179,24 +228,30 @@ describe("resolveArticleImages on aiRuntime", () => {
   it("copies a product photo into artifacts and leaves the source where the product keeps it", async () => {
     const sourcePath = await source("shot-pan.png");
 
-    const images = await resolve({ productImagePaths: [sourcePath] });
+    const resolution = await resolve({ productImagePaths: [sourcePath] });
+    const { images } = resolution;
 
     expect(images).toHaveLength(1);
     const [copy] = images;
-    expect(path.dirname(copy)).toBe(artifactsDir);
-    // The provenance is in the name: a copy of a stored photo is `writing-*`, never an AI file.
-    expect(path.basename(copy)).toMatch(/^writing-\d+-[A-Za-z0-9_-]{8}\.png$/);
+    // C4: the stored reference is a file name - the path of the machine that produced it is not part of
+    // what the item says about its own image - and the provenance is still in the name.
+    expect(copy).toMatch(/^writing-\d+-[A-Za-z0-9_-]{8}\.png$/);
     // A copy, not a move: the bytes are in artifacts and the product photo is still where it was.
-    expect(await bytesOf(copy)).toBe("bytes-of-shot-pan.png");
+    expect(await bytesOf(fileOf(copy))).toBe("bytes-of-shot-pan.png");
     await expect(fs.stat(sourcePath)).resolves.toBeTruthy();
-    expect(await artifacts()).toEqual([path.basename(copy)]);
+    expect(await artifacts()).toEqual([copy]);
+    // Identity and origin, in the same order as the images: this one is a copy of a stored photo.
+    expect(resolution.assets).toEqual([
+      expect.objectContaining({ reference: copy, fileName: copy, source: "copied", external: false }),
+    ]);
+    expect(resolution.skippedRemoteImages).toEqual([]);
   });
 
   it("keeps the source extension, lower-cased, and falls back to .png when the path has none", async () => {
     const jpeg = await source("shot-lid.JPG");
     const extensionless = await source("shot-no-extension");
 
-    const images = await resolve({ target: 2, productImagePaths: [jpeg, extensionless] });
+    const { images } = await resolve({ target: 2, productImagePaths: [jpeg, extensionless] });
 
     expect(images.map((image) => path.extname(image))).toEqual([".jpg", ".png"]);
   });
@@ -205,16 +260,16 @@ describe("resolveArticleImages on aiRuntime", () => {
     const missing = path.join(sourceDir, "never-written.png");
     const present = await source("shot-lid.png");
 
-    const images = await resolve({ target: 3, productImagePaths: [missing, present] });
+    const { images } = await resolve({ target: 3, productImagePaths: [missing, present] });
 
     expect(images).toHaveLength(1);
-    expect(await bytesOf(images[0])).toBe("bytes-of-shot-lid.png");
+    expect(await bytesOf(fileOf(images[0]))).toBe("bytes-of-shot-lid.png");
   });
 
   it("ignores a blank entry instead of asking the filesystem about it", async () => {
     const present = await source("shot-pan.png");
 
-    const images = await resolve({ target: 3, productImagePaths: ["", present] });
+    const { images } = await resolve({ target: 3, productImagePaths: ["", present] });
 
     expect(images).toHaveLength(1);
   });
@@ -222,11 +277,14 @@ describe("resolveArticleImages on aiRuntime", () => {
   it("stops at target, in the order the caller selected the products", async () => {
     const photos = await Promise.all([source("shot-1.png"), source("shot-2.png"), source("shot-3.png")]);
 
-    const images = await resolve({ target: 2, productImagePaths: photos });
+    const { images } = await resolve({ target: 2, productImagePaths: photos });
 
     // Two files, and they are the *first two* photos - which the generated names cannot show.
-    expect(await Promise.all(images.map(bytesOf))).toEqual(["bytes-of-shot-1.png", "bytes-of-shot-2.png"]);
-    expect(await artifacts()).toEqual(images.map((image) => path.basename(image)).sort());
+    expect(await Promise.all(images.map((image) => bytesOf(fileOf(image))))).toEqual([
+      "bytes-of-shot-1.png",
+      "bytes-of-shot-2.png",
+    ]);
+    expect(await artifacts()).toEqual([...images].sort());
   });
 
   it("never reads a source page when the strategy is product only", async () => {
@@ -234,7 +292,7 @@ describe("resolveArticleImages on aiRuntime", () => {
     const pageUrl = "https://news.example.com/pages/1";
     const calls = stubFetch(pageRoutes([pageUrl]));
 
-    const images = await resolve({
+    const { images } = await resolve({
       strategy: "product",
       target: 3,
       productImagePaths: [sourcePath],
@@ -248,42 +306,59 @@ describe("resolveArticleImages on aiRuntime", () => {
 
   /* ------------------------------------------------------------------ 2. the web stage */
 
-  it("stores the source page's og:image as the remote URL it is, and writes no file", async () => {
+  it("downloads the page's og:image into artifacts and keeps the address it came from", async () => {
     const pageUrl = "https://news.example.com/pages/1";
-    stubFetch(pageRoutes([pageUrl]));
+    stubFetch(localizableRoutes([pageUrl]));
 
-    const images = await resolve({ strategy: "web", sourceUrls: [pageUrl] });
+    const resolution = await resolve({ strategy: "web", sourceUrls: [pageUrl] });
+    const { images } = resolution;
 
-    // The URL is handed on verbatim: no download, no copy, nothing in artifacts.
-    expect(images).toEqual(["https://cdn.example.com/1.png"]);
-    expect(await artifacts()).toEqual([]);
+    // C4: the page's image is brought into the workspace, so the cover is a local file the publish path
+    // can actually ship, not an address it would drop.
+    expect(images).toHaveLength(1);
+    expect(images[0]).toMatch(/^online-\d+-[A-Za-z0-9_-]{8}\.png$/);
+    expect(await artifacts()).toEqual([images[0]]);
+    expect(await bytesOf(fileOf(images[0]))).toBe(remoteImageBytes);
+    // Where it came from is not lost: the asset keeps the address the file was downloaded from.
+    expect(resolution.assets).toEqual([
+      expect.objectContaining({
+        reference: images[0],
+        fileName: images[0],
+        source: "remote",
+        external: false,
+        remoteUrl: "https://cdn.example.com/1.png",
+      }),
+    ]);
+    expect(resolution.skippedRemoteImages).toEqual([]);
   });
 
   it("ignores the product photos when the strategy is web only", async () => {
     const sourcePath = await source("shot-pan.png");
     const pageUrl = "https://news.example.com/pages/1";
-    stubFetch(pageRoutes([pageUrl]));
+    stubFetch(localizableRoutes([pageUrl]));
 
-    const images = await resolve({ strategy: "web", target: 3, productImagePaths: [sourcePath], sourceUrls: [pageUrl] });
+    const { images } = await resolve({ strategy: "web", target: 3, productImagePaths: [sourcePath], sourceUrls: [pageUrl] });
 
-    expect(images).toEqual(["https://cdn.example.com/1.png"]);
-    expect(await artifacts()).toEqual([]);
+    expect(images).toHaveLength(1);
+    expect(await bytesOf(fileOf(images[0]))).toBe(remoteImageBytes);
+    // The photo was not copied: the workspace holds the page's own image only.
+    expect(await artifacts()).toEqual([images[0]]);
   });
 
   it("reads at most the first three source urls", async () => {
     const urls = [1, 2, 3, 4, 5].map((index) => `https://news.example.com/pages/${index}`);
-    const calls = stubFetch(pageRoutes(urls));
+    const calls = stubFetch(localizableRoutes(urls));
 
-    const images = await resolve({ strategy: "web", target: 6, sourceUrls: urls });
+    const { images } = await resolve({ strategy: "web", target: 6, sourceUrls: urls });
 
     // Three, although the target asked for six and every page could have answered.
-    expect(images).toEqual([
-      "https://cdn.example.com/1.png",
-      "https://cdn.example.com/2.png",
-      "https://cdn.example.com/3.png",
-    ]);
-    // Not "ignored after the third": the fourth url was never fetched.
-    expect(calls.map((call) => call.url)).toEqual(urls.slice(0, 3));
+    expect(images).toHaveLength(3);
+    expect(await artifacts()).toEqual([...images].sort());
+    // Not "ignored after the third": the fourth page was never fetched, and each page that *was* read had
+    // its image downloaded right after it.
+    expect(calls.map((call) => call.url)).toEqual(
+      urls.slice(0, 3).flatMap((url) => [url, cdnUrlOf(url)]),
+    );
   });
 
   it("keeps going after a page that is down or carries no og:image", async () => {
@@ -293,48 +368,88 @@ describe("resolveArticleImages on aiRuntime", () => {
     const calls = stubFetch([
       { match: (target: string) => target === dead, respond: () => htmlResponse(page(), 503) },
       { match: (target: string) => target === bare, respond: () => htmlResponse(page()) },
-      { match: (target: string) => target === good, respond: () => htmlResponse(page("https://cdn.example.com/og.png")) },
+      { match: (target: string) => target === good, respond: () => htmlResponse(page(cdnUrlOf(good))) },
+      { match: (target: string) => target === cdnUrlOf(good), respond: () => binaryResponse(remoteImageBytes, "image/png") },
     ]);
 
-    const images = await resolve({ strategy: "web", target: 3, sourceUrls: [dead, bare, good] });
+    const resolution = await resolve({ strategy: "web", target: 3, sourceUrls: [dead, bare, good] });
+    const { images } = resolution;
 
-    expect(images).toEqual(["https://cdn.example.com/og.png"]);
-    // All three were tried: an ignored page does not end the loop.
-    expect(calls).toHaveLength(3);
+    expect(images).toHaveLength(1);
+    expect(await bytesOf(fileOf(images[0]))).toBe(remoteImageBytes);
+    // A down page and a page with no image are not failures to report: nothing was there to localize.
+    expect(resolution.skippedRemoteImages).toEqual([]);
+    // All three pages were tried: an ignored page does not end the loop.
+    expect(calls.filter((call) => call.url === dead || call.url === bare || call.url === good)).toHaveLength(3);
   });
 
   it("adds the same image only once", async () => {
     const urls = ["https://news.example.com/pages/a", "https://news.example.com/pages/b"];
-    stubFetch(
-      urls.map((url) => ({
+    const shared = "https://cdn.example.com/shared.png";
+    const calls = stubFetch([
+      ...urls.map((url) => ({
         match: (target: string) => target === url,
-        respond: () => htmlResponse(page("https://cdn.example.com/shared.png")),
+        respond: () => htmlResponse(page(shared)),
       })),
-    );
+      { match: (target: string) => target === shared, respond: () => binaryResponse(remoteImageBytes, "image/png") },
+    ]);
 
-    const images = await resolve({ strategy: "web", target: 3, sourceUrls: urls });
+    const { images } = await resolve({ strategy: "web", target: 3, sourceUrls: urls });
 
-    expect(images).toEqual(["https://cdn.example.com/shared.png"]);
+    // Two pages naming one address produce one image and one download, not two copies of the same file.
+    expect(images).toHaveLength(1);
+    expect(await artifacts()).toEqual([images[0]]);
+    expect(calls.filter((call) => call.url === shared)).toHaveLength(1);
+  });
+
+  it("reports a remote image it could not download instead of storing the address as one", async () => {
+    const pageUrl = "https://news.example.com/pages/broken";
+    stubFetch([
+      { match: (target: string) => target === pageUrl, respond: () => htmlResponse(page(cdnUrlOf(pageUrl))) },
+      { match: (target: string) => target === cdnUrlOf(pageUrl), respond: () => binaryResponse("nope", "image/png", 503) },
+    ]);
+
+    const resolution = await resolve({ strategy: "web", sourceUrls: [pageUrl] });
+
+    // No image is claimed and no remote address is stored as if it were one: the failure is named, so
+    // "this article has no cover" stays a different statement from "the download failed".
+    expect(resolution.images).toEqual([]);
+    expect(resolution.assets).toEqual([]);
+    expect(resolution.skippedRemoteImages).toEqual([cdnUrlOf(pageUrl)]);
+    expect(await artifacts()).toEqual([]);
   });
 
   /* ------------------------------------------------------------------ 3. the AI stage */
 
-  it("generates the missing image, names the article in the prompt and reports nothing else", async () => {
+  it("generates the missing image, names the article in the prompt and reports the model that made it", async () => {
     const calls = stubFetch(openAIRoutes(() => openAIImageReply()));
     await prepareOpenAIImage();
 
-    const images = await resolve({ strategy: "ai" });
+    const resolution = await resolve({ strategy: "ai" });
+    const { images } = resolution;
 
     expect(images).toHaveLength(1);
     const [generated] = images;
-    expect(path.dirname(generated)).toBe(artifactsDir);
     // The other half of the provenance: this file is a generation, not a copy of a product photo.
-    expect(path.basename(generated)).toMatch(/^agent-image-\d+-[A-Za-z0-9_-]{8}\.png$/);
-    expect(await bytesOf(generated)).toBe(pngBytes);
+    expect(generated).toMatch(/^agent-image-\d+-[A-Za-z0-9_-]{8}\.png$/);
+    expect(await bytesOf(fileOf(generated))).toBe(pngBytes);
+    // C4: the writer knows which model produced the file, so the item records it per image instead of
+    // leaving `metadata.provider/model` (the *text* model) to be misread as the image's.
+    expect(resolution.assets).toEqual([
+      expect.objectContaining({
+        reference: generated,
+        fileName: generated,
+        source: "generated",
+        external: false,
+        provider: "openai-image",
+        model: "gpt-image-1",
+      }),
+    ]);
 
     // One generation, with the runtime's model and the OpenAI-shaped size the setting holds.
     const generations = generationCalls(calls);
     expect(generations).toHaveLength(1);
+    expect(generations[0].url).toBe(`${imageBaseUrl}/images/generations`);
     const wire = imageBodyOf(generations[0]);
     expect(wire.model).toBe("gpt-image-1");
     expect(wire.prompt).toContain(articleTitle);
@@ -349,9 +464,9 @@ describe("resolveArticleImages on aiRuntime", () => {
       { match: (target: string) => target.includes(":generateContent"), respond: geminiImageReply },
     ]);
     // Gemini is configured *and* callable; the settings still name OpenAI as the image provider.
-    await prepareImageModel("gemini", "gemini-2.5-flash-image", "sk-stub-gemini");
+    await prepareImageModel("gemini-image", "gemini-2.5-flash-image", "sk-stub-gemini");
 
-    const images = await resolve({ strategy: "ai" });
+    const { images } = await resolve({ strategy: "ai" });
 
     // No credential for the pinned provider is a failure of the AI stage, and this stage is best effort.
     expect(images).toEqual([]);
@@ -363,7 +478,7 @@ describe("resolveArticleImages on aiRuntime", () => {
     const calls = stubFetch(openAIRoutes(unavailable));
     await prepareOpenAIImage();
 
-    const images = await resolve({ strategy: "ai", target: 3 });
+    const { images } = await resolve({ strategy: "ai", target: 3 });
 
     expect(images).toEqual([]);
     // `catch { break }`: one failure ends the AI stage, it does not retry it three times.
@@ -374,7 +489,7 @@ describe("resolveArticleImages on aiRuntime", () => {
   it("answers with no images for an install that has no credential at all", async () => {
     const calls = stubFetch([]);
 
-    const images = await resolve({ strategy: "ai", target: 3 });
+    const { images } = await resolve({ strategy: "ai", target: 3 });
 
     expect(images).toEqual([]);
     expect(calls).toHaveLength(0);
@@ -383,17 +498,17 @@ describe("resolveArticleImages on aiRuntime", () => {
 
   it("keeps the images it already has when generation fails (best effort)", async () => {
     // A rejected key is remembered by fingerprint for the life of the process (P3-B-1), so this case
-    // signs with a secret of its own: `sk-stub-openai` has to stay healthy for the cases around it.
+    // signs with a secret of its own: `sk-stub-openai-image` has to stay healthy for the cases around it.
     const calls = stubFetch(openAIRoutes(unauthorized));
-    await prepareImageModel("openai", "gpt-image-1", "sk-stub-openai-rejected");
+    await prepareImageModel("openai-image", "gpt-image-1", "sk-stub-openai-image-rejected");
     const sourcePath = await source("shot-pan.png");
 
-    const images = await resolve({ strategy: "mixed", target: 3, productImagePaths: [sourcePath] });
+    const { images } = await resolve({ strategy: "mixed", target: 3, productImagePaths: [sourcePath] });
 
     // The article still gets its cover: the AI stage failed, `resolveArticleImages` did not.
     expect(images).toHaveLength(1);
-    expect(await bytesOf(images[0])).toBe("bytes-of-shot-pan.png");
-    expect(await artifacts()).toEqual([path.basename(images[0])]);
+    expect(await bytesOf(fileOf(images[0]))).toBe("bytes-of-shot-pan.png");
+    expect(await artifacts()).toEqual([images[0]]);
     expect(generationCalls(calls)).toHaveLength(1);
   });
 
@@ -401,7 +516,7 @@ describe("resolveArticleImages on aiRuntime", () => {
     const calls = stubFetch(openAIRoutes(() => openAIImageReply()));
     await prepareOpenAIImage();
 
-    const images = await resolve({ strategy: "ai", target: 6 });
+    const { images } = await resolve({ strategy: "ai", target: 6 });
 
     // `imageCount: "many"` asks for six images; generation is the slow source, so it stops at three -
     // three calls, three files, three distinct names.
@@ -417,11 +532,11 @@ describe("resolveArticleImages on aiRuntime", () => {
     await prepareOpenAIImage();
     const sourcePath = await source("shot-pan.png");
 
-    const images = await resolve({ strategy: "mixed", target: 2, productImagePaths: [sourcePath] });
+    const { images } = await resolve({ strategy: "mixed", target: 2, productImagePaths: [sourcePath] });
 
     expect(images).toHaveLength(2);
-    expect(await bytesOf(images[0])).toBe("bytes-of-shot-pan.png");
-    expect(path.basename(images[1])).toMatch(/^agent-image-/);
+    expect(await bytesOf(fileOf(images[0]))).toBe("bytes-of-shot-pan.png");
+    expect(images[1]).toMatch(/^agent-image-/);
     expect(generationCalls(calls)).toHaveLength(1);
   });
 
@@ -431,7 +546,7 @@ describe("resolveArticleImages on aiRuntime", () => {
     await prepareOpenAIImage();
     const photos = await Promise.all([source("shot-1.png"), source("shot-2.png")]);
 
-    const images = await resolve({ strategy: "mixed", target: 2, productImagePaths: photos });
+    const { images } = await resolve({ strategy: "mixed", target: 2, productImagePaths: photos });
 
     expect(images).toHaveLength(2);
     expect(generationCalls(calls)).toHaveLength(0);
@@ -442,24 +557,28 @@ describe("resolveArticleImages on aiRuntime", () => {
   it("fills in order: the product copy, then the page's og:image, then a generation", async () => {
     const pageUrl = "https://news.example.com/pages/1";
     const calls = stubFetch([
-      ...pageRoutes([pageUrl]),
+      ...localizableRoutes([pageUrl]),
       { match: (url: string) => url.endsWith("/models"), respond: openAIImageCatalog },
       { match: (url: string) => url.includes("/images/generations"), respond: () => openAIImageReply() },
     ]);
     await prepareOpenAIImage();
     const sourcePath = await source("shot-pan.png");
 
-    const images = await resolve({
+    const resolution = await resolve({
       strategy: "mixed",
       target: 3,
       productImagePaths: [sourcePath],
       sourceUrls: [pageUrl],
     });
+    const { images } = resolution;
 
     expect(images).toHaveLength(3);
-    expect(await bytesOf(images[0])).toBe("bytes-of-shot-pan.png");
-    expect(images[1]).toBe("https://cdn.example.com/1.png");
-    expect(path.basename(images[2])).toMatch(/^agent-image-/);
+    expect(await bytesOf(fileOf(images[0]))).toBe("bytes-of-shot-pan.png");
+    // The second image is the page's own, localized - and the address it came from is recorded on it.
+    expect(images[1]).toMatch(/^online-/);
+    expect(resolution.assets.map((asset) => asset.source)).toEqual(["copied", "remote", "generated"]);
+    expect(resolution.assets[1].remoteUrl).toBe("https://cdn.example.com/1.png");
+    expect(images[2]).toMatch(/^agent-image-/);
 
     // The cheap sources are spent first: the page is read before anything is generated.
     const pageIndex = calls.findIndex((call) => call.url === pageUrl);

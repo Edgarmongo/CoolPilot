@@ -54,6 +54,8 @@ cd CoolPilot
 - Export the whole workspace into one JSON file and restore it later under **System Settings → Backup**, so local data stays portable and owns its own copy.
 - Plan and review everything on one monthly **Content Calendar** (**Automation → Content Calendar**) that shows planned occurrences, run history, and publish logs side by side, and can turn your best-performing time slots into a weekly schedule in one click.
 - See what the workspace actually holds under **System → Workspace**: database size and table count, content assets, browser profiles, videos, and what nothing points at yet (`GET /api/workspace/manifest`). The page is read-only — nothing is moved or deleted from there.
+- Import an audio or video file under **Creation → Research materials** and transcribe it into a research material you can write from: the task is a normal long task (real progress, real log, cancellable), the engine is named (the model gateway's speech-to-text, or the Windows recognizer already on the machine — offline and with no key), and the transcript keeps the engine's own segments. Play the file back, read the original transcript, edit the text a generation reads, then hand it to the article writer — editing the text never changes what the engine recognised. When no speech-to-text model is configured the run falls back to the machine's own recognizer, never towards the cloud.
+- Distil a research material into something a writer can use (**Creation → Research materials → Research distillation**): one ordinary long task reads the material's own text and stores a **versioned** result on it — a summary, key points, facts that each carry the excerpt they came from, quotes, and topic suggestions you may act on or ignore. Every fact is checked against the material's own text rather than taken on the model's word: an excerpt the material does not contain is shown as 原文中未找到 and left out of what the writer is handed. Re-distilling writes a new version and pushes the old one into the history; editing the result yourself saves it without becoming a new version; and "the material has changed since this was distilled" is decided by comparing fingerprints, not by trusting a timestamp. One click turns a suggestion into an ordinary topic (`source: research_extraction`, recording which material it came from), and `?researchMaterialId=…&includeExtraction=1` appends the distilled result to the article prompt while the material's own text keeps entering that prompt unchanged — the article's metadata then records the material, its version, the extraction revision and the task, which the content library's detail view shows back.
 
 Current browser automation is centered on persistent per-account Chromium profiles. CloakBrowser is included as a stealth Chromium dependency, but the current app launch paths still use Playwright persistent contexts directly. Treat stealth tooling as a useful dependency, not a guarantee against platform detection.
 
@@ -282,12 +284,13 @@ Local runtime files are stored under `web-data/` by default:
 - `web-data/browser-profiles/` for logged-in account profiles
 - `web-data/uploads/` for uploaded assets
 - `web-data/artifacts/` for generated images, screenshots, and agent artifacts
+- `web-data/media/` for audio/video files imported for transcription (read back through `/api/media?file=`)
 
 Override the data directory with `SOCIAL_AUTO_POST_DATA_DIR` or `APP_DATA_DIR`.
 
 ### Workspace overview
 
-**System → Workspace** (`/system/workspace`, backed by `GET /api/workspace/manifest`) shows what is actually inside the workspace this process has open: the database and its table count, content assets and how many of them content references, browser profiles linked and unlinked, videos, and an **Attention** section naming what nothing in the workspace points at yet (unlinked profiles, tables this build cannot read, and root-level files no section owns).
+**System → Workspace** (`/system/workspace`, backed by `GET /api/workspace/manifest`) shows what is actually inside the workspace this process has open: the database and its table count, content assets and how many of them content references, browser profiles linked and unlinked, videos, the audio/video a transcription reads (`media/`), and an **Attention** section naming what nothing in the workspace points at yet (unlinked profiles, tables this build cannot read, and root-level files no section owns).
 
 The endpoint is read-only and `force-dynamic`:
 
@@ -340,7 +343,7 @@ src/worker/       Queue and schedule worker
 electron/         Electron entrypoints
 scripts/          Build and packaging helpers
 public/           Public assets
-docs/             Model layer docs (model-gateway.md · model-gateway-plan.md · model-layer-spec.md · model-runtime.md · generate-migration.md) + tech stack (tech-stack.md) + Creator Workflow audit (creator-workflow-audit.md)
+docs/             Model layer docs (model-gateway.md · model-gateway-plan.md · model-layer-spec.md · model-runtime.md · generate-migration.md) + tech stack (tech-stack.md) + Creator Workflow audit (creator-workflow-audit.md) + menu inventory (menu-inventory.md)
 ```
 
 ## Safety and Platform Disclaimer

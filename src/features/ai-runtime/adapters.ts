@@ -8,6 +8,7 @@ import type {
   ModelProviderRecord,
   NormalizedModel,
   TokenUsage,
+  TranscriptionSegment,
 } from "./contracts";
 import {
   normalizeGeminiCatalog,
@@ -55,11 +56,35 @@ export type AdapterProbeResult = {
   message: string;
 };
 
+/**
+ * Speech-to-text options an adapter receives. The runtime has already decided *which* model and key;
+ * an adapter decides only how to say it on the wire.
+ */
+export type AdapterTranscriptionOptions = {
+  model: string;
+  audio: { name: string; mimeType: string; bytes: Uint8Array };
+  language?: string;
+  prompt?: string;
+};
+
+export type AdapterTranscriptionResult = {
+  text: string;
+  segments: TranscriptionSegment[];
+  language: string;
+  durationMs: number | null;
+  responseFormat: "verbose_json" | "json";
+};
+
 export type ProtocolAdapter = {
   protocol: ModelProtocol;
   listModels(context: AdapterContext): Promise<NormalizedModel[]>;
   chat(context: AdapterContext, options: AdapterChatOptions): Promise<AdapterChatResult>;
   generateImage?(context: AdapterContext, options: AdapterImageOptions): Promise<AdapterImageResult>;
+  /**
+   * Recognise speech, when the protocol has a call for it. A protocol without one is reported by the
+   * runtime as `MODEL_CAPABILITY_UNAVAILABLE`, never silently skipped.
+   */
+  transcribe?(context: AdapterContext, options: AdapterTranscriptionOptions): Promise<AdapterTranscriptionResult>;
   probe?(
     context: AdapterContext,
     options: { model: string; capability: ModelCapability },
@@ -68,6 +93,12 @@ export type ProtocolAdapter = {
 
 const chatTimeoutMs = 120_000;
 const catalogTimeoutMs = 30_000;
+/**
+ * A transcription is a whole file, not a sentence, so it is given far longer than a chat call: ten
+ * minutes is the ceiling for one HTTP request, and the task layer above applies its own, longer,
+ * end-to-end budget (a file that has to be decoded first takes longer than the request that sends it).
+ */
+const transcriptionTimeoutMs = 10 * 60_000;
 
 function trimBaseUrl(url: string) {
   return url.replace(/\/+$/, "");
@@ -196,6 +227,57 @@ function openAIToolUsage(payload: unknown) {
     ?.usage;
   if (!usage) return undefined;
   return normalizeUsage({ input: usage.prompt_tokens, output: usage.completion_tokens, total: usage.total_tokens });
+}
+
+/**
+ * The primary subtag of a language hint (`en-US` -> `en`), which is what the OpenAI-compatible wire
+ * field `language` accepts. An absent hint sends nothing rather than a guess.
+ */
+function primaryLanguageSubtag(language: string | undefined) {
+  return ((language ?? "").trim().split(/[-_]/)[0] ?? "").toLowerCase();
+}
+
+/** True when a refusal is specifically about `response_format`: the only field this adapter falls back on. */
+function isResponseFormatRefusal(error: unknown) {
+  return error instanceof AppError && error.message.includes("response_format");
+}
+
+/** The engine's own segments, in its own order. A payload without them yields none, never one made up. */
+function transcriptionSegments(payload: unknown): TranscriptionSegment[] {
+  const raw = (payload as { segments?: unknown }).segments;
+  if (!Array.isArray(raw)) return [];
+  const segments: TranscriptionSegment[] = [];
+  for (const entry of raw) {
+    const text = typeof (entry as { text?: unknown })?.text === "string" ? (entry as { text: string }).text.trim() : "";
+    if (!text) continue;
+    const start = Number((entry as { start?: unknown }).start);
+    const end = Number((entry as { end?: unknown }).end);
+    segments.push({
+      index: segments.length,
+      startMs: Number.isFinite(start) ? Math.max(0, Math.round(start * 1000)) : 0,
+      endMs: Number.isFinite(end) ? Math.max(0, Math.round(end * 1000)) : 0,
+      text,
+    });
+  }
+  return segments;
+}
+
+/** One transcription answer read into the contract's shape; anything absent stays absent. */
+function parseTranscriptionPayload(
+  payload: unknown,
+  responseFormat: "verbose_json" | "json",
+): AdapterTranscriptionResult {
+  const text = typeof (payload as { text?: unknown }).text === "string" ? (payload as { text: string }).text.trim() : "";
+  const language =
+    typeof (payload as { language?: unknown }).language === "string" ? (payload as { language: string }).language : "";
+  const duration = Number((payload as { duration?: unknown }).duration);
+  return {
+    text,
+    segments: responseFormat === "verbose_json" ? transcriptionSegments(payload) : [],
+    language,
+    durationMs: Number.isFinite(duration) && duration > 0 ? Math.round(duration * 1000) : null,
+    responseFormat,
+  };
 }
 
 export const openAICompatibleAdapter: ProtocolAdapter = {
@@ -327,6 +409,72 @@ export const openAICompatibleAdapter: ProtocolAdapter = {
       });
     }
     return { images };
+  },
+
+  /**
+   * Speech-to-text over `/audio/transcriptions` - the wire shape Whisper, Groq's `whisper-large-v3`,
+   * a self-hosted faster-whisper server and every compatible gateway speak.
+   *
+   * Two decisions are deliberate:
+   *
+   * - **It asks for `verbose_json` and falls back to `json` once.** `whisper-1` and Groq's models answer
+   *   with segments, language and duration; the `gpt-4o-transcribe` family answers text only and refuses
+   *   the richer format with a 400 that names `response_format`. That refusal is a fact about the engine,
+   *   not a failure of the run, so it is retried once and reported as `responseFormat: "json"` - which is
+   *   how "this engine gave no timestamps" is said without inventing a segment.
+   * - **Only a refusal that names the field is followed.** Any other 400 (an unavailable model, a bad
+   *   request) is rethrown exactly as it arrived, rather than being retried into a second, less
+   *   informative error.
+   *
+   * An answer with no text at all is an upstream fault: an empty transcript is not a transcription, and
+   * this layer must not hand one back as if it were.
+   */
+  async transcribe(context, options) {
+    const baseUrl = requireBaseUrl(context);
+    const credential = requireCredential(context);
+    const url = `${baseUrl}/audio/transcriptions`;
+
+    const send = async (responseFormat: "verbose_json" | "json") => {
+      const form = new FormData();
+      // `FormData` wants a view over a plain `ArrayBuffer`, and the request's bytes are a `Uint8Array`
+      // over whatever the caller had. One explicit copy makes the two agree without the caller's buffer
+      // ever being detached.
+      const fileBytes = new Uint8Array(options.audio.bytes.byteLength);
+      fileBytes.set(options.audio.bytes);
+      form.append("file", new Blob([fileBytes], { type: options.audio.mimeType }), options.audio.name);
+      form.append("model", options.model);
+      form.append("response_format", responseFormat);
+      const language = primaryLanguageSubtag(options.language);
+      if (language) form.append("language", language);
+      if (options.prompt) form.append("prompt", options.prompt);
+      return fetchJson(
+        context,
+        `Transcription (${responseFormat})`,
+        url,
+        { method: "POST", headers: { Authorization: `Bearer ${credential}` }, body: form },
+        transcriptionTimeoutMs,
+      );
+    };
+
+    let payload: unknown;
+    let responseFormat: "verbose_json" | "json" = "verbose_json";
+    try {
+      payload = await send("verbose_json");
+    } catch (error) {
+      if (!isResponseFormatRefusal(error)) throw error;
+      responseFormat = "json";
+      payload = await send("json");
+    }
+
+    const result = parseTranscriptionPayload(payload, responseFormat);
+    if (!result.text) {
+      throw new AppError("MODEL_UPSTREAM_NO_CONTENT", {
+        status: 502,
+        message: `${context.provider.name} returned no transcript`,
+        details: { providerId: context.provider.providerId, model: options.model },
+      });
+    }
+    return result;
   },
 };
 

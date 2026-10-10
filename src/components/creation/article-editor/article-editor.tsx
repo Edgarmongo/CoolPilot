@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiPatch } from "@/lib/api-client";
+import { resolveArtifactImageSrc } from "@/lib/artifact-image-url";
 import {
   articleCharacterCount,
   articleThemeCss,
@@ -38,13 +39,6 @@ import { ArticleEditorToolbar } from "./article-editor-toolbar";
 import { ArticleImageDialog } from "./article-image-dialog";
 import { ArticleRewriteDialog } from "./article-rewrite-dialog";
 import { ArticleTranslateDialog } from "./article-translate-dialog";
-
-function resolveImageUrl(path: string) {
-  if (!path) return "";
-  if (/^https?:\/\//i.test(path)) return path;
-  const fileName = path.split(/[\\/]/).pop() ?? "";
-  return fileName ? `/api/agent/artifacts?file=${encodeURIComponent(fileName)}` : "";
-}
 
 /** Width presets offered when an inserted image is selected. */
 const IMAGE_WIDTH_PRESETS = ["25%", "50%", "75%", "100%"] as const;
@@ -174,7 +168,7 @@ export function ArticleEditor({
   }
 
   function insertImage(image: { fileName: string }) {
-    const url = resolveImageUrl(image.fileName);
+    const url = resolveArtifactImageSrc(image.fileName);
     // Leave preview mode first so the body is editable again before inserting.
     setPreview(false);
     window.setTimeout(() => {
@@ -534,7 +528,7 @@ export function ArticleEditor({
               <div className="grid h-32 place-items-center overflow-hidden rounded-xl border border-dashed border-zinc-200 bg-zinc-50">
                 {cover ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={resolveImageUrl(cover)} alt="" className="h-32 w-full object-cover" />
+                  <img src={resolveArtifactImageSrc(cover)} alt="" className="h-32 w-full object-cover" />
                 ) : (
                   <div className="grid place-items-center gap-1 text-center text-xs text-zinc-400">
                     <ImageIcon className="size-6 text-zinc-300" />

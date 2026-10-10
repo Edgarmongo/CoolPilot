@@ -54,6 +54,8 @@ cd CoolPilot
 - 在「系統設定 → 備份」把整個工作區匯出成單一 JSON 檔案並隨時還原，本機資料可攜、也保有自己的副本。
 - 在「自動化 → 內容日曆」用同一個月曆檢視規劃、執行紀錄與發佈紀錄，還能把成效最好的時段一鍵變成每週排程。
 - 在「系統 → 工作區」查看工作區實際內容：資料庫大小與資料表數量、內容素材、瀏覽器 profiles、影片，以及目前沒有任何東西指向的項目（`GET /api/workspace/manifest`）。這一頁只讀取，不會移動或刪除任何檔案。
+- 在「建立 → 研究素材」匯入音訊或影片檔案並轉寫成一條可直接寫作的研究素材：轉寫是一個普通的長任務（真實進度、真實日誌、可取消），引擎會如實記錄（模型網關的語音轉文字，或這台電腦本身就有的 Windows 語音辨識——離線、不需要 key），轉寫結果保留引擎自己的分段。可以播放原檔、讀原始轉錄、編輯生成側實際讀到的正文，再交給文章寫作——編輯正文永遠不會改動引擎辨識出的內容。沒有設定語音轉文字模型時，任務會回退到本機辨識器，永遠不會回退到雲端。
+- 在「建立 → 研究素材 → 研究提煉」把一份素材提煉成寫作真的用得上的東西：一個普通的長任務讀素材自己的正文，並把**版本化**的結果存在素材上——摘要、核心觀點、每條都帶著出處片段的事實、引述，以及你可以採用也可以忽略的選題建議。每條事實都拿素材正文比對，而不是採信模型的話：素材裡沒有的片段會顯示為「原文中未找到」，也不會交給寫作端。重新提煉會寫出新版本並把舊版推進歷史；你自己編輯的結果會保存，但不會變成新版本；而「素材改過、這份提煉是舊的」是按指紋比對判斷，不是靠時間戳。一鍵把一條建議變成普通選題（`source: research_extraction`，並記下來自哪份素材），而 `?researchMaterialId=…&includeExtraction=1` 會把提煉結果**追加**進文章 prompt，素材原文仍照原樣進入那個 prompt——文章的 metadata 之後會記下素材、素材版本、提煉版本與任務，內容庫的「內容詳情」會把它顯示回來。
 
 目前瀏覽器自動化的核心是每個帳號各自獨立的持久化 Chromium profile。專案包含 CloakBrowser 作為 stealth Chromium dependency，但目前 app 的啟動路徑仍直接使用 Playwright persistent contexts。請把 stealth tooling 視為有用的依賴，而不是能保證避開平台偵測的承諾。
 
@@ -281,12 +283,13 @@ node_modules\.bin\eslint.cmd .
 - `web-data/browser-profiles/`：已登入帳號 profiles
 - `web-data/uploads/`：上傳素材
 - `web-data/artifacts/`：生成圖片、截圖、agent artifacts
+- `web-data/media/`：為轉寫而匯入的音訊／影片檔案（透過 `/api/media?file=` 取回）
 
 可透過 `SOCIAL_AUTO_POST_DATA_DIR` 或 `APP_DATA_DIR` 覆寫資料目錄。
 
 ### 工作區概況
 
-「系統 → 工作區」（`/system/workspace`，資料來自 `GET /api/workspace/manifest`）顯示目前這個 process 開啟的工作區裡實際有什麼：資料庫與資料表數量、內容素材以及其中有多少被內容引用、瀏覽器 profile 的已關聯／未關聯數量、影片，以及 **需要留意** 區塊——列出工作區裡「沒有任何東西指向」的項目（未關聯的 profiles、目前版本讀不了的資料表、不屬於任何分區的根目錄檔案）。
+「系統 → 工作區」（`/system/workspace`，資料來自 `GET /api/workspace/manifest`）顯示目前這個 process 開啟的工作區裡實際有什麼：資料庫與資料表數量、內容素材以及其中有多少被內容引用、瀏覽器 profile 的已關聯／未關聯數量、影片與轉寫用的音訊／影片（`media/` 段），以及 **需要留意** 區塊——列出工作區裡「沒有任何東西指向」的項目（未關聯的 profiles、目前版本讀不了的資料表、不屬於任何分區的根目錄檔案）。
 
 這個 endpoint 唯讀而且 `force-dynamic`：
 
@@ -339,7 +342,7 @@ src/worker/       Queue and schedule worker
 electron/         Electron entrypoints
 scripts/          Build and packaging helpers
 public/           Public assets
-docs/             Model layer docs (model-gateway.md · model-gateway-plan.md · model-layer-spec.md · model-runtime.md · generate-migration.md) + tech stack (tech-stack.md) + Creator Workflow audit (creator-workflow-audit.md)
+docs/             Model layer docs (model-gateway.md · model-gateway-plan.md · model-layer-spec.md · model-runtime.md · generate-migration.md) + tech stack (tech-stack.md) + Creator Workflow audit (creator-workflow-audit.md) + menu inventory (menu-inventory.md)
 ```
 
 ## 安全與平台風險聲明

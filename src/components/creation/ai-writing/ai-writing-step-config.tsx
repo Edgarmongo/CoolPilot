@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { Info, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -32,8 +33,10 @@ import {
   targetPlatformOptions,
   type AiWritingConfig,
 } from "@/lib/ai-writing";
+import { brandContextSummary } from "@/lib/brands";
 import { useI18n } from "@/lib/i18n";
-import type { PositionRecord } from "@/lib/types";
+import { localizedPath } from "@/lib/i18n-config";
+import type { BrandRecord, PositionRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { NoticeBanner } from "../../smart-config/positioning-fields";
 
@@ -60,9 +63,16 @@ export function AiWritingStepConfig({
   config: AiWritingConfig;
   onChange: (patch: Partial<AiWritingConfig>) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { data: positions = [] } = useSWR<PositionRecord[]>("/api/positions", swrFetcher);
   const defaultPosition = positions.find((position) => position.isDefault) ?? positions[0] ?? null;
+  /**
+   * The brand library (CI-P2-02). Selecting one is the whole of 选择: the id travels in the config and
+   * `generateArticle` reads that one record to build the prompt, so what the hint below shows is what
+   * the model will be told.
+   */
+  const { data: brands = [] } = useSWR<BrandRecord[]>("/api/brands", swrFetcher);
+  const selectedBrand = brands.find((brand) => brand.id === config.brandId) ?? null;
 
   const [presets, setPresets] = useState<Preset[]>([]);
   const [selectedPreset, setSelectedPreset] = useState("");
@@ -175,7 +185,38 @@ export function AiWritingStepConfig({
                 ))}
             </select>
           </Field>
+          <Field label={t("awBrand")} hint={t("awBrandHint")}>
+            <select
+              value={config.brandId}
+              onChange={(event) => onChange({ brandId: event.target.value })}
+              className={consoleInputClass}
+            >
+              <option value="">{t("awBrandNone")}</option>
+              {brands.map((brand) => (
+                <option key={brand.id} value={brand.id}>
+                  {brand.name}
+                </option>
+              ))}
+            </select>
+          </Field>
         </div>
+        {selectedBrand ? (
+          <p className="text-xs text-zinc-400">
+            {brandContextSummary(selectedBrand, {
+              audience: t("awAudience"),
+              tone: t("posPlatformTone"),
+              keywords: t("pdFieldKeywords"),
+              banned: t("posFieldBannedWords"),
+            })}
+          </p>
+        ) : (
+          <p className="text-xs text-zinc-400">
+            {brands.length ? "" : `${t("awBrandEmpty")} `}
+            <Link href={localizedPath(locale, "/creation/brands")} className="text-sky-600 hover:underline">
+              {t("awBrandManage")}
+            </Link>
+          </p>
+        )}
         <NoticeBanner title={t("awAgentBanner")} />
       </section>
 

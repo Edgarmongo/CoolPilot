@@ -330,15 +330,51 @@ export type ModelRoute = {
   requirement: ModelRequirement;
 };
 
+/** Why one request existed: the question itself, or a re-ask after an unusable answer. */
+export type ModelAttemptKind = "answer" | "self-correction";
+
+/** How one request ended. A rejected key is `failed`; a request that answered is `success`. */
+export type ModelAttemptOutcome = "success" | "failed";
+
 /**
- * One call the runtime made before (or instead of) the winning one: which model, which
- * key (masked) and why it failed. Failover is never silent - callers can log or show it.
+ * One request the runtime sent, and what came back (CI-P7-01-04).
+ *
+ * The trail is the AI usage ledger's unit of account: one entry, one row, in the order the
+ * requests went out. So a call that burned a rotated key and then a model failover before the
+ * answer is three entries and three rows - not one - and a structured call that had to re-ask is
+ * two *successful* entries, because those are two requests the provider charged for.
+ *
+ * `usage` is what *this* request reported, never the sum of the call. Merging it (which is what
+ * `StructuredChatResponse.usage` still does, for a caller that only wants to display a total) is
+ * precisely what left the ledger unable to say that a re-ask cost a second time.
+ *
+ * A `failed` entry carries no `usage`: nothing came back to measure. That is a different statement
+ * from "it used nothing", and the ledger keeps them apart (`cost_amount` stays NULL, never 0).
  */
 export type ModelAttempt = {
+  /** `answer` is the request carrying the question; `self-correction` is a re-ask. */
+  kind: ModelAttemptKind;
+  /**
+   * How this request ended. A key the provider rejected is `failed`; the first answer of a
+   * structured call that had to be re-asked is a `success` - the request worked, its payload was
+   * not usable, and the provider billed for it either way.
+   */
+  outcome: ModelAttemptOutcome;
   providerId: string;
   modelId: string;
+  /** The endpoint the request went out through, so a failover is visible as a different endpoint. */
+  endpointId: string;
+  /**
+   * Masked label of the key that signed this request (`****1234`), never the key. `""` means the
+   * runtime could not name one: no key was available at all (so nothing was sent), or the failure
+   * was not a key-level one and the pool threw before it reported which key was in use. The ledger
+   * stores the label as it stands and never infers billing from it.
+   */
   credentialLabel: string;
+  /** Why it failed, or `""` when it produced a payload. */
   error: string;
+  /** What the provider reported for this request alone, or absent when it reported nothing. */
+  usage?: TokenUsage;
 };
 
 export type ChatResponse = {
@@ -348,7 +384,15 @@ export type ChatResponse = {
   providerId: string;
   /** Masked label of the key that signed the call (`****1234`), never the key. */
   credentialLabel: string;
-  /** Failed calls that preceded this one; empty on a first-try success. */
+  /**
+   * Every request this call sent, in order; the last entry is the one that produced this response.
+   * Failed entries carry `error`, the winner carries `usage`.
+   *
+   * This used to hold the failures only, which made "which key was rejected" answerable and "what
+   * actually ran" not - and left a caller (and the ledger) unable to see the shape of the call it
+   * had just paid for. `usage` above is this response's own figure; `attempts[i].usage` is what
+   * each request reported.
+   */
   attempts: ModelAttempt[];
   usage?: TokenUsage;
   route: ModelRoute;
@@ -364,6 +408,70 @@ export type ImageGenerationRequest = {
 
 export type ImageGenerationResponse = {
   images: Array<{ base64: string; mimeType: string }>;
+  model: string;
+  providerId: string;
+  credentialLabel: string;
+  attempts: ModelAttempt[];
+  route: ModelRoute;
+};
+
+/**
+ * One stretch of recognised speech.
+ *
+ * A segment is what the *engine* reported, never a split this app made: `startMs`/`endMs` are the
+ * engine's own marks, and an engine that answers without segmentation yields no segments at all rather
+ * than one segment spanning a duration nobody measured (CI-P3-02 of
+ * `docs/coolpilot-capability-integration-plan.md`).
+ */
+export type TranscriptionSegment = {
+  index: number;
+  /**
+   * Milliseconds from the start of the media, or `null` when the engine did not report a position.
+   *
+   * Nullable on purpose: the OpenAI-compatible wire format carries absolute segment times, while the
+   * Windows recognizer reports how long each utterance lasted but not where it sat in the file. A
+   * timestamp nobody measured is recorded as absent, never approximated into a number a user would
+   * read as a fact (CI-P3-02).
+   */
+  startMs: number | null;
+  endMs: number | null;
+  text: string;
+};
+
+/**
+ * A speech-to-text request: the bytes to recognise, plus the hints an engine may honour.
+ *
+ * `bytes` is a `Uint8Array` and not a path, because this module is importable from a client component
+ * and a path here would hand the decision "which file is read" to the adapter instead of the caller.
+ */
+export type TranscriptionRequest = {
+  audio: { name: string; mimeType: string; bytes: Uint8Array };
+  /** A BCP-47-ish hint (`en-US`, `zh-CN`); an adapter sends what its wire format accepts. */
+  language?: string;
+  /** Optional vocabulary/context hint, for engines that support one. */
+  prompt?: string;
+  model?: string;
+  providerId?: string;
+  preferProviderId?: string;
+  forceUnhealthyCredential?: boolean;
+};
+
+export type TranscriptionResponse = {
+  text: string;
+  /** Empty when the engine answered without segmentation. Never invented from the text. */
+  segments: TranscriptionSegment[];
+  /** What the engine reported, or "" when it reported nothing. */
+  language: string;
+  /** Milliseconds, or `null` when no duration was reported. */
+  durationMs: number | null;
+  /**
+   * How the engine was actually asked to answer.
+   *
+   * `verbose_json` carries segments, language and duration; `json` carries text alone. A provider that
+   * refuses the richer format is not a failure - it is a transcript without time marks, and this field
+   * is what says so, instead of an empty `segments` array having to mean two different things.
+   */
+  responseFormat: "verbose_json" | "json";
   model: string;
   providerId: string;
   credentialLabel: string;

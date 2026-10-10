@@ -1,28 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { Bot, Globe2, LayoutGrid, List, Plus, Search, X } from "lucide-react";
+import { resolveArtifactImageSrc } from "@/lib/artifact-image-url";
 import type { ContentItem, ContentPage } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
-import { apiPost, swrFetcher } from "@/lib/api-client";
+import { localizedPath } from "@/lib/i18n-config";
+import { apiGet, apiPost, swrFetcher } from "@/lib/api-client";
 import { htmlToPlainText, looksLikeHtml } from "@/lib/article-themes";
+import { articleEditorHref } from "@/lib/editor-link";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useConsoleHeaderActions } from "@/components/ui/console-header-actions";
 import { ConsolePagination, useClampConsolePage } from "@/components/ui/console-pagination";
 import { ConsoleNotice, consoleInputClass } from "@/components/ui/console-surface";
-
-function imageUrl(imagePath?: string) {
-  if (!imagePath) return "";
-  if (/^https?:\/\//i.test(imagePath)) return imagePath;
-  const fileName = imagePath.split(/[\\/]/).pop() ?? "";
-  return fileName ? `/api/agent/artifacts?file=${encodeURIComponent(fileName)}` : "";
-}
+import { contentStatusClass, contentStatusLabelKeys } from "@/components/creation/content-labels";
+import ContentLifecyclePanel from "@/components/creation/content-lifecycle-panel";
+import PlatformVersionsPanel from "@/components/creation/platform-versions-panel";
 
 function metadataString(metadata: Record<string, unknown>, key: string) {
   const value = metadata[key];
   return typeof value === "string" && value.trim() ? value : "";
+}
+
+/** A stored number (a version, say). Anything else reads as "absent" rather than as `NaN`. */
+function metadataNumber(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 /** Article bodies are stored as rich HTML, so the details view shows plain text. */
@@ -34,7 +40,7 @@ const CONTENT_VIEW_STORAGE_KEY = "content-library-view";
 type ContentView = "grid" | "list";
 
 export default function ContentLibraryPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -71,6 +77,25 @@ export default function ContentLibraryPage() {
       window.queueMicrotask(() => setView(storedView));
     }
   }, []);
+
+  // CI-P2-04: the calendar links here with `?open=<contentItemId>`, so a plan or a publish can be
+  // followed to the content item it belongs to. Read from `window.location` rather than
+  // `useSearchParams`, which keeps this page free of a Suspense boundary.
+  useEffect(() => {
+    const openId = new URLSearchParams(window.location.search).get("open");
+    if (!openId) return;
+    let cancelled = false;
+    void apiGet<ContentItem>(`/api/content/${encodeURIComponent(openId)}`)
+      .then((item) => {
+        if (!cancelled) setSelectedItem(item);
+      })
+      .catch(() => {
+        if (!cancelled) setNotice(t("contentOpenMissing"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
 
   function selectView(nextView: ContentView) {
     setView(nextView);
@@ -122,7 +147,7 @@ export default function ContentLibraryPage() {
     });
   }
 
-  const selectedImageUrl = imageUrl(selectedItem?.imagePath);
+  const selectedImageUrl = resolveArtifactImageSrc(selectedItem?.imagePath);
 
   return (
     <div className="space-y-6">
@@ -218,17 +243,17 @@ export default function ContentLibraryPage() {
                 className="flex min-h-40 flex-col justify-between border-b border-border py-4 text-left transition hover:bg-sky-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
               >
                 <div className="flex min-w-0 gap-3">
-                  {imageUrl(item.imagePath) ? (
+                  {resolveArtifactImageSrc(item.imagePath) ? (
                     <div className="size-24 shrink-0 overflow-hidden rounded-2xl border border-zinc-100 bg-zinc-50">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={imageUrl(item.imagePath)} alt="" className="h-full w-full object-cover" />
+                      <img src={resolveArtifactImageSrc(item.imagePath)} alt="" className="h-full w-full object-cover" />
                     </div>
                   ) : null}
                   <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex items-start justify-between gap-3">
                     <h3 className="min-w-0 flex-1 truncate font-semibold text-zinc-900">{item.title || t("contentNoValue")}</h3>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${item.status === "ready" ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>
-                      {item.status === "ready" ? t("ready") : t("draft")}
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${contentStatusClass[item.status]}`}>
+                      {t(contentStatusLabelKeys[item.status])}
                     </span>
                   </div>
                   <p className="line-clamp-3 text-sm leading-relaxed text-zinc-600">{item.postReadyText || item.body}</p>
@@ -262,10 +287,10 @@ export default function ContentLibraryPage() {
                         onClick={() => openContentItem(item)}
                         className="flex max-w-xs items-center gap-3 text-left font-semibold text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                       >
-                        {imageUrl(item.imagePath) ? (
+                        {resolveArtifactImageSrc(item.imagePath) ? (
                           <span className="size-12 shrink-0 overflow-hidden rounded-xl border border-zinc-100 bg-zinc-50">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={imageUrl(item.imagePath)} alt="" className="h-full w-full object-cover" />
+                            <img src={resolveArtifactImageSrc(item.imagePath)} alt="" className="h-full w-full object-cover" />
                           </span>
                         ) : null}
                         <span className="line-clamp-2">{item.title || t("contentNoValue")}</span>
@@ -275,8 +300,8 @@ export default function ContentLibraryPage() {
                       <p className="line-clamp-2">{item.postReadyText || item.body}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${item.status === "ready" ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>
-                        {item.status === "ready" ? t("ready") : t("draft")}
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${contentStatusClass[item.status]}`}>
+                        {t(contentStatusLabelKeys[item.status])}
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-zinc-500">{new Date(item.createdAt).toLocaleDateString()}</td>
@@ -364,6 +389,13 @@ export default function ContentLibraryPage() {
               </div>
             </div>
 
+            <ContentLifecyclePanel contentItemId={selectedItem.id} onChanged={() => void reloadContent()} />
+
+            {/* 多平台内容版本管理 UI (CI-P2-07): the UI consumer of the CI-P2-05 model, mounted beside the
+                lifecycle panel the same way CI-P2-04 mounted that one. It only reads and writes the item's
+                own `metadata.platformVersions` - nothing here publishes. */}
+            <PlatformVersionsPanel contentItemId={selectedItem.id} onChanged={() => void reloadContent()} />
+
             {selectedImageUrl ? (
               <figure className="min-w-0 rounded-[28px] border border-zinc-100 bg-zinc-50 p-4">
                 <figcaption className="mb-2 text-xs font-semibold uppercase text-zinc-400">{t("contentImage")}</figcaption>
@@ -388,6 +420,48 @@ export default function ContentLibraryPage() {
               <h3 className="mb-2 text-xs font-semibold uppercase text-zinc-400">{t("contentSources")}</h3>
               <p className="rounded-[28px] bg-zinc-50 p-4 leading-6 text-zinc-700 [overflow-wrap:anywhere]">{selectedItem.sourceUrls.join("\n") || t("contentNoValue")}</p>
             </section>
+            {/* 「文章 → 素材」的追溯 (CI-P3-03): the generation route records which material it read and which
+                version - here is the one place that fact is shown back. Rendered only when the article
+                really carries one, so a page written without a material says nothing rather than "—". */}
+            {metadataString(selectedItem.metadata, "researchMaterialId") ? (
+              <section className="min-w-0">
+                <h3 className="mb-2 text-xs font-semibold uppercase text-zinc-400">{t("contentResearchSource")}</h3>
+                <div className="space-y-1 rounded-[28px] bg-zinc-50 p-4 leading-6 text-zinc-700">
+                  <p className="[overflow-wrap:anywhere]">
+                    {t("contentResearchMaterial", {
+                      id: metadataString(selectedItem.metadata, "researchMaterialId"),
+                      version:
+                        metadataNumber(selectedItem.metadata, "researchMaterialVersion") ?? t("contentNoValue"),
+                    })}
+                  </p>
+                  {metadataNumber(selectedItem.metadata, "researchExtractionRevision") !== null ? (
+                    <p className="[overflow-wrap:anywhere] text-zinc-500">
+                      {t("contentResearchExtraction", {
+                        revision: metadataNumber(selectedItem.metadata, "researchExtractionRevision") as number,
+                        task: metadataString(selectedItem.metadata, "researchExtractionTaskId") || t("contentNoValue"),
+                      })}
+                    </p>
+                  ) : null}
+                  <Link
+                    href={localizedPath(locale, "/creation/research")}
+                    className="inline-block text-sky-600 hover:underline"
+                  >
+                    {t("contentResearchOpen")}
+                  </Link>
+                </div>
+              </section>
+            ) : null}
+            {/* CI-SC-01: the way on from 内容库 into the editor. `?edit=<id>` is the entry the 文章创作
+                workspace already understands (`src/lib/editor-link.ts`), so this is a link, not state:
+                only article-kind items have an editor to open, and everything else says nothing. */}
+            {metadataString(selectedItem.metadata, "type") === "article" ? (
+              <Link
+                href={articleEditorHref(locale, selectedItem.id)}
+                className="inline-block rounded-full bg-sky-50 px-4 py-2 font-medium text-sky-700 transition hover:bg-sky-100"
+              >
+                {t("awOpenEditor")}
+              </Link>
+            ) : null}
             <p className="text-xs text-zinc-400 [overflow-wrap:anywhere]">{t("contentCreatedAt")}: {new Date(selectedItem.createdAt).toLocaleString()}</p>
           </div>
         ) : null}

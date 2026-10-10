@@ -18,6 +18,7 @@ import {
   Plus,
   Redo2,
   RefreshCw,
+  Save,
   Sparkles,
   Trash,
   Undo2,
@@ -28,7 +29,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { apiPost } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
+import type { ContentItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { mindMapContentDraft } from "./mindmap-content";
 import { parseMindMapDocument, serializeMindMapDocument } from "./mindmap-document";
 import { useMindMapHistory } from "./mindmap-history";
 import {
@@ -140,6 +143,7 @@ export default function MindMapCanvas() {
   const [panning, setPanning] = useState(false);
   const [aiTopic, setAiTopic] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -687,6 +691,30 @@ export default function MindMapCanvas() {
     [direction, downloadBlob, layout, t, theme, themeId],
   );
 
+  /**
+   * 存入内容库 (CI-SC-01): the canvas's only write into the content pipeline.
+   *
+   * It goes through the same route the article generators use (`POST /api/content`), so the stored
+   * item is a normal draft article that 文章创作 lists by `metadata.type` and opens in the editor -
+   * this is an *entry*, not a second storage path (same reasoning as `src/lib/editor-link.ts`). The
+   * payload - the branch outline, three heading levels, root topic as the title - is built by
+   * `mindMapContentDraft()`, which is a pure function so the shape is testable without a browser.
+   */
+  const saveToLibrary = useCallback(async () => {
+    if (saveLoading) return;
+    setSaveLoading(true);
+    setNotice(null);
+    try {
+      const draft = mindMapContentDraft(rootRef.current, t("mmDefaultRoot"));
+      const item = await apiPost<ContentItem>("/api/content", draft);
+      setNotice({ tone: "success", message: t("mmSaveToLibraryDone", { title: item.title }) });
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : t("mmSaveToLibraryFailed") });
+    } finally {
+      setSaveLoading(false);
+    }
+  }, [saveLoading, t]);
+
   const svgLeft = layout.bounds.minX - CANVAS_PADDING;
   const svgTop = layout.bounds.minY - CANVAS_PADDING;
   const svgWidth = layout.bounds.width + CANVAS_PADDING * 2;
@@ -777,6 +805,13 @@ export default function MindMapCanvas() {
               </div>
             ) : null}
           </div>
+          {/* CI-SC-01: the one button that carries the map out of the canvas and into 文章创作. It sits
+              next to 汇出 because both "finish" the map - one writes a file, this one writes an article
+              the workspace can list and open. */}
+          <Button variant="outline" size="sm" loading={saveLoading} onClick={() => void saveToLibrary()}>
+            <Save />
+            {t("mmSaveToLibrary")}
+          </Button>
           <div className="flex items-center gap-1 rounded-full border border-sky-100 bg-white pl-2">
             <Palette className="size-4 text-sky-500" />
             <select

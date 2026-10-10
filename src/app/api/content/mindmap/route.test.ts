@@ -37,6 +37,7 @@ const {
   prepareChatModel,
   prepareModel,
   qwenCatalog,
+  refuseEveryAiBudgetCall,
   resetRuntime,
   stubFetch,
   unavailable,
@@ -306,6 +307,29 @@ describe("POST /api/content/mindmap on aiRuntime", () => {
     expect(payload.code).toBe("MODEL_UPSTREAM_NO_CONTENT");
     expect(payload.details.providerId).toBe("qwen");
     expect(chatCalls(calls)).toHaveLength(1);
+    expectCors(response);
+  });
+
+  it("answers the gate's own 402 instead of asking the model, and books nothing", async () => {
+    // The model is configured through a catalog read first, then the transport is emptied: from this point
+    // on, any call this request makes is one the case will see.
+    stubFetch([qwenModels]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    await refuseEveryAiBudgetCall();
+    const calls = stubFetch([]);
+
+    const response = await generate({ topic });
+    const payload = await response.json();
+
+    // The gate's own code and status, not this route's 500: a refusal is an answer the caller can act on,
+    // and the catch above must not turn it into a provider failure for a request nobody sent.
+    expect(response.status).toBe(402);
+    expect(payload.ok).toBe(false);
+    expect(payload.code).toBe("AI_BUDGET_EXCEEDED");
+    expect(calls).toEqual([]);
+    // Nothing was invented for the canvas either: the markdown key exists only on the 200 envelope.
+    expect(payload.data).toBeUndefined();
+    expect(await listUsageRecords({ limit: 10 })).toEqual([]);
     expectCors(response);
   });
 });

@@ -61,6 +61,21 @@ describe("GET /api/agent/artifacts", () => {
     expect(await response.text()).toBe("png-bytes");
   });
 
+  it("serves a GIF from the same section", async () => {
+    // F1 of `docs/p1-card-01-defect-f1-f3-plan.md`: `.gif` is inside the library's set and the upload
+    // whitelist, so a stored GIF is an input this route is asked for in the app - it used to answer
+    // 404 because the content-type map stopped at `.webp`.
+    fs.mkdirSync(path.join(workspace, "artifacts"), { recursive: true });
+    fs.writeFileSync(path.join(workspace, "artifacts", "anim.gif"), "gif-bytes");
+
+    const response = await request("anim.gif");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/gif");
+    expect(response.headers.get("cache-control")).toBe("private, max-age=300");
+    expect(await response.text()).toBe("gif-bytes");
+  });
+
   it("answers a missing file without initializing the workspace", async () => {
     expect((await request("missing.png")).status).toBe(404);
 
@@ -75,5 +90,8 @@ describe("GET /api/agent/artifacts", () => {
     expect((await request("../credential-vault.json")).status).toBe(404);
     expect((await request("")).status).toBe(404);
     expect((await request("notes.txt")).status).toBe(404);
+    // F1 fixes the missing `.gif` mapping, not "the map accepts image types": an image extension
+    // outside the set stays a 404.
+    expect((await request("logo.svg")).status).toBe(404);
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AiWritingConfig, AiWritingMaterial, AiWritingPositioning } from "@/lib/ai-writing";
-import type { PositionRecord, ProductRecord } from "@/lib/types";
+import type { AiWritingBrand, AiWritingConfig, AiWritingMaterial, AiWritingPositioning } from "@/lib/ai-writing";
+import type { BrandRecord, PositionRecord, ProductRecord } from "@/lib/types";
 
 /**
  * `api/ai-writing/generate` on `aiRuntime` (batch P3-A3 of `docs/generate-migration-p3.md`).
@@ -37,8 +37,10 @@ const { audiencePrompt, buildArticlePrompt, buildArticleSystemPrompt, industryDo
 );
 const { listContentItems, listUsageRecords } = await import("@/db/repository");
 const { createKnowledgeBase, listKnowledgeBase } = await import("@/db/repositories/knowledge-base");
+const { createBrand } = await import("@/db/repositories/brands");
 const { createPosition } = await import("@/db/repositories/positions");
 const { createProduct } = await import("@/db/repositories/products");
+const { createTopic, getTopic } = await import("@/db/repositories/topics");
 const { selectKnowledgeReferences } = await import("@/lib/knowledge-base");
 const { countTextCharacters } = await import("@/lib/usage");
 const fs = await import("node:fs/promises");
@@ -70,16 +72,21 @@ function configFixture(overrides: Partial<AiWritingConfig> = {}): AiWritingConfi
     deAi: true,
     knowledgeMode: "position",
     positioningId: "",
+    brandId: "",
     ...overrides,
   };
 }
 
-function generateRequest(overrides: { config?: Partial<AiWritingConfig>; productIds?: string[] } = {}) {
+function generateRequest(
+  overrides: { config?: Partial<AiWritingConfig>; productIds?: string[]; topicId?: string } = {},
+) {
   return jsonRequest(generateUrl, {
     config: configFixture(overrides.config),
     topics: [topic],
     productIds: overrides.productIds ?? [],
     freeText,
+    // Omitted unless a case asks for it, so every existing payload stays exactly what it was.
+    ...(overrides.topicId ? { topicId: overrides.topicId } : {}),
   });
 }
 
@@ -117,13 +124,19 @@ function materialsOf(products: ProductRecord[]): AiWritingMaterial {
  * the route's *assembly* (material, the selected products, the positioning's knowledge references, the
  * audience and industry labels) instead of a copy of the string.
  */
-async function expectedPrompt(config: AiWritingConfig, positionId: string, products: ProductRecord[]) {
+async function expectedPrompt(
+  config: AiWritingConfig,
+  positionId: string,
+  products: ProductRecord[],
+  brand?: AiWritingBrand,
+) {
   return buildArticlePrompt({
     config,
     materials: materialsOf(products),
     knowledge: selectKnowledgeReferences(await listKnowledgeBase(), positionId),
     audienceLabel: audiencePrompt[config.audience],
     industryLabel: industryDomainPrompt[config.industry],
+    brand,
   });
 }
 
@@ -132,7 +145,7 @@ async function expectedPrompt(config: AiWritingConfig, positionId: string, produ
  * whose photo sits on disk. Created once for the file, because `resetRuntime()` resets the runtime's own
  * tables, not these.
  */
-let fixture: { position: PositionRecord; product: ProductRecord };
+let fixture: { position: PositionRecord; product: ProductRecord; brand: BrandRecord };
 
 beforeAll(async () => {
   const position = await createPosition({
@@ -163,7 +176,17 @@ beforeAll(async () => {
   });
   if (!product) throw new Error("product fixture was not created");
 
-  fixture = { position, product };
+  const brand = await createBrand({
+    name: "Clipversity",
+    description: "跨境内容工作室",
+    targetAudience: "做外贸的中小团队",
+    tone: "专业但不生硬",
+    keywords: ["选品"],
+    bannedWords: ["最好用"],
+  });
+  if (!brand) throw new Error("brand fixture was not created");
+
+  fixture = { position, product, brand };
 });
 
 describe("POST /api/ai-writing/generate on aiRuntime", () => {
@@ -199,9 +222,18 @@ describe("POST /api/ai-writing/generate on aiRuntime", () => {
       sourceUrls: [topic.url],
     });
     // The article's cover is the copy in the artifacts directory, and the product photo really was copied.
+    // C4 stores the bare file name - the identity the library and the publish path both address - so the
+    // file is read where the workspace keeps it, not at an absolute path the item no longer claims.
     expect(payload.data.images).toHaveLength(1);
-    await expect(fs.stat(payload.data.images[0])).resolves.toBeTruthy();
-    expect(payload.data.item.imagePath).toBe(payload.data.images[0]);
+    const cover = payload.data.images[0] as string;
+    expect(cover).toMatch(/^writing-\d+-[A-Za-z0-9_-]{8}\.png$/);
+    expect(await fs.readFile(path.join(routeTestDataDir, "artifacts", cover), "utf-8")).toBe("not-a-real-png");
+    expect(payload.data.item.imagePath).toBe(cover);
+    // And the copy's provenance is stored beside it: a bare name on its own says nothing about where the
+    // image came from, which is what the item has to answer after a restart and a reopen.
+    expect(payload.data.item.metadata.imageAssets).toEqual([
+      expect.objectContaining({ reference: cover, fileName: cover, source: "copied", external: false }),
+    ]);
     // What the route reports is what the runtime reported - not a hard-coded pair.
     expect(payload.data.provider).toBe("qwen");
     expect(payload.data.model).toBe("qwen3-max");
@@ -355,5 +387,92 @@ describe("POST /api/ai-writing/generate on aiRuntime", () => {
     // The usage row reports both attempts merged, exactly as the runtime reports them.
     const usage = (await listUsageRecords({ limit: 10 })).find((row) => row.contentItemId === payload.data.item.id);
     expect(usage).toMatchObject({ inputTokens: 22, outputTokens: 14, totalTokens: 36 });
+  });
+
+  it("keeps the topic it was opened from: the id on the article, the article on the topic (CI-P2-01)", async () => {
+    stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const topicRecord = await createTopic({ title: topic.title, source: topic.source, sourceUrl: topic.url });
+    if (!topicRecord) throw new Error("topic fixture was not created");
+
+    const response = await POST(
+      generateRequest({ config: configFixture({ positioningId: fixture.position.id }), topicId: topicRecord.id }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    // Provenance on the article: the id the topic list sent, next to the material it already carried.
+    expect(payload.data.item.metadata).toMatchObject({ type: "article", topicId: topicRecord.id });
+    // And the link back, which is what lets the topic row open what it produced.
+    expect((await getTopic(topicRecord.id))!.contentItemId).toBe(payload.data.item.id);
+  });
+
+  it("still answers the article when the topic it names is gone, and links nothing", async () => {
+    stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+
+    const response = await POST(generateRequest({ config: configFixture(), topicId: "no-such-topic" }));
+    const payload = await response.json();
+
+    // The article is the primary effect and is already stored, so a link with nothing to link to is
+    // reported and the generation still answers: it is not a 500 in the user's face.
+    expect(response.status).toBe(201);
+    expect(payload.data.item.metadata.topicId).toBe("no-such-topic");
+    expect(await getTopic("no-such-topic")).toBeNull();
+  });
+
+  it("injects the brand the config selected, and records the version it was written as", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const config = configFixture({ brandId: fixture.brand.id });
+
+    const response = await POST(generateRequest({ config }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    // The id the payload selected is the id the article records, next to the version it was written as
+    // (P2-02-04), and the provenance carries the same selection because the console's config is stored.
+    expect(payload.data.item.metadata).toMatchObject({
+      brandId: fixture.brand.id,
+      brandVersion: fixture.brand.updatedAt,
+      aiWriting: { brandId: fixture.brand.id },
+    });
+
+    // And it really reached the model: the brand's voice is in the system turn ...
+    const wire = bodyOf(chatCalls(calls)[0]);
+    const [systemTurn, userTurn] = wire.messages ?? [];
+    expect(systemTurn?.content).toBe(
+      buildArticleSystemPrompt({ config, positioning: positioningOf(fixture.position), brand: fixture.brand }),
+    );
+    // ... and this route's own article prompt is the one the brand's keywords landed in.
+    expect(userTurn?.content ?? "").toContain("品牌关键词：选品");
+    expect(userTurn?.content ?? "").toContain(fixture.brand.targetAudience);
+  });
+
+  it("writes as no brand when the payload names none, which is what every older client does", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+
+    const response = await POST(generateRequest({ config: configFixture() }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.data.item.metadata).toMatchObject({ brandId: "", brandVersion: 0 });
+    const system = (bodyOf(chatCalls(calls)[0]).messages ?? [])[0]?.content ?? "";
+    expect(system).not.toContain("品牌");
+    // The positioning, including its banned word, still applies: no brand means no brand context only.
+    expect(system).toContain(fixture.position.personaRole);
   });
 });

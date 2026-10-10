@@ -3,14 +3,21 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, ExternalLink, Loader2, SkipForward, TriangleAlert, XCircle } from "lucide-react";
 import { apiPost } from "@/lib/api-client";
+import { offeredDraftFields, type PublishDraftEvidence } from "@/lib/browser-preview-shared";
 import { useI18n } from "@/lib/i18n";
+import type { RunLifecycleStatus } from "@/lib/publish-run-teardown";
 import { Button } from "@/components/ui/button";
 import { consoleInputClass } from "@/components/ui/console-surface";
 import type { TranslationKey } from "@/lib/locale-resources";
 import type { AccountRecord, ContentItem } from "@/lib/types";
 import { videoPathFromMetadata } from "@/lib/video-library";
 
-type RunStatus = "queued" | "preparing" | "editing" | "published" | "discarded" | "failed";
+/**
+ * The tab's status vocabulary *is* the teardown guard's (`src/lib/publish-run-teardown.ts`), so
+ * "which run is still holding a session" is answered in one place: the panel renders it and the
+ * dialog asks about it before closing (C2-1d).
+ */
+type RunStatus = RunLifecycleStatus;
 
 type RunTab = {
   accountId: string;
@@ -19,12 +26,26 @@ type RunTab = {
   status: RunStatus;
   error?: string;
   url?: string;
+  /** What the prefill's page took, once the draft step has answered (C2-1a). */
+  evidence?: PublishDraftEvidence;
+};
+
+/**
+ * The verify's answer (C2-1b of `docs/assisted-publishing-engine.md`). `outcome` is optional so a
+ * panel talking to a server that only knows `published` still works: an answer without it is read as
+ * "keep waiting".
+ */
+type VerifyResponse = {
+  published: boolean;
+  outcome?: "waiting" | "published" | "unknown";
+  url: string;
 };
 
 const statusLabelKey: Record<RunStatus, TranslationKey> = {
   queued: "publishTabQueued",
   preparing: "publishTabPreparing",
   editing: "publishTabEditing",
+  unknown: "publishTabUnknown",
   published: "publishResultPublished",
   discarded: "publishTabDiscarded",
   failed: "publishResultFailed",
@@ -34,12 +55,20 @@ const statusToneClass: Record<RunStatus, string> = {
   queued: "bg-zinc-100 text-zinc-600",
   preparing: "bg-amber-100 text-amber-700",
   editing: "bg-sky-100 text-sky-700",
+  unknown: "bg-orange-100 text-orange-700",
   published: "bg-emerald-100 text-emerald-700",
   discarded: "bg-zinc-100 text-zinc-600",
   failed: "bg-rose-100 text-rose-700",
 };
 
 const settledStatuses: RunStatus[] = ["published", "discarded", "failed"];
+
+/** The three pieces a draft can be evidence about, as the panel names them. */
+const draftFieldLabelKey: Record<"title" | "text" | "media", TranslationKey> = {
+  title: "publishEvidenceTitle",
+  text: "publishEvidenceText",
+  media: "publishEvidenceMedia",
+};
 
 /**
  * Maps a pointer position on the live preview back to a 0..1 coordinate in the
@@ -65,8 +94,12 @@ function pointerToFrame(img: HTMLImageElement, clientX: number, clientY: number)
  * Assisted (human-in-the-loop) publish runner. For each selected platform it
  * opens the editor, prefills the draft, and hands control to the author — who
  * edits in the embedded live view and clicks publish on the platform page. It
- * polls for success, then moves to the next platform. Abandoning a tab
- * best-effort deletes the platform draft.
+ * polls for success, then moves to the next platform.
+ *
+ * Since C2-1a it also reports what the prefill's page actually took, and a draft whose page took
+ * nothing fails the run here rather than being shown as an editor to finish. Since C2-1d, asking to
+ * close no longer stops a live session by itself: the request goes up to the dialog, which asks
+ * first when a run would be abandoned (`src/lib/publish-run-teardown.ts`).
  */
 export function PublishRunPanel({
   item,
@@ -75,6 +108,8 @@ export function PublishRunPanel({
   fullscreen = false,
   onClose,
   onPublished,
+  onRequestClose,
+  onStatusesChange,
 }: {
   item: ContentItem;
   type: string;
@@ -83,6 +118,14 @@ export function PublishRunPanel({
   fullscreen?: boolean;
   onClose: () => void;
   onPublished?: () => void;
+  /**
+   * Close asked for by the author. `onClose` stays the panel's own "this run is over" (the
+   * all-published auto-close); this is the author asking to leave, and it goes up to the dialog,
+   * which is the only place that can ask whether the live runs should be abandoned (C2-1d).
+   */
+  onRequestClose?: () => void;
+  /** Reports the tabs' statuses up, so the dialog knows whether a close would cost anything. */
+  onStatusesChange?: (statuses: RunStatus[]) => void;
 }) {
   const { t } = useI18n();
   const [tabs, setTabs] = useState<RunTab[]>(() =>
@@ -116,7 +159,12 @@ export function PublishRunPanel({
     if (runToken.current !== token) return;
 
     try {
-      const data = await apiPost<{ url: string }>("/api/publish/draft", {
+      const data = await apiPost<{
+        url: string;
+        drafted?: boolean;
+        evidence?: PublishDraftEvidence;
+        loginRequired?: boolean;
+      }>("/api/publish/draft", {
         accountIds: [account.id],
         title: item.title,
         text: item.postReadyText || item.body,
@@ -128,7 +176,22 @@ export function PublishRunPanel({
         contentItemId: item.id,
       });
       if (runToken.current !== token) return;
-      patchTab(index, { status: "editing", url: data.url });
+      // C2-1a: `drafted` is the prefill's own answer about the page it is leaving the author on. A
+      // page that took none of the content is not an editor, so this run fails here - with the page
+      // still in front of the author - instead of showing 待编辑发布 over an empty draft. The old
+      // panel read the response's URL only, which is how the smoke's 小红书 run reported "ready to
+      // edit" while the prefill had walked through the creator home matching nothing.
+      if (data.loginRequired) {
+        patchTab(index, { status: "failed", error: t("publishDraftLoginRequired"), url: data.url });
+        advanceFrom(index, token);
+        return;
+      }
+      if (data.drafted === false) {
+        patchTab(index, { status: "failed", error: t("publishDraftEmpty"), url: data.url });
+        advanceFrom(index, token);
+        return;
+      }
+      patchTab(index, { status: "editing", url: data.url, evidence: data.evidence });
     } catch (error) {
       patchTab(index, { status: "failed", error: error instanceof Error ? error.message : String(error) });
       advanceFrom(index, token);
@@ -154,28 +217,50 @@ export function PublishRunPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // C2-1d: whether closing would abandon work is decided from these statuses, and they live here.
+  // The dialog keeps the copy it is given and asks its own question; the panel never stops a session
+  // for a close the author has not confirmed.
+  useEffect(() => {
+    onStatusesChange?.(tabs.map((tab) => tab.status));
+  }, [tabs, onStatusesChange]);
+
   const activeTab = tabs[active];
-  const activeLive = activeTab ? activeTab.status === "preparing" || activeTab.status === "editing" : false;
-  const activeEditing = activeTab?.status === "editing";
+  const activeLive = activeTab ? activeTab.status === "preparing" || activeTab.status === "editing" || activeTab.status === "unknown" : false;
+  // `unknown` keeps everything the author can still do: the page is theirs to finish - only the
+  // *claim* is withheld, not the session, the view or the controls (C2-1b).
+  const activeEditing = activeTab?.status === "editing" || activeTab?.status === "unknown";
   const allSettled = tabs.every((tab) => settledStatuses.includes(tab.status));
   const allSucceeded = tabs.every((tab) => tab.status === "published");
 
   // The live frame is streamed by <LiveFrame/> below, which owns its own polling
   // so the ~5×/s bitmap refresh only re-renders the preview, not this whole panel.
 
-  // Poll for publish success while the author edits.
+  // Poll for the platform's answer while the author finishes on the page.
+  //
+  // `unknown` keeps polling on purpose: the platform may confirm a moment later, and a run that went
+  // quiet would look exactly like one that is still waiting. The tab only moves when the answer
+  // changes, so a steady `waiting` does not re-render the panel every 2.5 s.
   useEffect(() => {
-    if (!activeTab || activeTab.status !== "editing") return;
+    if (!activeTab || (activeTab.status !== "editing" && activeTab.status !== "unknown")) return;
     const token = runToken.current;
     const index = active;
     const account = activeTab;
     const timer = setInterval(async () => {
       try {
-        const res = await apiPost<{ published: boolean; url: string }>("/api/publish/verify", { accountId: account.accountId });
-        if (res.published && runToken.current === token) {
+        const res = await apiPost<VerifyResponse>("/api/publish/verify", { accountId: account.accountId });
+        if (runToken.current !== token) return;
+        if (res.published) {
           patchTab(index, { status: "published", url: res.url });
           void stopAccount(account.accountId);
           advanceFrom(index, token);
+          return;
+        }
+        // C2-1b: the page left the draft and the server cannot certify a post. Say that much, rather
+        // than showing "Ready to edit" for a page the draft is no longer on - and rather than
+        // claiming a publish that nothing observed.
+        const next: RunStatus = res.outcome === "unknown" ? "unknown" : "editing";
+        if (next !== account.status) {
+          patchTab(index, { status: next, url: res.url });
         }
       } catch {
         // transient; keep polling
@@ -237,7 +322,8 @@ export function PublishRunPanel({
 
   async function skipActive() {
     const tab = tabs[active];
-    if (!tab || tab.status !== "editing") return;
+    // `unknown` is discardable too: the author can give up on a run the server cannot certify.
+    if (!tab || (tab.status !== "editing" && tab.status !== "unknown")) return;
     const token = runToken.current;
     patchTab(active, { status: "discarded" });
     await apiPost("/api/publish/discard", { accountId: tab.accountId }).catch(() => undefined);
@@ -248,6 +334,19 @@ export function PublishRunPanel({
   async function handleClose() {
     await Promise.all(accounts.map((account) => stopAccount(account.id)));
     onClose();
+  }
+
+  /**
+   * The author asked to leave (the 关闭 button). Nothing is stopped here (C2-1d): the dialog owns the
+   * decision, because it is the one that can ask before a live session - and the draft on it - is
+   * thrown away.
+   */
+  function requestClose() {
+    if (onRequestClose) {
+      onRequestClose();
+      return;
+    }
+    void handleClose();
   }
 
   // Auto-close once every platform published.
@@ -334,6 +433,27 @@ export function PublishRunPanel({
         ) : null}
       </div>
 
+      {/*
+        C2-1a: what the prefill's page actually took, shown where the author is about to work. A
+        `✗` here is a part of the draft the platform refused, so the author knows to type or upload it
+        themselves instead of publishing something that is quietly missing half of what they wrote.
+      */}
+      {activeTab?.evidence && activeEditing ? (
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          <li className="font-medium text-zinc-500">{t("publishPreparedHeading")}</li>
+          {offeredDraftFields(activeTab.evidence).map(({ field, outcome }) => (
+            <li key={field} className="inline-flex items-center gap-1 text-zinc-600">
+              {outcome === "filled" ? (
+                <CheckCircle2 size={13} className="text-emerald-500" />
+              ) : (
+                <XCircle size={13} className="text-rose-500" />
+              )}
+              {t(draftFieldLabelKey[field])}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       {activeTab && activeEditing ? (
         <div className="space-y-2">
           <div className="flex gap-2">
@@ -376,7 +496,9 @@ export function PublishRunPanel({
               {modLabel}V
             </Button>
           </div>
-          <p className="text-xs text-zinc-500">{t("publishEditingHint")}</p>
+          <p className={`text-xs ${activeTab?.status === "unknown" ? "text-orange-600" : "text-zinc-500"}`}>
+            {activeTab?.status === "unknown" ? t("publishUnknownNotice") : t("publishEditingHint")}
+          </p>
         </div>
       ) : (
         <p className="text-xs text-zinc-500">
@@ -430,7 +552,7 @@ export function PublishRunPanel({
             {t("publishDiscardDraft")}
           </Button>
         ) : null}
-        <Button variant="ghost" onClick={() => void handleClose()}>
+        <Button variant="ghost" onClick={() => requestClose()}>
           {t("dlgClose")}
         </Button>
       </div>

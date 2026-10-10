@@ -1,4 +1,13 @@
-import { aiProviderOrder, resolveProviderBaseUrl, resolveProviderModel } from "@/features/ai-settings/provider-registry";
+import {
+  aiProviderOrder,
+  imageProviderDisplayName,
+  imageProviderIdFor,
+  imageProviderOrder,
+  resolveImageProviderBaseUrl,
+  resolveImageProviderModel,
+  resolveProviderBaseUrl,
+  resolveProviderModel,
+} from "@/features/ai-settings/provider-registry";
 import { mainstreamVendorRegistry } from "@/features/ai-settings/mainstream-model-catalog";
 import { modelGatewayModels } from "@/features/ai-settings/model-gateway-snapshot";
 import { getLocalAgentSettings, readAppSetting, writeAppSetting } from "@/db/repositories/settings";
@@ -52,8 +61,13 @@ import type {
  */
 
 const seedSettingsKey = "ai-runtime-seed";
-/** Bump when the seed logic changes shape; the marker decides whether to re-run it. */
-const seedVersion = 2;
+/**
+ * Bump when the seed logic changes shape; the marker decides whether to re-run it.
+ *
+ * 3 (CI-AI-IMG-CONFIG-03): the image providers became registry rows of their own, so an install that
+ * already carries version 2 has to run the seed once more to get `openai-image` / `gemini-image`.
+ */
+const seedVersion = 3;
 
 /** Vendor ids that reuse an already-configured local provider instead of a new one. */
 const vendorProviderAliases: Record<string, string> = {
@@ -89,6 +103,79 @@ async function seedLegacyProviders(sortOrderBase: number) {
       baseUrl: resolveProviderBaseUrl(providerId, settings),
       credentialRef: credentialRefFor(providerId),
     });
+  }
+}
+
+/** The image rows sit after the four text providers (0…3) and before the vendor registry (10). */
+const imageProviderSortOrderBase = 4;
+
+/**
+ * The image providers as registry rows (CI-AI-IMG-CONFIG-03, C1a) - the bridge from the image fields
+ * of the settings form to the endpoint the runtime routes an image request to.
+ *
+ * A capability gets a provider row of its own because those are the three things a user can point
+ * somewhere else: endpoint, credential and model. Text and images must not share them silently (Q1/Q2
+ * for the key split, Q4 for the endpoint), so `openai` keeps signing chat calls while `openai-image`
+ * signs the image ones.
+ *
+ * It is deliberately *additive*: no text provider, endpoint, credential ref or model is read with the
+ * intent to write it back, so an install's existing text configuration cannot change here.
+ *
+ * Two behaviours follow from Q4 as ruled for this card:
+ *
+ *  - An endpoint row exists only once the image field (Gemini: the host its protocol defines)
+ *    resolves to a URL. A row that already exists keeps existing when the field is emptied - the key
+ *    the user pasted and the 模型管理 entry are not deleted - but it is written disabled with an empty
+ *    base URL, so `resolveRoute()` cannot pick it and cold-start discovery skips it instead of
+ *    fetching through a URL that was withdrawn. Filling the field in again re-enables it.
+ *  - No fallback fills the empty value in: not `openAIBaseUrl`, not a built-in default, not
+ *    `OPENAI_BASE_URL`. An install that never named an image endpoint has no image endpoint, and the
+ *    image request fails with the runtime's own structured error instead of calling the text service.
+ *
+ * Idempotent by construction (upsert on the provider and endpoint ids), so it can run both inside the
+ * seed - once per `seedVersion` - and from the settings route after every save, which is what makes a
+ * saved image URL take effect on the next request without a restart or a version bump.
+ */
+export async function syncImageProviderSettings() {
+  const settings = await getLocalAgentSettings().catch(() => null);
+  for (const [index, imageProvider] of imageProviderOrder.entries()) {
+    const providerId = imageProviderIdFor(imageProvider);
+    const existingProvider = await getModelProvider(providerId);
+    await upsertModelProvider({
+      providerId,
+      // The seeded label is a starting point only: a name (or provenance) the user changed in
+      // 系统 / 模型管理 survives a settings save, exactly like `enabled`.
+      name: existingProvider?.name ?? imageProviderDisplayName[imageProvider],
+      source: existingProvider?.source ?? "seeded",
+      sortOrder: imageProviderSortOrderBase + index,
+    });
+
+    const endpointId = `${providerId}/default`;
+    const baseUrl = resolveImageProviderBaseUrl(imageProvider, settings);
+    const hasEndpoint = (await listModelEndpoints(providerId)).some((entry) => entry.endpointId === endpointId);
+    // Never configured: no row. Routing then reports "no model configured" without a URL in sight,
+    // and the cold-start pass has nothing to fetch (D-P3-1 skips endpoint-less providers). A row that
+    // already exists is kept (the pasted key and the 模型管理 entry are the user's), only re-pointed.
+    if (baseUrl || hasEndpoint) {
+      await upsertModelEndpoint({
+        endpointId,
+        providerId,
+        name: "Default",
+        protocol: imageProvider === "gemini" ? "gemini" : "openai-compatible",
+        baseUrl,
+        credentialRef: credentialRefFor(providerId),
+        enabled: Boolean(baseUrl),
+      });
+    }
+
+    // The model the form names is imported the same way the seed imports it (C1b) - even without an
+    // endpoint, where it stays knowledge-only (`enableNew: false`) exactly like the seed's copy - so a
+    // URL and a model saved together are callable without waiting for a `seedVersion` bump. No
+    // capability default is set: once an install is seeded, 系统 / 模型管理 owns that choice, and the
+    // image call pins this provider anyway (`candidateChain` takes the first candidate of a pin).
+    for (const modelId of legacyConfiguredModels([resolveImageProviderModel(imageProvider, settings)])) {
+      await ensureLegacyModel({ providerId, modelId, capability: "image_generation" });
+    }
   }
 }
 
@@ -160,6 +247,9 @@ export async function ensureModelRuntimeSeeded() {
   const marker = (await readAppSetting(seedSettingsKey)) as { version?: unknown };
   if (Number(marker?.version ?? 0) < seedVersion) {
     await seedLegacyProviders(0);
+    // C1a (CI-AI-IMG-CONFIG-03): the image providers and their endpoints come from the *image*
+    // settings. Same pass, because `importLegacyAiSettings()` below binds their models to them.
+    await syncImageProviderSettings();
     await seedVendorProviders(10);
     await seedGatewayProvider();
     await seedGatewayCatalog();
@@ -557,13 +647,19 @@ export async function importLegacyAiSettings(): Promise<LegacyAiImport> {
       entries.push(await ensureLegacyModel({ providerId, modelId, capability: "chat" }));
     }
   }
-  for (const providerId of ["gemini", "openai"] as const) {
-    const configured =
-      providerId === "gemini"
-        ? [settings?.geminiImageModel ?? "", process.env.GEMINI_IMAGE_MODEL ?? ""]
-        : [settings?.openAIImageModel ?? "", process.env.OPENAI_IMAGE_MODEL ?? ""];
-    for (const modelId of legacyConfiguredModels(configured)) {
-      entries.push(await ensureLegacyModel({ providerId, modelId, capability: "image_generation" }));
+  for (const imageProvider of imageProviderOrder) {
+    const configured = legacyConfiguredModels([resolveImageProviderModel(imageProvider, settings)]);
+    for (const modelId of configured) {
+      // C1b: the model belongs to the *image* provider (`openai-image` / `gemini-image`), so it can
+      // only ever be called through the image endpoint - with the image credential - and never
+      // inherits the text provider's endpoint or key.
+      entries.push(
+        await ensureLegacyModel({
+          providerId: imageProviderIdFor(imageProvider),
+          modelId,
+          capability: "image_generation",
+        }),
+      );
     }
   }
 
@@ -576,7 +672,9 @@ export async function importLegacyAiSettings(): Promise<LegacyAiImport> {
     wanted.push({ capability: "chat", providerId: preferredText.providerId, modelId: preferredText.modelId });
   }
   const preferredImage = entries.find(
-    (entry) => entry.capability === "image_generation" && entry.providerId === (settings?.imageProvider ?? "openai"),
+    (entry) =>
+      entry.capability === "image_generation" &&
+      entry.providerId === imageProviderIdFor(settings?.imageProvider ?? "openai"),
   );
   if (preferredImage) {
     wanted.push({

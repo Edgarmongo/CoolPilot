@@ -3,6 +3,8 @@ import { aiRuntime } from "@/features/ai-runtime";
 import { articleTranslationSchema } from "@/lib/ai/schemas";
 import { htmlToPlainText } from "@/lib/article-themes";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
+import { beginAiBudgetCall, type AiBudgetCallHandle } from "@/lib/ai-budget-guard";
+import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { toParagraphs } from "@/lib/translation-layouts";
 import { countTextCharacters } from "@/lib/usage";
 import { contentTranslateSchema } from "@/lib/validation";
@@ -40,6 +42,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const sourceParagraphs = toParagraphs(sourceText);
   if (sourceParagraphs.length === 0) return fail("EMPTY_CONTENT", 400);
 
+  // CI-P7-01-04. The article being translated is this call's business identity, known before the
+  // request; a translation that needed the runtime's self-correcting re-ask is two ledger rows,
+  // because both requests were really sent.
+  const usageCall: AiUsageCallContext = { purpose: "content-translate", contentItemId: id };
+
   const prompt = [
     `把下面的文章逐段翻译成${targetLanguage}。`,
     "要求：段落数量与顺序必须与原文完全一致（一段对一段），用词自然地道，不要逐字直译；只输出译文，不要添加解释、注释或编号。",
@@ -48,6 +55,24 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     ...sourceParagraphs.map((text, index) => `${index + 1}. ${text}`),
   ].join("\n");
 
+  let budget: AiBudgetCallHandle;
+  try {
+    budget = await beginAiBudgetCall({
+      identity: usageCall,
+      purpose: usageCall.purpose,
+      capabilities: ["chat"],
+      inputText: prompt,
+    });
+    // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what
+    // was spent are compared by an id instead of correlated by purpose and time.
+    usageCall.budgetReservationId = budget.reservationId ?? undefined;
+  } catch (error) {
+    // `failFromError` keeps the gate's `AI_BUDGET_EXCEEDED` and its 402; a settings or ledger read that
+    // failed instead is this route's unknown error - not a refusal it would be wrong to invent. A refusal
+    // never reaches the catch below, so nothing writes a "provider failed" row for a call nobody sent.
+    return failFromError(error, "UNKNOWN_ERROR", 500);
+  }
+
   try {
     const response = await aiRuntime.chatStructured({
       messages: [{ role: "user", content: prompt }],
@@ -55,6 +80,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       schema: articleTranslationSchema,
     });
     const paragraphs = response.data.paragraphs.map((text) => text.trim()).filter(Boolean);
+    // Recorded before the guard: the request was answered and charged for, even if the answer has
+    // no paragraphs to show. Each entry of `attempts` becomes its own row.
+    await recordAiUsageCall({ ...usageCall, attempts: response.attempts });
     if (paragraphs.length === 0) return fail("EMPTY_RESULT", 502);
 
     await createUsageRecord({
@@ -80,6 +108,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   } catch (error) {
     // No local error taxonomy: `failFromError` keeps an `AppError`'s own code and status (the runtime
     // sets both) and answers anything else with this route's long-standing 502.
+    await recordAiUsageFailure(usageCall, error);
     return failFromError(error, "AI_PROVIDER_FAILED", 502);
+  } finally {
+    await budget.release();
   }
 }

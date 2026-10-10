@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { aiProviderOrder } from "@/features/ai-settings/provider-registry";
+import { aiProviderOrder, imageProviderIds } from "@/features/ai-settings/provider-registry";
 import { credentialEnvVarNames } from "@/lib/credentials";
 
 /**
@@ -27,7 +27,9 @@ export const keylessAppEnvValue = ",";
 /** The spellings a real install may hold a provider key in, for every provider the runtime knows. */
 function providerKeyVarNames() {
   const names = new Set<string>();
-  for (const providerId of aiProviderOrder) {
+  // CI-AI-IMG-CONFIG-03: image providers are registry rows with their own credential refs
+  // (`OPENAI_IMAGE_API_KEYS` / `GEMINI_IMAGE_API_KEYS`), so they are neutralised here too.
+  for (const providerId of [...aiProviderOrder, ...Object.values(imageProviderIds)]) {
     for (const varName of credentialEnvVarNames(providerId)) {
       names.add(varName);
     }

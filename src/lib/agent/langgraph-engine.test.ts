@@ -1,20 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ToolPlanStep } from "@/lib/ai/schemas";
+import type { AccountRecord } from "@/lib/types";
 
 /**
  * The planner runs on `aiRuntime` since P3-A2, so the mock moved from the legacy `@/lib/ai` facade
  * to the runtime itself. Everything else about this suite is unchanged: what it pins is the wiring
  * between a plan step and the tool call it becomes, not the transport.
+ *
+ * CI-P7-03 put a budget gate in front of the planner call, and the one thing this file has to say
+ * about it is that a refusal is *not* the fallback plan: the fallback is the draft tool, which spends
+ * again. The harness pins the temp database and puts the budget row back; it has to be the first
+ * import, because the gate reads a settings row that this file's own imports would otherwise resolve
+ * against the install's database.
  */
 vi.mock("@/features/ai-runtime", async () => {
   const actual = await vi.importActual<typeof import("@/features/ai-runtime")>("@/features/ai-runtime");
   return { ...actual, aiRuntime: { ...actual.aiRuntime, chatStructured: vi.fn() } };
 });
 
-import { aiRuntime } from "@/features/ai-runtime";
-import { planToolCalls } from "./langgraph-engine";
-import { createDefaultToolRegistry } from "./local-tools";
-import type { ToolPlanStep } from "@/lib/ai/schemas";
-import type { AccountRecord } from "@/lib/types";
+const { allowEveryAiBudgetCall, refuseEveryAiBudgetCall } = await import("@/test/route-harness");
+const { aiRuntime } = await import("@/features/ai-runtime");
+const { planToolCalls } = await import("./langgraph-engine");
+const { createDefaultToolRegistry } = await import("./local-tools");
 
 const registry = createDefaultToolRegistry();
 const mockedChatStructured = vi.mocked(aiRuntime.chatStructured);
@@ -43,7 +50,10 @@ const threadsSite: AccountRecord = {
 };
 
 describe("local agent LLM tool planning", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The shipped budget row is `off`; a case that wants a refusal states the refusal itself, and this
+    // puts the row back so the other cases here keep calling the model.
+    await allowEveryAiBudgetCall();
     mockedChatStructured.mockReset();
   });
 
@@ -125,5 +135,18 @@ describe("local agent LLM tool planning", () => {
     const calls = await planToolCalls({ message: "write something about cats" }, registry);
     expect(calls).toHaveLength(1);
     expect(calls[0].name).toBe("generate_social_post_draft");
+  });
+
+  it("lets a budget refusal out as itself instead of turning it into the draft fallback", async () => {
+    await refuseEveryAiBudgetCall();
+
+    // The fallback above is for a planner that could not answer. A refusal is the user's decision, and
+    // answering it with the draft tool would spend again right after the limit said no - so the gate's
+    // own error leaves `planToolCalls` and the run fails saying why.
+    await expect(planToolCalls({ message: "write something about cats" }, registry)).rejects.toMatchObject({
+      code: "AI_BUDGET_EXCEEDED",
+      status: 402,
+    });
+    expect(mockedChatStructured).not.toHaveBeenCalled();
   });
 });

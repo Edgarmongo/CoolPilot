@@ -67,4 +67,14 @@ describe("mind map markdown", () => {
 
     expect(mindMapToMarkdown(deep, 2).split("\n")).toEqual(["# l0", "## l1", "## l2", "## l3"]);
   });
+
+  it("can leave the root out for the article hand-off (CI-SC-01)", () => {
+    const root = createMindMapNode("l0", [createMindMapNode("l1", [createMindMapNode("l2")])]);
+
+    // The article carries the root as its title, so the body starts at the branches - and because the
+    // levels shift up by one, a three-level outline still fits in `#`–`###`.
+    expect(mindMapToMarkdown(root, 3, false).split("\n")).toEqual(["# l1", "## l2"]);
+    // The default is untouched, which is what keeps 汇出 Markdown and the AI round-trip as they were.
+    expect(mindMapToMarkdown(root, 3).split("\n")).toEqual(["# l0", "## l1", "### l2"]);
+  });
 });

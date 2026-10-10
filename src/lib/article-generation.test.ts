@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AiWritingConfig, AiWritingMaterial, AiWritingPositioning } from "@/lib/ai-writing";
-import type { PositionRecord } from "@/lib/types";
+import type { BrandRecord, PositionRecord } from "@/lib/types";
 
 /**
  * `lib/article-generation.ts` - the article generation seam of C3 (`docs/creator-workflow-audit.md`,
@@ -17,8 +17,9 @@ import type { PositionRecord } from "@/lib/types";
  * Nothing here asserts that a mock was called.
  *
  * This is also the layer that composes the stored metadata blob, so the provenance is pinned by key
- * rather than by order: no reader in the app depends on the key order, and which image value means what
- * is C4's question, not C3's.
+ * rather than by order: no reader in the app depends on the key order. Which image value means what used
+ * to be C4's question; C4 answered it (`images` holds one reference shape, `imageAssets` says what each
+ * one is), so the keys are asserted here and the shape itself is pinned in `content-image-assets.test.ts`.
  */
 
 /**
@@ -26,11 +27,13 @@ import type { PositionRecord } from "@/lib/types";
  * (`src/test/route-harness.ts`), so it has to be the first `await` here.
  */
 const {
+  allowEveryAiBudgetCall,
   bodyOf,
   chatCalls,
   jsonReply,
   prepareChatModel,
   qwenCatalog,
+  refuseEveryAiBudgetCall,
   resetRuntime,
   routeTestDataDir,
   stubFetch,
@@ -39,6 +42,7 @@ const {
 const { generateArticle } = await import("./article-generation");
 const { listContentItems, listUsageRecords } = await import("@/db/repository");
 const { createKnowledgeBase, listKnowledgeBase } = await import("@/db/repositories/knowledge-base");
+const { createBrand, updateBrand } = await import("@/db/repositories/brands");
 const { createPosition } = await import("@/db/repositories/positions");
 const {
   audiencePrompt,
@@ -95,6 +99,7 @@ function configFixture(overrides: Partial<AiWritingConfig> = {}): AiWritingConfi
     deAi: true,
     knowledgeMode: "position",
     positioningId: "",
+    brandId: "",
     ...overrides,
   };
 }
@@ -161,10 +166,14 @@ async function productPhoto(name: string) {
 
 /**
  * The business rows a generation reads: one positioning (the install's default, because it is the first
- * one), one knowledge entry tied to it and one that applies to every positioning. Created once for the
- * file, because `resetRuntime()` resets the runtime's own tables, not these.
+ * one), one knowledge entry tied to it and one that applies to every positioning, and the two brand
+ * profiles P2-02-05 needs (a run must inject one of them, never a mix). Created once for the file,
+ * because `resetRuntime()` resets the runtime's own tables, not these.
  */
-let fixture: { position: PositionRecord };
+let fixture: {
+  position: PositionRecord;
+  brands: { clipversity: BrandRecord; seafood: BrandRecord };
+};
 
 beforeAll(async () => {
   const position = await createPosition({
@@ -178,12 +187,32 @@ beforeAll(async () => {
   await createKnowledgeBase({ ...positioningKnowledge, positionId: position.id, weight: "high" });
   await createKnowledgeBase({ ...sharedKnowledge, positionId: "", weight: "medium" });
 
-  fixture = { position };
+  const clipversity = await createBrand({
+    name: "Clipversity",
+    description: "跨境内容工作室",
+    targetAudience: "做外贸的中小团队",
+    tone: "专业但不生硬",
+    keywords: ["选品", "跨境"],
+    bannedWords: ["最好用"],
+  });
+  const seafood = await createBrand({
+    name: "绿源海鲜",
+    targetAudience: "注重食材的年轻家庭",
+    tone: "亲切具体，少用夸张词",
+    keywords: ["冷链"],
+    bannedWords: ["包治百病"],
+  });
+  if (!clipversity || !seafood) throw new Error("brand fixtures were not created");
+
+  fixture = { position, brands: { clipversity, seafood } };
 });
 
 describe("generateArticle", () => {
   beforeEach(async () => {
     vi.unstubAllGlobals();
+    // The shipped budget row is `off`; a case that wants a refusal states the refusal itself, and this
+    // puts the row back so the other cases here keep calling the model.
+    await allowEveryAiBudgetCall();
     await resetRuntime();
   });
 
@@ -207,10 +236,12 @@ describe("generateArticle", () => {
     expect(result.provider).toBe("qwen");
     expect(result.model).toBe("qwen3-max");
 
-    // The images were resolved by the image layer: this one is a real copy of the stored photo.
+    // The images were resolved by the image layer: this one is a real copy of the stored photo, stored as
+    // the one reference shape an item holds (C4) - the file name, not the path of the machine it came from.
     expect(result.images).toHaveLength(1);
-    expect(path.basename(result.images[0])).toMatch(/^writing-/);
-    expect(await fs.readFile(result.images[0], "utf-8")).toBe("bytes-of-box.png");
+    expect(result.images[0]).toMatch(/^writing-/);
+    expect(await fs.readFile(path.join(routeTestDataDir, "artifacts", result.images[0]), "utf-8"))
+      .toBe("bytes-of-box.png");
 
     // The item: trimmed, ready, the first image as its cover, and the caller's own source list.
     expect(result.item).toMatchObject({
@@ -224,10 +255,16 @@ describe("generateArticle", () => {
     // The service adds the four facts it owns to the caller's provenance (here: nothing else).
     expect(result.item?.metadata).toMatchObject({
       images: result.images,
+      // C4: the item also says what each image is and where it came from, in the same order as the list.
+      imageAssets: [
+        expect.objectContaining({ reference: result.images[0], fileName: result.images[0], source: "copied" }),
+      ],
       positioningId: fixture.position.id,
       provider: "qwen",
       model: "qwen3-max",
     });
+    // Nothing was skipped, so no failure key is added to an article that simply has no remote image.
+    expect(result.item?.metadata).not.toHaveProperty("imageLocalizationFailures");
 
     // Exactly one item, and the usage row that reports the runtime's own numbers for the stored body.
     expect((await listContentItems({ pageSize: 20 })).total).toBe(itemsBefore + 1);
@@ -325,9 +362,9 @@ describe("generateArticle", () => {
 
     const stored = result.item?.metadata ?? {};
     expect(stored).toMatchObject(provenance);
-    // The caller's keys, plus `images`/`positioningId`/`provider`/`model` - no fifth fact smuggled in.
+    // The caller's keys, plus the six facts this layer owns - no seventh smuggled in.
     expect(Object.keys(stored).sort()).toEqual(
-      [...Object.keys(provenance), "images", "positioningId", "provider", "model"].sort(),
+      [...Object.keys(provenance), "images", "positioningId", "brandId", "brandVersion", "provider", "model"].sort(),
     );
   });
 
@@ -373,5 +410,83 @@ describe("generateArticle", () => {
     expect(chatCalls(calls)).toHaveLength(1);
     expect((await listContentItems({ pageSize: 20 })).total).toBe(itemsBefore);
     expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
+  });
+
+  it("refuses before the prompt is sent, so the caller gets the gate's own 402 and nothing is stored", async () => {
+    await refuseEveryAiBudgetCall();
+    const calls = stubFetch(chatRoutes(() => jsonReply(draft)));
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const itemsBefore = (await listContentItems({ pageSize: 20 })).total;
+    const usageBefore = (await listUsageRecords({ limit: 500 })).length;
+
+    // A refusal is the gate's own `AI_BUDGET_EXCEEDED` (402), not a provider failure: the service does
+    // not send, does not store an item, and does not write a cost row for a call that never happened.
+    await expect(generateArticle(requestFixture())).rejects.toMatchObject({
+      code: "AI_BUDGET_EXCEEDED",
+      status: 402,
+    });
+
+    expect(chatCalls(calls)).toHaveLength(0);
+    expect((await listContentItems({ pageSize: 20 })).total).toBe(itemsBefore);
+    expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
+  });
+
+  it("writes as the brand the request named, records its version, and never mixes in the other one", async () => {
+    const calls = stubFetch(chatRoutes(() => jsonReply(draft)));
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const config = configFixture();
+    const { clipversity, seafood } = fixture.brands;
+
+    // Brand A: its own voice and its own banned words (the positioning bans 最强, so the list is a union).
+    const first = await generateArticle(requestFixture({ config, brandId: clipversity.id }));
+    const [systemA, userA] = turnsOf(chatCalls(calls)[0]);
+    expect(systemA?.content).toContain("品牌语气：专业但不生硬");
+    expect(systemA?.content).toContain("禁止出现：最强、最好用");
+    expect(userA?.content).toContain("品牌关键词：选品、跨境");
+    expect(systemA?.content).not.toContain("亲切具体，少用夸张词");
+    expect(userA?.content).not.toContain("品牌关键词：冷链");
+    // The reference the article keeps, and the version it was written as (P2-02-04).
+    expect(first.item?.metadata).toMatchObject({ brandId: clipversity.id, brandVersion: clipversity.updatedAt });
+
+    // Brand B: the same request, the other brand. What changed is exactly the brand's contribution.
+    const second = await generateArticle(requestFixture({ config, brandId: seafood.id }));
+    const [systemB, userB] = turnsOf(chatCalls(calls)[1]);
+    expect(systemB?.content).toContain("品牌语气：亲切具体，少用夸张词");
+    expect(systemB?.content).toContain("禁止出现：最强、包治百病");
+    expect(userB?.content).toContain("品牌关键词：冷链");
+    expect(systemB?.content).not.toContain("专业但不生硬");
+    expect(userB?.content).not.toContain("品牌关键词：选品、跨境");
+    expect(second.item?.metadata).toMatchObject({ brandId: seafood.id, brandVersion: seafood.updatedAt });
+  });
+
+  it("treats a brand id that is gone as no brand instead of borrowing another one", async () => {
+    const calls = stubFetch(chatRoutes(() => jsonReply(draft)));
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+
+    const result = await generateArticle(requestFixture({ config: configFixture(), brandId: "brand-that-is-gone" }));
+
+    expect(result.item?.metadata).toMatchObject({ brandId: "", brandVersion: 0 });
+    const system = turnsOf(chatCalls(calls)[0])[0]?.content ?? "";
+    expect(system).not.toContain("品牌");
+    // The positioning still applies: an unknown brand takes nothing else down with it.
+    expect(system).toContain(fixture.position.personaRole);
+  });
+
+  it("moves the recorded version when the brand is edited, so a later edit stays visible", async () => {
+    const calls = stubFetch(chatRoutes(() => jsonReply(draft)));
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const brand = await createBrand({ name: "版本可见", tone: "第一版语气" });
+    if (!brand) throw new Error("brand fixture was not created");
+
+    const before = await generateArticle(requestFixture({ config: configFixture(), brandId: brand.id }));
+    expect(turnsOf(chatCalls(calls)[0])[0]?.content).toContain("品牌语气：第一版语气");
+
+    await updateBrand(brand.id, { tone: "第二版语气" });
+    const after = await generateArticle(requestFixture({ config: configFixture(), brandId: brand.id }));
+
+    expect(turnsOf(chatCalls(calls)[1])[0]?.content).toContain("品牌语气：第二版语气");
+    expect(after.item?.metadata.brandId).toBe(brand.id);
+    // The article keeps the version it was written with; comparing it with the row is the whole check.
+    expect(after.item?.metadata.brandVersion as number).toBeGreaterThan(before.item?.metadata.brandVersion as number);
   });
 });

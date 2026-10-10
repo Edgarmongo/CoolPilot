@@ -16,7 +16,9 @@ import {
   metricSettingsSchema,
   modelGatewaySettingsSchema,
   promptSettingsSchema,
+  aiBudgetSettingsSchema,
 } from "@/lib/validation";
+import { defaultAiBudgetSettings, type AiBudgetSettings } from "@/lib/ai-budget";
 
 const LOCAL_AGENT_SETTINGS_KEY = "local-agent";
 const BRAND_SETTINGS_KEY = "brand";
@@ -43,6 +45,8 @@ export const defaultLocalAgentSettings: LocalAgentSettings = {
   geminiImageModel: "",
   openAIImageModel: "",
   openAIImageSize: "1024x1024",
+  // Not configured by default: the image path must not inherit the text base URL (Q4).
+  openAIImageBaseUrl: "",
   agentPermissions: {
     browserStep: "confirm",
     browserPostContent: "confirm",
@@ -237,5 +241,38 @@ export async function clearModelGatewayModels(): Promise<ModelGatewaySettings> {
     status: "never",
     message: "",
   });
+}
+
+const AI_BUDGET_SETTINGS_KEY = "ai-budget";
+
+/**
+ * The monthly AI budget and the policy that goes with it (CI-P7-03).
+ *
+ * Stored as one `app_settings` row like every other preference, so a budget decision never needs a
+ * new table and a backup carries it with the rest of the install. A stored value that no longer
+ * parses (an older shape, a hand-edited database) falls back **field by field** to the defaults -
+ * which are "off", i.e. the gate is not silently switched on by a broken row.
+ */
+export async function getAiBudgetSettings(): Promise<AiBudgetSettings> {
+  const parsed = aiBudgetSettingsSchema.safeParse(await readAppSetting(AI_BUDGET_SETTINGS_KEY));
+  const data: Partial<AiBudgetSettings> = parsed.success ? parsed.data : {};
+  return {
+    policy: data.policy ?? defaultAiBudgetSettings.policy,
+    monthlyLimit: data.monthlyLimit ?? defaultAiBudgetSettings.monthlyLimit,
+    currency: data.currency ?? defaultAiBudgetSettings.currency,
+    unknownCostPolicy: data.unknownCostPolicy ?? defaultAiBudgetSettings.unknownCostPolicy,
+  };
+}
+
+/**
+ * Replaces the budget settings. The whole object is written at once because the four fields describe
+ * one decision - the limit, the currency it is quoted in and what to do at the edge of it - and a
+ * partial write could leave a limit whose policy does not belong to it.
+ */
+export async function updateAiBudgetSettings(patch: Partial<AiBudgetSettings>): Promise<AiBudgetSettings> {
+  const current = await getAiBudgetSettings();
+  const next = aiBudgetSettingsSchema.parse({ ...current, ...patch });
+  await writeAppSetting(AI_BUDGET_SETTINGS_KEY, next);
+  return next;
 }
 

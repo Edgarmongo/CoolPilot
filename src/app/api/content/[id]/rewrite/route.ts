@@ -2,7 +2,9 @@ import { createUsageRecord, getContentItem } from "@/db/repository";
 import { aiRuntime } from "@/features/ai-runtime";
 import { industryDomainPrompt } from "@/lib/ai-writing";
 import { htmlToPlainText, plainTextToHtml } from "@/lib/article-themes";
+import { beginAiBudgetCall, type AiBudgetCallHandle } from "@/lib/ai-budget-guard";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
+import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { countTextCharacters } from "@/lib/usage";
 import { contentRewriteSchema, type ArticleRewriteMode, type ArticleRewriteStrength } from "@/lib/validation";
 
@@ -42,6 +44,11 @@ const strengthInstruction: Record<ArticleRewriteStrength, string> = {
  * one thing that did not. The three answers this route still words itself are unchanged and are *not* runtime
  * errors: the `[id]` guard (404), the payload guard (400) and the empty-source guard (400 `EMPTY_CONTENT`),
  * plus the empty-answer guard (502 `EMPTY_RESULT`, kept because `chat()` has no schema to retry against).
+ *
+ * CI-P7-03 puts the budget gate in front of the request. Its refusal is not a provider failure either: a
+ * call the policy refuses throws `AI_BUDGET_EXCEEDED` (402) *before* `aiRuntime` is reached, so it is
+ * answered with the gate's own code and writes no ledger row - there was no request to record. What that
+ * gate can and cannot promise is the gate's own constant (`aiBudgetEnforcement`), not a claim repeated here.
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -54,6 +61,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const source = htmlToPlainText(existing.body).slice(0, maxRewriteInput);
   if (!source.trim()) return fail("EMPTY_CONTENT", 400);
+
+  // CI-P7-01-04. The article this rewrite belongs to is the call's business identity, and it is
+  // known before the request, so the failure path below records the same call.
+  const usageCall: AiUsageCallContext = { purpose: "content-rewrite", contentItemId: id };
 
   const banned = data.bannedWords.filter(Boolean);
   const instructions = [
@@ -68,12 +79,36 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     "只输出改写后的文章正文，不要输出标题、解释、markdown 代码块或任何额外说明。",
   ].filter(Boolean);
 
+  // The gate measures the same text the request will carry, so the prompt is built once and used twice.
+  const prompt = `${instructions.join("\n")}\n\n原文：\n${source}`;
+
+  let budget: AiBudgetCallHandle;
+  try {
+    budget = await beginAiBudgetCall({
+      identity: usageCall,
+      purpose: usageCall.purpose,
+      capabilities: ["chat"],
+      inputText: prompt,
+    });
+    // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what
+    // was spent are compared by an id instead of correlated by purpose and time.
+    usageCall.budgetReservationId = budget.reservationId ?? undefined;
+  } catch (error) {
+    // `failFromError` keeps the gate's `AI_BUDGET_EXCEEDED` and its 402; a settings or ledger read that
+    // failed instead is this route's unknown error - not a refusal it would be wrong to invent.
+    return failFromError(error, "UNKNOWN_ERROR", 500);
+  }
+
   try {
     const response = await aiRuntime.chat({
-      messages: [{ role: "user", content: `${instructions.join("\n")}\n\n原文：\n${source}` }],
+      messages: [{ role: "user", content: prompt }],
       systemPrompt: "你是一位资深中文编辑，擅长在不改变原意的前提下改写文章。",
     });
     const bodyText = response.text.trim();
+    // Recorded before the guard below reads the answer: the request was answered, and the provider
+    // charged for it whether or not the answer turned out to be usable. `usage_records` (below) keeps
+    // its old meaning and still counts only the rewrites that produced text.
+    await recordAiUsageCall({ ...usageCall, attempts: response.attempts });
     if (!bodyText) return fail("EMPTY_RESULT", 502);
 
     await createUsageRecord({
@@ -100,6 +135,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     // D-P3-3 applied here by P3-C: `failFromError` keeps an `AppError`'s own code and status (the runtime sets
     // both) and answers anything else with this route's long-standing 502, which is all that ever reached the
     // dialog for a non-`AppError` failure.
+    await recordAiUsageFailure(usageCall, error);
     return failFromError(error, "AI_PROVIDER_FAILED", 502);
+  } finally {
+    // The runtime's ledger row is what accounts for the money once the request is over; a hold that
+    // outlived it would count the same call twice.
+    await budget.release();
   }
 }

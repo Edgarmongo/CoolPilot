@@ -36,6 +36,7 @@ for (const name of legacyModelEnvVars) {
 const registry = await import("./registry");
 const sync = await import("./sync");
 const runtime = await import("./runtime");
+const trail = await import("./trail");
 const probe = await import("./probe");
 const repository = await import("@/db/repositories/ai-runtime");
 const settings = await import("@/db/repositories/settings");
@@ -246,9 +247,17 @@ describe("ai runtime", () => {
     expect(authorizations).toEqual(["Bearer sk-qwen-bad", "Bearer sk-qwen-good"]);
     expect(response.text).toBe("pong");
     expect(response.credentialLabel.endsWith("good")).toBe(true);
-    expect(response.attempts).toHaveLength(1);
-    expect(response.attempts[0]).toMatchObject({ providerId: "qwen", modelId: "qwen3-max" });
+    // CI-P7-01-04: the trail is every request the call sent - the rejected key and then the one that
+    // answered - so it says what ran, not only what did not.
+    expect(response.attempts).toHaveLength(2);
+    expect(response.attempts[0]).toMatchObject({
+      providerId: "qwen",
+      modelId: "qwen3-max",
+      kind: "answer",
+      outcome: "failed",
+    });
     expect(response.attempts[0].error).toContain("HTTP 401");
+    expect(response.attempts[1]).toMatchObject({ outcome: "success", credentialLabel: response.credentialLabel });
   });
 
   it("stops at a rejected request instead of burning the whole candidate chain", async () => {
@@ -262,11 +271,18 @@ describe("ai runtime", () => {
     );
     await credentials.writeCredential(qwenRef, "sk-qwen-one\nsk-qwen-two");
 
-    await expect(runtime.chat({ messages: [{ role: "user", content: "ping" }] })).rejects.toMatchObject({
-      code: "MODEL_UPSTREAM_FAILED",
-    });
+    const failure: unknown = await runtime
+      .chat({ messages: [{ role: "user", content: "ping" }] })
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "MODEL_UPSTREAM_FAILED" });
     // One call: a 400 is not the key's fault, and another key would say exactly the same.
     expect(calls).toHaveLength(1);
+    // CI-P7-01-04: the request that failed travels with the error, so a caller can record a call the
+    // provider may still have billed for - which is the whole point of a ledger. The empty key label
+    // is the pool saying "this failure was not the key's", not a claim that nothing was sent.
+    expect(trail.modelAttemptsFrom(failure)).toEqual([
+      expect.objectContaining({ kind: "answer", outcome: "failed", providerId: "qwen", credentialLabel: "" }),
+    ]);
   });
 
   it("falls over to the next candidate model when one keeps failing", async () => {
@@ -467,6 +483,15 @@ describe("ai runtime", () => {
       expect.arrayContaining(["chat", "structured_output"]),
     );
     expect(chatCalls).toBe(2);
+    // CI-P7-01-04: two requests really went out, so the trail reports two - the first answer and the
+    // re-ask marked as the correction it is. `usage` above is their sum, a display figure; these are
+    // what each request reported, which is what lets a ledger charge for both.
+    expect(result.attempts.map((entry) => entry.kind)).toEqual(["answer", "self-correction"]);
+    expect(result.attempts.map((entry) => entry.outcome)).toEqual(["success", "success"]);
+    expect(result.attempts.map((entry) => entry.usage)).toEqual([
+      { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+      { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+    ]);
 
     const retryBody = JSON.parse(
       String(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/chat/completions")).at(-1)?.[1]?.body),
@@ -491,8 +516,14 @@ describe("ai runtime", () => {
     const qwenChat = await prepareChatModel("qwen", "qwen3-max", "sk-qwen-test");
     await registry.setModelDefaultForCapability("chat", qwenChat?.id ?? "");
 
-    await expect(
-      runtime.chatStructured({ messages: [{ role: "user", content: "title" }], schema: z.object({ title: z.string() }) }),
-    ).rejects.toMatchObject({ code: "AI_STRUCTURED_OUTPUT_INVALID" });
+    const failure: unknown = await runtime
+      .chatStructured({ messages: [{ role: "user", content: "title" }], schema: z.object({ title: z.string() }) })
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "AI_STRUCTURED_OUTPUT_INVALID" });
+    // CI-P7-01-04: neither answer was usable and both requests were really sent, so both are in the
+    // trail the error carries - which is what gives the ledger two rows for a call that produced
+    // nothing, instead of the none it used to record.
+    expect(trail.modelAttemptsFrom(failure).map((entry) => entry.kind)).toEqual(["answer", "self-correction"]);
+    expect(trail.modelAttemptsFrom(failure).map((entry) => entry.outcome)).toEqual(["success", "success"]);
   });
 });

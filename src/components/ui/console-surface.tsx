@@ -46,12 +46,16 @@ export function ConsoleNotice({
   onDismiss,
 }: {
   message: string;
-  tone?: "success" | "error";
+  /** `warning` is for results that are neither a success nor a failure, such as a partial publish. */
+  tone?: "success" | "warning" | "error";
   onDismiss: () => void;
 }) {
-  const toneClass = tone === "success"
-    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-    : "border-red-200 bg-red-50 text-red-800";
+  const toneClass =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : tone === "warning"
+        ? "border-amber-200 bg-amber-50 text-amber-900"
+        : "border-red-200 bg-red-50 text-red-800";
 
   return (
     <div className={cn("flex items-center justify-between rounded-2xl border px-4 py-3 text-sm", toneClass)}>

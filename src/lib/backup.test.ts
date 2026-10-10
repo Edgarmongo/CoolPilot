@@ -98,6 +98,7 @@ const previousUrl = process.env.SOCIAL_AUTO_POST_DB_URL;
 let repo: typeof import("@/db/repository");
 let settingsRepo: typeof import("@/db/repositories/settings");
 let backupRepo: typeof import("@/db/repositories/backup");
+let priceRepo: typeof import("@/db/repositories/ai-usage-ledger");
 let schemaTableNames: string[] = [];
 
 beforeAll(async () => {
@@ -105,6 +106,7 @@ beforeAll(async () => {
   repo = await import("@/db/repository");
   settingsRepo = await import("@/db/repositories/settings");
   backupRepo = await import("@/db/repositories/backup");
+  priceRepo = await import("@/db/repositories/ai-usage-ledger");
   // listAccounts triggers initializeDatabase(), which runs the migrations.
   await repo.listAccounts();
   schemaTableNames = [];
@@ -169,6 +171,55 @@ describe("backup repository", () => {
     const mergeReport = await backupRepo.restoreBackupSnapshot(snapshot, "merge");
     expect(mergeReport.tables.accounts).toEqual({ deleted: 0, inserted: 0, skipped: 1 });
     expect(await repo.listAccounts()).toHaveLength(1);
+  });
+
+  it("carries a price row's dimension, unit and free declaration through export and restore", async () => {
+    // CI-P7-01-05: the catalog gained a dimension, a per-unit price and a free declaration. A
+    // backup that dropped them would restore a workspace whose prices mean something else than
+    // they did - the ledger would go on costing calls with a rate nobody entered.
+    const created = await priceRepo.createAiModelPrice({
+      providerId: "backup-provider",
+      modelId: "gpt-image-1",
+      meteredKind: "image",
+      currency: "USD",
+      unitPrice: 0.04,
+      unitLabel: "image",
+      priceVersion: "2026-10",
+      effectiveFrom: 1_700_000_000_000,
+    });
+
+    const priceColumns =
+      backupRepo.backupTableDescriptors().find((descriptor) => descriptor.name === "ai_model_prices")
+        ?.columns ?? [];
+    expect(priceColumns).toEqual(
+      expect.arrayContaining(["metered_kind", "unit_price", "unit_label", "declared_free"]),
+    );
+
+    const snapshot = await backupRepo.createBackupSnapshot();
+    expect(snapshot.tables.ai_model_prices).toContainEqual(
+      expect.objectContaining({
+        id: created!.id,
+        metered_kind: "image",
+        unit_label: "image",
+        unit_price: 0.04,
+      }),
+    );
+
+    // The file is the only thing that survives, so what comes back has to still mean "per image,
+    // 0.04 USD" - and the catalog has to accept the rows it wrote under a key that now carries them.
+    const report = await backupRepo.restoreBackupSnapshot(snapshot, "replace");
+    expect(report.unknownTables).toEqual([]);
+    const restored = (await priceRepo.listAiModelPrices({ providerId: "backup-provider" })).find(
+      (row) => row.id === created!.id,
+    );
+    expect(restored).toMatchObject({
+      meteredKind: "image",
+      unitPrice: 0.04,
+      unitLabel: "image",
+      currency: "USD",
+      declaredFree: false,
+      priceVersion: "2026-10",
+    });
   });
 });
 

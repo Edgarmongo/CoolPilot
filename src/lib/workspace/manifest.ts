@@ -11,6 +11,7 @@ import {
   brandLogosRoot,
   browserProfilesRoot,
   dataRoot,
+  mediaRoot,
   normalizeFileUrl,
   productImagesRoot,
   uploadsRoot,
@@ -92,6 +93,17 @@ export type WorkspaceManifest = {
   };
 
   videos: {
+    exists: boolean;
+    fileCount: number;
+    totalBytes: number;
+  };
+
+  /**
+   * The audio and video a user imported as transcription input (CI-P3-02). Reported here like every
+   * other section, and - like `uploads` with its two children - not part of the Workspace Overview yet,
+   * which is a separate product decision (see `./overview.ts`).
+   */
+  media: {
     exists: boolean;
     fileCount: number;
     totalBytes: number;
@@ -296,6 +308,7 @@ async function readUnaccountedRootFiles(root: string, databaseTarget: string) {
     path.basename(artifactsRoot()),
     path.basename(browserProfilesRoot()),
     path.basename(videosRoot()),
+    path.basename(mediaRoot()),
     path.basename(uploadsRoot()),
     ...credentialVaultFileNames,
   ]);
@@ -344,10 +357,12 @@ export async function createWorkspaceManifest(): Promise<WorkspaceManifest> {
   }
 
   const videosDirectory = videosRoot();
+  const mediaDirectory = mediaRoot();
   const uploadsDirectory = uploadsRoot();
   const productImagesDirectory = productImagesRoot();
   const brandLogosDirectory = brandLogosRoot();
   const videos = await readDirectoryTree(videosDirectory, false);
+  const media = await readDirectoryTree(mediaDirectory, false);
   const uploads = await readDirectoryTree(uploadsDirectory, false);
   const productImages = await readDirectoryTree(productImagesDirectory, false);
   const brandLogos = await readDirectoryTree(brandLogosDirectory, false);
@@ -385,6 +400,11 @@ export async function createWorkspaceManifest(): Promise<WorkspaceManifest> {
       exists: directoryExists(videosDirectory),
       fileCount: videos.fileCount,
       totalBytes: videos.totalBytes,
+    },
+    media: {
+      exists: directoryExists(mediaDirectory),
+      fileCount: media.fileCount,
+      totalBytes: media.totalBytes,
     },
     uploads: {
       exists: directoryExists(uploadsDirectory),

@@ -1,6 +1,12 @@
 import ModelManagementClient, { type ModelManagementTab } from "@/components/system/model-management-client";
 
-const modelManagementTabs: readonly ModelManagementTab[] = ["catalog", "registry", "providers", "config"];
+const modelManagementTabs: readonly ModelManagementTab[] = [
+  "catalog",
+  "registry",
+  "providers",
+  "config",
+  "prices",
+];
 
 function resolveTab(value: string | string[] | undefined): ModelManagementTab {
   const tab = Array.isArray(value) ? value[0] : value;

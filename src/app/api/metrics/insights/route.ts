@@ -2,6 +2,8 @@ import { getPublishRecord, listPublishRecords } from "@/db/repository";
 import { aiRuntime } from "@/features/ai-runtime";
 import { metricInsightSchema } from "@/lib/ai/schemas";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
+import { beginAiBudgetCall, type AiBudgetCallHandle } from "@/lib/ai-budget-guard";
+import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { computeBaseline, interactionCount } from "@/lib/metrics";
 import { metricInsightRequestSchema } from "@/lib/validation";
 
@@ -44,11 +46,38 @@ export async function POST(request: Request) {
     `This platform's average views: ${baseline.platformAvgViews} (${baseline.platformCount} posts)`,
   ].join("\n");
 
+  // CI-P7-01-04. The published piece under review is the business identity: its content item is
+  // what the attribution is about, and both are known before the request.
+  const usageCall: AiUsageCallContext = {
+    purpose: "insight",
+    contentItemId: record.contentItemId,
+  };
+
+  // CI-P7-03. The gate stands between the prompt and the request and measures the same text the request
+  // carries. It sits *outside* the try below on purpose: a refusal is not a provider failure, so the
+  // catch would be the wrong author for it (and would write a ledger row for a call nobody sent). Here
+  // the gate answers with its own `AI_BUDGET_EXCEEDED` and 402 via `failFromError`.
+  let budget: AiBudgetCallHandle;
+  try {
+    budget = await beginAiBudgetCall({
+      identity: usageCall,
+      purpose: usageCall.purpose,
+      capabilities: ["chat"],
+      inputText: prompt,
+    });
+    // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what
+    // was spent are compared by an id instead of correlated by purpose and time.
+    usageCall.budgetReservationId = budget.reservationId ?? undefined;
+  } catch (error) {
+    return failFromError(error, "UNKNOWN_ERROR", 500);
+  }
+
   try {
     const response = await aiRuntime.chatStructured({
       messages: [{ role: "user", content: prompt }],
       schema: metricInsightSchema,
     });
+    await recordAiUsageCall({ ...usageCall, attempts: response.attempts });
     return ok({
       publishRecordId: record.id,
       ...response.data,
@@ -59,6 +88,9 @@ export async function POST(request: Request) {
   } catch (error) {
     // No local error taxonomy: `failFromError` keeps an `AppError`'s own code and status (the runtime
     // sets both) and falls back to 500 for anything else, which is what this route answered before.
+    await recordAiUsageFailure(usageCall, error);
     return failFromError(error, "AI_PROVIDER_FAILED", 500);
+  } finally {
+    await budget.release();
   }
 }

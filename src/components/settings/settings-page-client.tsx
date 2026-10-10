@@ -18,6 +18,8 @@ type SettingsResponse = LocalAgentSettings & {
   groqKey: string;
   openAIKey: string;
   openRouterKey: string;
+  openAIImageKey: string;
+  geminiImageKey: string;
 };
 
 type SettingsPageClientProps = {

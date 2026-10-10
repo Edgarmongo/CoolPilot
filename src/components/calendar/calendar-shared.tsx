@@ -88,7 +88,7 @@ export function CalendarEntryChip({
       <CalendarEntryIcon entry={entry} className="size-3 shrink-0" />
       {time ? <span className="shrink-0 tabular-nums">{time}</span> : null}
       <span className={cn("truncate", entry.kind === "planned" && entry.enabled === false ? "line-through" : "")}>
-        {entry.title || "—"}
+        {entry.contentTitle || entry.title || "—"}
       </span>
     </span>
   );

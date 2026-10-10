@@ -85,6 +85,8 @@ async function syncResumeResultToChat(agentRunId: string, result: AgentRunResult
       messages,
       locale,
       jobDone: result.status === "success",
+      // CI-P7-01-04: the same attribution as the initial chat turn.
+      runId: agentRunId,
     });
   }
 }

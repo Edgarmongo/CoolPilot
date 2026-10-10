@@ -26,6 +26,7 @@ const {
   jsonReply,
   qwenCatalog,
   unavailable,
+  refuseEveryAiBudgetCall,
   resetRuntime,
   prepareChatModel,
   runtime,
@@ -254,6 +255,28 @@ describe("POST /api/metrics/insights on aiRuntime", () => {
 
     expect(response.status).toBe(400);
     expect(body.code).toBe("INVALID_PAYLOAD");
+    expect(calls).toEqual([]);
+  });
+
+  it("answers the gate's own 402 before the prompt reaches a model, and sends nothing", async () => {
+    // The model is configured through a catalog read first, then the transport is emptied: from this point
+    // on, any call this request makes is one the case will see.
+    stubFetch([{ match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog }]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const record = await seedMetrics();
+    await refuseEveryAiBudgetCall();
+    const calls = stubFetch([]);
+
+    const response = await POST(jsonRequest(insightUrl, { publishRecordId: record.id }));
+    const body = await response.json();
+
+    // The gate stands outside this route's provider-failure catch on purpose: an insight is a model call,
+    // and a refused one has no attempts to report - so the answer is the gate's own, not a 500 for an
+    // upstream that was never asked.
+    expect(response.status).toBe(402);
+    expect(body.ok).toBe(false);
+    expect(body.code).toBe("AI_BUDGET_EXCEEDED");
+    expect(body.data).toBeUndefined();
     expect(calls).toEqual([]);
   });
 });

@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { createUsageRecord } from "@/db/repository";
 import { aiRuntime } from "@/features/ai-runtime";
-import { fail, ok, parseJson } from "@/lib/api";
+import { fail, failFromError, ok, parseJson } from "@/lib/api";
+import { beginAiBudgetCall, type AiBudgetCallHandle } from "@/lib/ai-budget-guard";
+import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { buildPositionDraftFromPrompt, emptyPositionDraft, normalizePositionDraft } from "@/lib/positions";
 import { countTextCharacters } from "@/lib/usage";
 import { positionGenerateSchema } from "@/lib/validation";
@@ -45,18 +47,46 @@ const systemPrompt = [
  * own failure message, and the payload guard the handler runs before the call is the only answer this
  * route words itself. The one thing that does change on this path is `reason`, which quotes the failure's
  * message and therefore now quotes the runtime's.
+ *
+ * A budget refusal (CI-P7-03) is the one exception to that fallback rule, and knowingly so: it is not an
+ * AI failure but the user's own instruction to stop spending, so it is answered with the gate's
+ * `AI_BUDGET_EXCEEDED` and its 402 rather than turned into a draft the dialog would present as generated.
  */
 export async function POST(request: Request) {
   const parsed = await parseJson(request, positionGenerateSchema);
   if (parsed.error) return fail("INVALID_PAYLOAD", 400, parsed.error);
 
   const prompt = parsed.data.prompt;
+  // CI-P7-01-04. A generated profile is a draft the user has not saved yet, so there is no id to
+  // attribute this call to: `purpose` is the accounting identity the ledger gets.
+  const usageCall: AiUsageCallContext = { purpose: "position" };
+  const draftPrompt = `用户想做这样的账号：${prompt}`;
+
+  // CI-P7-03. The gate measures the same text the request carries and stands *outside* the try below, so
+  // the refusal keeps the gate's own `AI_BUDGET_EXCEEDED` and 402 instead of becoming this route's
+  // fallback draft (see the header: a refusal is the one thing that is not an AI failure).
+  let budget: AiBudgetCallHandle;
+  try {
+    budget = await beginAiBudgetCall({
+      identity: usageCall,
+      purpose: usageCall.purpose,
+      capabilities: ["chat"],
+      inputText: draftPrompt,
+    });
+    // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what
+    // was spent are compared by an id instead of correlated by purpose and time.
+    usageCall.budgetReservationId = budget.reservationId ?? undefined;
+  } catch (error) {
+    return failFromError(error, "UNKNOWN_ERROR", 500);
+  }
+
   try {
     const response = await aiRuntime.chatStructured({
-      messages: [{ role: "user", content: `用户想做这样的账号：${prompt}` }],
+      messages: [{ role: "user", content: draftPrompt }],
       systemPrompt,
       schema: aiPositionSchema,
     });
+    await recordAiUsageCall({ ...usageCall, attempts: response.attempts });
     const draft = normalizePositionDraft({ ...emptyPositionDraft(response.data.name), ...response.data });
     await createUsageRecord({
       provider: response.providerId,
@@ -70,12 +100,17 @@ export async function POST(request: Request) {
     });
     return ok({ draft, source: "ai" as const, provider: response.providerId, model: response.model });
   } catch (error) {
-    // No provider configured / provider failure: fall back to a deterministic local draft.
+    // No provider configured / provider failure: fall back to a deterministic local draft. The
+    // ledger keeps what the failure cost (usually nothing: an error with no trail means no request
+    // was sent).
+    await recordAiUsageFailure(usageCall, error);
     const draft = buildPositionDraftFromPrompt(prompt);
     return ok({
       draft,
       source: "fallback" as const,
       reason: error instanceof Error ? error.message : "unknown",
     });
+  } finally {
+    await budget.release();
   }
 }

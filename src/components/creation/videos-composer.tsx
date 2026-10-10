@@ -9,9 +9,12 @@ import { ConsoleNotice, consoleInputClass } from "@/components/ui/console-surfac
 import { platformMeta } from "@/components/account-platform-meta";
 import { accountGroupOf } from "@/components/account-group-manager";
 import { apiPost, swrFetcher } from "@/lib/api-client";
+import { resolveArtifactImageSrc } from "@/lib/artifact-image-url";
 import { useI18n } from "@/lib/i18n";
 import type { TranslationKey } from "@/lib/locale-resources";
 import type { PublishSiteResult } from "@/lib/publish";
+import { publishGroups } from "@/lib/publish-groups";
+import { summarizePublishResults } from "@/lib/publish-results";
 import type { ContentItem, AccountPlatform, AccountRecord } from "@/lib/types";
 import {
   MAX_VIDEO_BYTES,
@@ -73,10 +76,6 @@ const VIDEO_ACCEPT = VIDEO_FILE_EXTENSIONS.join(",");
 /** Daily publish allowance mirrored by the reference console. */
 const DAILY_PUBLISH_QUOTA = 100;
 
-function coverUrl(fileName: string) {
-  return `/api/agent/artifacts?file=${encodeURIComponent(fileName)}`;
-}
-
 /** Colored rounded tile standing in for a platform brand mark. */
 function PlatformAvatar({ platform, size = "md" }: { platform: AccountPlatform; size?: "sm" | "md" }) {
   const meta = platformMeta[platform];
@@ -120,6 +119,7 @@ export function VideosComposer() {
   const [uploadPercent, setUploadPercent] = useState(0);
   const [publishing, setPublishing] = useState(false);
   const [notice, setNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState<"success" | "warning" | "error">("success");
   const [error, setError] = useState("");
   const [results, setResults] = useState<PublishSiteResult[] | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -315,8 +315,7 @@ export function VideosComposer() {
         images: cover ? [cover] : [],
         videoPath: video.fileName,
       });
-      const collected: PublishSiteResult[] = [];
-      for (const group of groups.values()) {
+      const collected = await publishGroups([...groups.values()], async (group) => {
         const data = await apiPost<{ results: PublishSiteResult[] }>("/api/publish", {
           accountIds: group.accountIds,
           title: group.title,
@@ -329,11 +328,26 @@ export function VideosComposer() {
           terminal: "local",
           contentItemId: item.id,
         });
-        collected.push(...data.results);
-      }
+        return data.results;
+      });
       setResults(collected);
-      setNotice(t("vcPublished"));
-      resetComposer();
+      // One request per group, so the batch total comes from `collected`, which holds every account
+      // exactly once. A group that never came back is in there as `errorKind: "unexpected"` - the
+      // author is told about it instead of being told the whole run worked.
+      const summary = summarizePublishResults(collected);
+      if (summary.outcome === "succeeded") {
+        setNotice(t("vcPublished"));
+        setNoticeTone("success");
+        resetComposer();
+      } else if (summary.outcome === "partial") {
+        setNotice(t("vcPublishPartial", { count: summary.delivered, failed: summary.requested - summary.delivered }));
+        setNoticeTone("warning");
+      } else {
+        // The video, copy and account selection are kept (no `resetComposer`): the run produced
+        // nothing, and the notice says to check the records before trying again.
+        setNotice(t("vcPublishAllFailed", { failed: summary.requested - summary.delivered }));
+        setNoticeTone("error");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -349,7 +363,7 @@ export function VideosComposer() {
 
   return (
     <div className="space-y-4">
-      {notice ? <ConsoleNotice message={notice} onDismiss={() => setNotice("")} /> : null}
+      {notice ? <ConsoleNotice message={notice} tone={noticeTone} onDismiss={() => setNotice("")} /> : null}
       {error ? <ConsoleNotice message={error} tone="error" onDismiss={() => setError("")} /> : null}
 
       {/* 发布到 header */}
@@ -783,7 +797,7 @@ export function VideosComposer() {
                 >
                   {cover ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={coverUrl(cover)} alt="" className="size-9 object-cover" />
+                    <img src={resolveArtifactImageSrc(cover)} alt="" className="size-9 object-cover" />
                   ) : (
                     <Plus className="size-4" />
                   )}
@@ -906,7 +920,7 @@ export function VideosComposer() {
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={entry.url || coverUrl(entry.fileName)}
+                    src={entry.url || resolveArtifactImageSrc(entry.fileName)}
                     alt={entry.fileName}
                     className="aspect-square w-full object-cover"
                   />

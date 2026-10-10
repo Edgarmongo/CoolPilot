@@ -6,6 +6,7 @@ import { Boxes, Check, Copy, ExternalLink, Inbox, Search, Server, SlidersHorizon
 import { ConsoleCard, ConsoleNotice } from "@/components/ui/console-surface";
 import ModelConfigPanel from "@/components/system/model-config-panel";
 import ModelGatewaySyncPanel from "@/components/system/model-gateway-sync-panel";
+import ModelPricePanel from "@/components/system/model-price-panel";
 import ModelProviderPanel from "@/components/system/model-provider-panel";
 import ModelRegistryPanel from "@/components/system/model-registry-panel";
 import { aiProviderRegistry } from "@/features/ai-settings/provider-registry";
@@ -22,7 +23,7 @@ import type { TranslationKey } from "@/lib/locale-resources";
 import { cn } from "@/lib/utils";
 import type { LocalAIProvider } from "@/lib/types";
 
-export type ModelManagementTab = "catalog" | "registry" | "providers" | "config";
+export type ModelManagementTab = "catalog" | "registry" | "providers" | "config" | "prices";
 
 type CatalogVendor = {
   id: string;
@@ -362,6 +363,7 @@ export default function ModelManagementClient({ initialTab = "catalog" }: { init
     { id: "registry", label: t("aiModelTabRegistry") },
     { id: "providers", label: t("aiModelTabProviders") },
     { id: "config", label: t("modelMgmtTabConfig") },
+    { id: "prices", label: t("modelMgmtTabPrices") },
   ];
 
   return (
@@ -415,6 +417,8 @@ export default function ModelManagementClient({ initialTab = "catalog" }: { init
           <ProviderStatusCard providers={data?.providers ?? []} />
         </div>
       ) : null}
+
+      {tab === "prices" ? <ModelPricePanel /> : null}
     </div>
   );
 }

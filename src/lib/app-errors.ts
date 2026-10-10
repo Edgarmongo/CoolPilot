@@ -28,6 +28,13 @@ export const appErrorCodes = [
   "MODEL_UPSTREAM_NO_CONTENT",
   "UNSUPPORTED_VIDEO",
   "VIDEO_TOO_LARGE",
+  "PUBLISH_RUN_FAILED",
+  /** CI-P7-01-05: the price catalog refused a row that does not describe a priceable dimension. */
+  "AI_PRICE_INVALID",
+  /** CI-P7-01-05: that provider+model+meter+instant already has a price in force. */
+  "AI_PRICE_CONFLICT",
+  /** CI-P7-03: the budget policy refused this call, so no request was sent at all. */
+  "AI_BUDGET_EXCEEDED",
 ] as const;
 
 export type AppErrorCode = (typeof appErrorCodes)[number];
@@ -68,6 +75,10 @@ const fallbackMessages: Record<AppErrorCode, string> = {
   MODEL_UPSTREAM_NO_CONTENT: "Model provider returned no content",
   UNSUPPORTED_VIDEO: "Unsupported video format",
   VIDEO_TOO_LARGE: "Video exceeds the size limit",
+  PUBLISH_RUN_FAILED: "The publish batch ended with unhandled account failures",
+  AI_PRICE_INVALID: "This is not a price a ledger row could be costed with",
+  AI_PRICE_CONFLICT: "A price for this provider, model and dimension is already in force from that instant",
+  AI_BUDGET_EXCEEDED: "The AI budget policy refused this call before it was sent",
 };
 
 export class AppError extends Error {

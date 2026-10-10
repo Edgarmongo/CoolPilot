@@ -8,7 +8,14 @@ import { vi } from "vitest";
  * `docs/generate-migration-p3.md`), and of the two "freeze, do not migrate" batches after it:
  * `src/app/api/images/route.test.ts` (P3-B-1) and `src/lib/article-images.test.ts` (P3-B-2) are the two
  * callers of `prepareImageModel()`, and the second one is not a route at all - the module pins the image
- * strategy, which is the layer both routes sit on. Nothing in here changed for them.
+ * strategy, which is the layer both routes sit on.
+ *
+ * CI-AI-IMG-CONFIG-03 is the one change those two batches saw: an image request routes to the provider
+ * that *owns* images (`openai-image` / `gemini-image`) instead of the text provider of the same vendor.
+ * The image side of this harness therefore gained two things - `prepareImageModel()` reconciles the
+ * image rows from the settings before it reads a catalog (an OpenAI-compatible image endpoint only
+ * exists once `openAIImageBaseUrl` names a URL, per the Q4 rule of that card), and that same reconcile
+ * is exported for a case that moves those settings itself.
  *
  * `src/app` had no test file before A3, and `lib/scraper.test.ts` shows why: a test that watches a
  * route talk to a provider first has to own four things - a database that is not the user's, a
@@ -40,8 +47,18 @@ export const runtime = await import("@/features/ai-runtime");
 export const runtimeRepository = await import("@/db/repositories/ai-runtime");
 export const credentials = await import("@/lib/credentials");
 
-const { aiProviderOrder, aiProviderRegistry } = await import("@/features/ai-settings/provider-registry");
+const { aiProviderOrder, aiProviderRegistry, imageProviderIds } = await import(
+  "@/features/ai-settings/provider-registry"
+);
 const { keylessAppEnvValue } = await import("@/test/app-env");
+
+/**
+ * The reconcile the settings route runs after every save (`syncImageProviderSettings()` in the runtime
+ * registry), for a case that changes the *image* settings instead of letting `prepareImageModel()`
+ * fixture them - most importantly the Q4 state where the image base URL is empty, which must leave no
+ * routable image endpoint behind.
+ */
+export const { syncImageProviderSettings } = await import("@/features/ai-runtime/registry");
 
 /**
  * The legacy spellings a configured install may have exported: `<PROVIDER>_MODEL` and the key
@@ -56,7 +73,15 @@ const modelEnvVars = [
     "OPENAI_IMAGE_MODEL",
   ]),
 ];
-const keyEnvVars = [...new Set(aiProviderOrder.flatMap((provider) => credentials.credentialEnvVarNames(provider)))];
+const keyEnvVars = [
+  ...new Set([
+    ...aiProviderOrder.flatMap((provider) => credentials.credentialEnvVarNames(provider)),
+    // CI-AI-IMG-CONFIG-03: the image providers are registry rows of their own now, so their key
+    // variables (`OPENAI_IMAGE_API_KEYS`, `GEMINI_IMAGE_API_KEYS`) are neutralised by name here too -
+    // a developer shell that exports one must not decide what an image case routes to.
+    ...Object.values(imageProviderIds).flatMap((providerId) => credentials.credentialEnvVarNames(providerId)),
+  ]),
+];
 
 /**
  * Blank slate: no key in the process, no vault entry, no callable model, no capability default left
@@ -113,11 +138,40 @@ export async function prepareChatModel(providerId: string, modelId: string, secr
  * `image_generation` model and the capability default - which is the layer `importLegacyAiSettings()`
  * would have set from the legacy form, so a case can choose between "the configured image provider"
  * and "the other one is callable too" without touching the registry by hand.
+ *
+ * CI-AI-IMG-CONFIG-03: `providerId` is the *image* provider (`openai-image` / `gemini-image`), and an
+ * OpenAI-compatible image endpoint only exists in the registry once the image settings name a URL
+ * (Q4 as ruled) - which is what the case's own `updateLocalAgentSettings({ openAIImageBaseUrl })`
+ * puts there. The reconcile below is the same call the settings route makes after a save, and it has
+ * to happen before `prepareModel()` reads the catalog: without the endpoint row there is nothing to
+ * sync against and the model would not be callable.
  */
 export async function prepareImageModel(providerId: string, modelId: string, secret: string) {
+  const { syncImageProviderSettings } = await import("@/features/ai-runtime/registry");
+  await syncImageProviderSettings();
   const row = await prepareModel(providerId, modelId, secret);
   await runtime.setModelDefaultForCapability("image_generation", row?.id ?? "");
   return row;
+}
+
+/**
+ * The two budget states a call site's refusal case needs (CI-P7-03), stated in the one place every
+ * route test already reaches.
+ *
+ * `refuseEveryAiBudgetCall()` is a refusal no catalog can accidentally satisfy: the limit is 0 and
+ * `unknownCostPolicy: "block"` refuses a call whose cost cannot be stated either, so the answer is the
+ * user's settings speaking and not a missing price row. `allowEveryAiBudgetCall()` puts the row back to
+ * the shipped default, for a file that wants its other cases to keep calling models after a refusal case
+ * has run. Both stand for the *call* gate; a step (node) gate reads the same row.
+ */
+export async function refuseEveryAiBudgetCall() {
+  const { updateAiBudgetSettings } = await import("@/db/repositories/settings");
+  await updateAiBudgetSettings({ policy: "block", monthlyLimit: 0, currency: "CNY", unknownCostPolicy: "block" });
+}
+
+export async function allowEveryAiBudgetCall() {
+  const { updateAiBudgetSettings } = await import("@/db/repositories/settings");
+  await updateAiBudgetSettings({ policy: "off", monthlyLimit: null, currency: "CNY", unknownCostPolicy: "allow" });
 }
 
 /** A `Request` shaped like the one the app sends: POST with a JSON body. */

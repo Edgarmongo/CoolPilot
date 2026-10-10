@@ -7,12 +7,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Assisted publish, step 2: poll whether the author has published on the live
- * session page (left the editor URL / success confirmation visible).
+ * Assisted publish, step 2: poll whether the author has published on the live session page (left the
+ * editor URL / success confirmation visible).
  *
  * Since C2 (`docs/creator-workflow-audit.md`) this is also where a verified success becomes a
  * fact: the same request that tells the dialog 已发布 writes the `publish_records` row and moves
  * the content item to `posted` (`src/lib/publish-facts.ts`).
+ *
+ * Since C2-1b (`docs/assisted-publishing-engine.md`) the check answers three ways and only one of
+ * them writes: `published` is a platform statement, `unknown` is a page that moved with nothing to
+ * confirm a post, `waiting` is the draft page still on screen. The changed URL that used to be the
+ * whole answer is now evidence *for* `unknown` and authorizes nothing.
  *
  * Two conditions, both required, and neither is the client's word: the check must report success,
  * and this process must still be holding the receipt of the draft that produced it. Success
@@ -33,7 +38,7 @@ export async function POST(request: Request) {
   if (!accountId) return fail("accountId is required", 400);
 
   const result = await checkPublishResult(accountId);
-  if (!result.published) return ok(result);
+  if (result.outcome !== "published") return ok(result);
 
   const account = await getAccount(accountId);
   if (!account) return ok(result);

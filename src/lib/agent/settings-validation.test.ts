@@ -39,4 +39,22 @@ describe("local agent settings validation", () => {
   it("rejects invalid provider URLs", () => {
     expect(() => localAgentSettingsSchema.parse({ openAIBaseUrl: "not-a-url" })).toThrow();
   });
+
+  it("accepts an independent image base URL and independent image credentials", () => {
+    const parsed = localAgentSettingsSchema.parse({
+      openAIImageBaseUrl: "https://images.example.com/v1",
+      openAIImageKey: "sk-image-secret",
+      geminiImageKey: "gm-image-secret",
+    });
+
+    expect(parsed.openAIImageBaseUrl).toBe("https://images.example.com/v1");
+    expect(parsed.openAIImageKey).toBe("sk-image-secret");
+    expect(parsed.geminiImageKey).toBe("gm-image-secret");
+  });
+
+  it("allows the image base URL to be unset, but rejects a malformed one", () => {
+    // Empty is the "not configured" state (Q4): valid, and never a synonym for "use the text URL".
+    expect(localAgentSettingsSchema.parse({ openAIImageBaseUrl: "" }).openAIImageBaseUrl).toBe("");
+    expect(() => localAgentSettingsSchema.parse({ openAIImageBaseUrl: "not-a-url" })).toThrow();
+  });
 });

@@ -33,6 +33,7 @@ const {
   prepareChatModel,
   prepareModel,
   qwenCatalog,
+  refuseEveryAiBudgetCall,
   resetRuntime,
   stubFetch,
   unavailable,
@@ -408,5 +409,28 @@ describe("POST /api/knowledge-base/ai-parse on aiRuntime", () => {
     expect(payload.data.model).toBe("qwen3-max");
     expect(payload.data.item.title).toBe(draftTitle);
     expect(chatCalls(calls)).toHaveLength(1);
+  });
+
+  it("answers the gate's own 402 instead of falling back to the local parse, and stores nothing", async () => {
+    // The model is configured through a catalog read first, then the transport is emptied: from this point
+    // on, any call this request makes is one the case will see.
+    stubFetch([qwenModels]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    await refuseEveryAiBudgetCall();
+    const calls = stubFetch([]);
+    const knowledgeBefore = await knowledgeIds();
+    const usageBefore = await usageIds();
+
+    const response = await parse({ content: raw });
+    const payload = await response.json();
+
+    // The fallback exists for an AI that failed; a refusal is not one, and the gate stands outside that
+    // try. Answering 201 with a locally parsed entry would report work this route never did.
+    expect(response.status).toBe(402);
+    expect(payload.ok).toBe(false);
+    expect(payload.code).toBe("AI_BUDGET_EXCEEDED");
+    expect(calls).toEqual([]);
+    expect(await entriesSince(knowledgeBefore)).toEqual([]);
+    expect(await usageSince(usageBefore)).toEqual([]);
   });
 });

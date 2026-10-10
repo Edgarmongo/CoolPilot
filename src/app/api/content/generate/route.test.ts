@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AiWritingConfig, AiWritingMaterial, AiWritingPositioning } from "@/lib/ai-writing";
-import type { PositionRecord } from "@/lib/types";
+import type { AiWritingBrand, AiWritingConfig, AiWritingMaterial, AiWritingPositioning } from "@/lib/ai-writing";
+import type { BrandRecord, PositionRecord, ResearchMaterialRecord, TopicRecord } from "@/lib/types";
 
 /**
  * `api/content/generate` on `aiRuntime` (batch P3-A3 of `docs/generate-migration-p3.md`).
@@ -14,6 +14,9 @@ import type { PositionRecord } from "@/lib/types";
  * P4 deleted the three legacy modules this file used to mock with a throwing factory (`@/lib/ai`,
  * `@/lib/ai/generate`, `@/lib/ai/compat`). The guard is structural now: reviving one of them fails
  * `tsc` and module resolution instead of a single test file (`docs/generate-migration-p3.md`, P4).
+ *
+ * The last describe block is CI-P2-03's half of the contract: which stored `topic`/`brand` rows this
+ * entry reads, what they do to the prompts, and what the stored article and the topic row keep.
  */
 
 /**
@@ -44,7 +47,12 @@ const { getWritingAgent } = await import("@/lib/writing-agents");
 const { listContentItems, listUsageRecords } = await import("@/db/repository");
 const { createKnowledgeBase, listKnowledgeBase } = await import("@/db/repositories/knowledge-base");
 const { createPosition } = await import("@/db/repositories/positions");
+const { createBrand } = await import("@/db/repositories/brands");
+const { createTopic, getTopic } = await import("@/db/repositories/topics");
+const { createResearchMaterial, getResearchMaterial } = await import("@/db/repositories/research");
 const { selectKnowledgeReferences } = await import("@/lib/knowledge-base");
+const { researchMaterialPromptText } = await import("@/lib/research");
+const { topicMaterialText } = await import("@/lib/topics");
 const { countTextCharacters } = await import("@/lib/usage");
 
 const generateUrl = "http://localhost/api/content/generate";
@@ -72,6 +80,11 @@ type Payload = {
   type: string;
   agentId: string;
   positioningId: string;
+  /** CI-P2-03: the two stored rows this entry now reads besides the positioning. */
+  brandId: string;
+  topicId: string;
+  /** CI-P3-01: the third one - the research material whose text becomes material. */
+  researchMaterialId: string;
   knowledgeMode: AiWritingConfig["knowledgeMode"];
   articleStyle: AiWritingConfig["articleStyle"];
   industry: AiWritingConfig["industry"];
@@ -97,6 +110,10 @@ function payloadFixture(overrides: Partial<Payload> = {}): Payload {
     type: contentType,
     agentId,
     positioningId: fixture.position.id,
+    // The selections a payload may name; the default is "none of them", which is every earlier client.
+    brandId: "",
+    topicId: "",
+    researchMaterialId: "",
     knowledgeMode: "position",
     articleStyle: "science",
     industry: "home",
@@ -134,16 +151,37 @@ function configOf(payload: Payload, overrides: Partial<AiWritingConfig> = {}): A
     deAi: payload.deAi,
     knowledgeMode: payload.knowledgeMode,
     positioningId: payload.positioningId,
+    // The brand the payload named, verbatim: what the caller asked for is the config's business, while
+    // what was actually read is the stored article's (`metadata.brandId`, CI-P2-03).
+    brandId: payload.brandId,
     ...overrides,
   };
 }
 
-/** This route sends no topics and no products; the topic (and the extra instructions) are the material. */
-function materialsOf(payload: Payload): AiWritingMaterial {
+/**
+ * This route sends no topics and no products: the material is the subject, the supplement, and - when
+ * the payload named a row that resolves (CI-P2-03) - the topic's own stored fields, worded exactly as
+ * the wizard's step 1 words a topic it carries into the form (`topicMaterialText`, P2-01-04). A research
+ * material (CI-P3-01) joins the same list through `researchMaterialPromptText`: its own stored text, with
+ * its source labelled as a source.
+ */
+function materialsOf(
+  payload: Payload,
+  topic: TopicRecord | null = null,
+  research: ResearchMaterialRecord | null = null,
+): AiWritingMaterial {
+  const subject = payload.topic.trim();
   return {
     topics: [],
     products: [],
-    freeText: payload.prompt ? `${payload.topic}\n\n${payload.prompt}` : payload.topic,
+    freeText: [
+      topic ? topicMaterialText(topic) : "",
+      research ? researchMaterialPromptText(research) : "",
+      subject && subject !== topic?.title.trim() ? subject : "",
+      payload.prompt,
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   };
 }
 
@@ -161,11 +199,32 @@ function positioningOf(position: PositionRecord): AiWritingPositioning {
   };
 }
 
+/** The six fields a brand contributes to a prompt - the route's own `toBrand()`. */
+function brandOf(brand: BrandRecord): AiWritingBrand {
+  return {
+    name: brand.name,
+    description: brand.description,
+    targetAudience: brand.targetAudience,
+    tone: brand.tone,
+    keywords: brand.keywords,
+    bannedWords: brand.bannedWords,
+  };
+}
+
 /** The system turn: the writing agent's own prompt, then the article rules the config implies. */
-function expectedSystemPrompt(config: AiWritingConfig, chosenAgentId: string, position?: PositionRecord) {
+function expectedSystemPrompt(
+  config: AiWritingConfig,
+  chosenAgentId: string,
+  position?: PositionRecord,
+  brand?: BrandRecord,
+) {
   return [
     getWritingAgent(chosenAgentId).systemPrompt,
-    buildArticleSystemPrompt({ config, positioning: position ? positioningOf(position) : undefined }),
+    buildArticleSystemPrompt({
+      config,
+      positioning: position ? positioningOf(position) : undefined,
+      brand: brand ? brandOf(brand) : undefined,
+    }),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -176,14 +235,22 @@ function expectedSystemPrompt(config: AiWritingConfig, chosenAgentId: string, po
  * knowledge mode, whatever the positioning lookup returned, and the two label maps - so a case pins the
  * route's *assembly* instead of a copy of the string.
  */
-async function expectedPrompt(config: AiWritingConfig, payload: Payload, position: PositionRecord | null) {
+async function expectedPrompt(
+  config: AiWritingConfig,
+  payload: Payload,
+  position: PositionRecord | null,
+  topic: TopicRecord | null = null,
+  brand: BrandRecord | null = null,
+  research: ResearchMaterialRecord | null = null,
+) {
   return buildArticlePrompt({
     config,
-    materials: materialsOf(payload),
+    materials: materialsOf(payload, topic, research),
     knowledge:
       config.knowledgeMode === "position" ? selectKnowledgeReferences(await listKnowledgeBase(), position?.id) : [],
     audienceLabel: audiencePrompt[config.audience],
     industryLabel: industryDomainPrompt[config.industry],
+    brand: brand ? brandOf(brand) : undefined,
   });
 }
 
@@ -489,3 +556,388 @@ describe("POST /api/content/generate on aiRuntime", () => {
     expect(gonePrompt).toContain(sharedKnowledge.title);
   });
 });
+/**
+ * CI-P2-03: the topic and the brand this entry now reads.
+ *
+ * Each case pins a different fact about the joined chain: the stored rows reach both prompts, two brands
+ * never meet in one run, and an id that names nothing stays "no brand, no topic" without losing the
+ * article. The rows are real repository rows and the prompts are the route's own; nothing here asserts
+ * that a function was called.
+ */
+describe("POST /api/content/generate on the topic and the brand it names (CI-P2-03)", () => {
+  beforeEach(async () => {
+    vi.unstubAllGlobals();
+    await resetRuntime();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Two brands whose names, tones and banned words cannot be confused with each other. */
+  const clipversity = {
+    name: "Clipversity",
+    description: "面向剪辑师的工作流品牌。",
+    targetAudience: "短视频剪辑师",
+    tone: "克制、专业",
+    keywords: ["剪辑工作流", "素材管理"],
+    // Deliberately none of the positioning fixture's own banned words (`最强`): a marker a case can
+    // attribute to *this* brand, which is what makes the isolation assertions mean something.
+    bannedWords: ["硬广腔"],
+  };
+  const greenSea = {
+    name: "绿源海鲜",
+    description: "东海直发的海产品牌。",
+    targetAudience: "家庭主厨",
+    tone: "热情、有烟火气",
+    keywords: ["冷链直送"],
+    bannedWords: ["绝对新鲜"],
+  };
+
+  /** The topic a run writes about: every field is one the prompt must show. */
+  const stored = {
+    title: "小户型桌面收纳",
+    description: "讲清 3 平米书桌的分区与取舍。",
+    keywords: ["小户型", "桌面分区"],
+    source: "hot",
+    sourceUrl: "https://example.com/hot/desk-storage",
+  };
+
+  it("reads the brand and the topic the payload names, and records both on the article", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+
+    const brand = await createBrand(clipversity);
+    const topicRow = await createTopic(stored);
+    if (!brand || !topicRow) throw new Error("topic/brand fixtures were not created");
+
+    const payload = payloadFixture({ brandId: brand.id, topicId: topicRow.id });
+    const config = configOf(payload);
+    const response = await POST(generateRequest({ brandId: brand.id, topicId: topicRow.id }));
+    const result = await response.json();
+
+    expect(response.status).toBe(201);
+    // The row that was *read* is what the article records, and the brand's version with it (P2-02-04).
+    expect(result.data.item.metadata).toMatchObject({
+      brandId: brand.id,
+      brandVersion: brand.updatedAt,
+      topicId: topicRow.id,
+      aiWriting: { ...config },
+    });
+
+    const turns = turnsOf(chatCalls(calls)[0]);
+    // The brand is system-level identity, exactly as the wizard's own brand selection is.
+    expect(turns.system?.content).toBe(expectedSystemPrompt(config, agentId, fixture.position, brand));
+    expect(turns.system?.content).toContain(`品牌：${brand.name}`);
+    expect(turns.system?.content).toContain(`品牌简介：${brand.description}`);
+    expect(turns.system?.content).toContain(`品牌语气：${brand.tone}`);
+    expect(turns.system?.content).toContain(clipversity.bannedWords[0]);
+    // ...and prompt-level material for the audience and the keywords.
+    const prompt = turns.user?.content ?? "";
+    expect(prompt.startsWith(await expectedPrompt(config, payload, fixture.position, topicRow, brand))).toBe(true);
+    expect(prompt).toContain(`品牌目标受众：${brand.targetAudience}`);
+    expect(prompt).toContain(`品牌关键词：${brand.keywords.join("、")}`);
+    // The topic's stored fields are the material, worded as the wizard words them (P2-01-04 / P2-03-02).
+    expect(prompt).toContain(`选题：${topicRow.title}`);
+    expect(prompt).toContain(`说明：${topicRow.description}`);
+    expect(prompt).toContain(`关键词：${topicRow.keywords.join("、")}`);
+    expect(prompt).toContain(`来源：${topicRow.sourceUrl}`);
+    // The subject was prefilled from the topic and left alone, so it is not repeated back at the model.
+    expect(prompt).not.toContain(`${topicRow.title}\n\n${extraPrompt}`);
+
+    // The topic keeps the link back to the article it produced (P2-01-05).
+    expect((await getTopic(topicRow.id))?.contentItemId).toBe(result.data.item.id);
+    // The topic's own page is the image source this entry can offer, and the article records it (C4).
+    expect(result.data.item.sourceUrls).toEqual([topicRow.sourceUrl]);
+  });
+
+  it("switches brands without carrying the previous brand's fields into the next run", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+
+    const first = await createBrand(clipversity);
+    const second = await createBrand(greenSea);
+    if (!first || !second) throw new Error("brand fixtures were not created");
+
+    const firstResponse = await POST(generateRequest({ brandId: first.id }));
+    const secondResponse = await POST(generateRequest({ brandId: second.id }));
+    const firstResult = await firstResponse.json();
+    const secondResult = await secondResponse.json();
+
+    expect(firstResponse.status).toBe(201);
+    expect(secondResponse.status).toBe(201);
+
+    const firstTurns = turnsOf(chatCalls(calls)[0]);
+    const secondTurns = turnsOf(chatCalls(calls)[1]);
+
+    expect(firstTurns.system?.content).toContain(`品牌：${first.name}`);
+    expect(firstTurns.system?.content).toContain(clipversity.bannedWords[0]);
+    expect(firstTurns.system?.content).not.toContain(second.name);
+    expect(firstTurns.system?.content).not.toContain(`品牌语气：${greenSea.tone}`);
+    expect(firstTurns.system?.content).not.toContain(greenSea.bannedWords[0]);
+    expect(firstTurns.user?.content).not.toContain(`品牌关键词：${greenSea.keywords.join("、")}`);
+
+    expect(secondTurns.system?.content).toContain(`品牌：${second.name}`);
+    expect(secondTurns.system?.content).toContain(`品牌语气：${greenSea.tone}`);
+    expect(secondTurns.system?.content).toContain(greenSea.bannedWords[0]);
+    expect(secondTurns.system?.content).not.toContain(first.name);
+    expect(secondTurns.system?.content).not.toContain(clipversity.bannedWords[0]);
+    expect(secondTurns.user?.content).toContain(`品牌关键词：${greenSea.keywords.join("、")}`);
+    expect(secondTurns.user?.content).not.toContain(`品牌关键词：${clipversity.keywords.join("、")}`);
+
+    // Each article keeps the brand of its own run, not the last one selected.
+    expect(firstResult.data.item.metadata.brandId).toBe(first.id);
+    expect(secondResult.data.item.metadata.brandId).toBe(second.id);
+  });
+
+  it("writes with no brand and no topic when the payload names none, or names rows that are gone", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+
+    const ghostId = "brand-that-is-gone";
+    const ghostTopicId = "topic-that-is-gone";
+    const ghostPayload = payloadFixture({ brandId: ghostId, topicId: ghostTopicId });
+    const plainResponse = await POST(generateRequest());
+    const ghostResponse = await POST(generateRequest({ brandId: ghostId, topicId: ghostTopicId }));
+    const plain = await plainResponse.json();
+    const ghost = await ghostResponse.json();
+
+    expect(plainResponse.status).toBe(201);
+    expect(ghostResponse.status).toBe(201);
+
+    // What was read is nothing - not another brand, not a ghost topic - and the article still exists.
+    for (const result of [plain, ghost]) {
+      expect(result.data.item.metadata.brandId).toBe("");
+      expect(result.data.item.metadata.brandVersion).toBe(0);
+      expect(result.data.item.metadata.topicId).toBeUndefined();
+      expect(result.data.item.sourceUrls).toEqual([]);
+    }
+    // What the caller *asked* for stays visible in the entry's own summary, so a stale id can be told
+    // apart from no selection at all (which is what the two assertions above record).
+    expect(ghost.data.item.metadata.aiWriting.brandId).toBe(ghostId);
+    expect(plain.data.item.metadata.aiWriting.brandId).toBe("");
+
+    const plainTurns = turnsOf(chatCalls(calls)[0]);
+    const ghostTurns = turnsOf(chatCalls(calls)[1]);
+    for (const turns of [plainTurns, ghostTurns]) {
+      expect(turns.system?.content).not.toContain("品牌：");
+      expect(turns.user?.content).not.toContain("品牌目标受众");
+      expect(turns.user?.content).not.toContain("品牌关键词");
+    }
+    // A topic id that no longer resolves is linked nowhere either: there is no row to point back.
+    expect(await getTopic(ghostTopicId)).toBeNull();
+    // The material is exactly what the user typed: the subject and the supplement, nothing else.
+    const ghostPrompt = ghostTurns.user?.content ?? "";
+    expect(ghostPrompt.startsWith(await expectedPrompt(configOf(ghostPayload), ghostPayload, fixture.position))).toBe(
+      true,
+    );
+    expect(ghostPrompt).toContain(`自定义素材：\n${topic}\n\n${extraPrompt}`);
+  });
+});
+
+/**
+ * CI-P3-01: the research material this entry now reads.
+ *
+ * The material is the third input of the same shape as the topic and the brand - an id the route reads
+ * rather than trusts - and each case pins one thing its text must and must not do: the **stored 正文** is what
+ * reaches the prompt, a page nobody has read contributes a title and a link and no invented 正文, its source
+ * page joins the image sources only once it really contributed that text, an id that names nothing is refused
+ * instead of quietly writing the article without the material, and a client that never heard of the field
+ * behaves exactly as it did before.
+ */
+describe("POST /api/content/generate on the research material it names (CI-P3-01)", () => {
+  beforeEach(async () => {
+    vi.unstubAllGlobals();
+    await resetRuntime();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** One material whose every field can be told apart from the payload's own material. */
+  const researchNote = {
+    title: "夏季冰饮动销报告",
+    kind: "url" as const,
+    sourceUrl: "https://example.com/research/summer-drinks",
+    content: "七点以后冰饮最好卖，夜市摊位比商场高 40%。",
+  };
+
+  it("reads the material and writes its own text into the prompt, recording which version was read", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+
+    const material = await createResearchMaterial(researchNote);
+    if (!material) throw new Error("the material fixture was not created");
+
+    const payload = payloadFixture({ researchMaterialId: material.id });
+    const config = configOf(payload);
+    const response = await POST(generateRequest({ researchMaterialId: material.id }));
+    const result = await response.json();
+
+    expect(response.status).toBe(201);
+    // Which stored row was read, and the version it was read at - the shape a brand records too, so "the
+    // material changed after this article" is a comparison of two stored numbers (P3-01-04).
+    expect(result.data.item.metadata).toMatchObject({
+      researchMaterialId: material.id,
+      researchMaterialVersion: material.updatedAt,
+    });
+    // The page is a source of *this* article, because the text came with it (P3-01-05).
+    expect(result.data.item.sourceUrls).toEqual([researchNote.sourceUrl]);
+
+    const turns = turnsOf(chatCalls(calls)[0]);
+    const prompt = turns.user?.content ?? "";
+    expect(prompt.startsWith(await expectedPrompt(config, payload, fixture.position, null, null, material))).toBe(true);
+    expect(prompt).toContain(`研究素材：${researchNote.title}`);
+    expect(prompt).toContain(`来源：${researchNote.sourceUrl}`);
+    // The stored 正文 itself - not its title, and not a summary of it (P3-01-04).
+    expect(prompt).toContain(`正文：\n${researchNote.content}`);
+    // The subject the user typed is still in the material, after what the material contributed.
+    expect(prompt).toContain("自定义素材：\n研究素材：");
+  });
+
+  it("carries a material nobody has read without inventing a 正文, and offers no image source for it", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+
+    const unread = await createResearchMaterial({
+      title: "还没读的网页",
+      kind: "url",
+      sourceUrl: "https://example.com/research/unread",
+    });
+    if (!unread) throw new Error("the material fixture was not created");
+
+    const payload = payloadFixture({ researchMaterialId: unread.id });
+    const response = await POST(generateRequest({ researchMaterialId: unread.id }));
+    const result = await response.json();
+
+    expect(response.status).toBe(201);
+    // The row was read, so it is recorded - and the row itself says 待读取, which is what the workspace shows.
+    expect(result.data.item.metadata.researchMaterialId).toBe(unread.id);
+    // A page that contributed no text is not a source of this article, and the image resolver is never sent
+    // to it on this article's behalf.
+    expect(result.data.item.sourceUrls).toEqual([]);
+
+    const prompt = turnsOf(chatCalls(calls)[0]).user?.content ?? "";
+    expect(prompt.startsWith(await expectedPrompt(configOf(payload), payload, fixture.position, null, null, unread))).toBe(
+      true,
+    );
+    expect(prompt).toContain(`研究素材：${unread.title}`);
+    expect(prompt).toContain(`来源：https://example.com/research/unread`);
+    expect(prompt).not.toContain("正文：");
+  });
+
+  it("writes with a topic, a brand and a material at once, keeping each on its own terms", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+
+    const brand = await createBrand({
+      name: "Clipversity",
+      description: "面向剪辑师的工作流品牌。",
+      targetAudience: "短视频剪辑师",
+      tone: "克制、专业",
+      keywords: ["剪辑工作流"],
+      bannedWords: ["硬广腔"],
+    });
+    const topicRow = await createTopic({
+      title: "小户型桌面收纳",
+      description: "讲清 3 平米书桌的分区与取舍。",
+      keywords: ["小户型"],
+      source: "hot",
+      sourceUrl: "https://example.com/hot/desk-storage",
+    });
+    const material = await createResearchMaterial(researchNote);
+    if (!brand || !topicRow || !material) throw new Error("fixtures were not created");
+
+    const payload = payloadFixture({ brandId: brand.id, topicId: topicRow.id, researchMaterialId: material.id });
+    const config = configOf(payload);
+    const response = await POST(
+      generateRequest({ brandId: brand.id, topicId: topicRow.id, researchMaterialId: material.id }),
+    );
+    const result = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(result.data.item.metadata).toMatchObject({
+      brandId: brand.id,
+      topicId: topicRow.id,
+      researchMaterialId: material.id,
+    });
+    // Two real source pages, in the order the route builds them: the topic's, then the material's.
+    expect(result.data.item.sourceUrls).toEqual([topicRow.sourceUrl, researchNote.sourceUrl]);
+
+    const turns = turnsOf(chatCalls(calls)[0]);
+    const prompt = turns.user?.content ?? "";
+    expect(
+      prompt.startsWith(await expectedPrompt(config, payload, fixture.position, topicRow, brand, material)),
+    ).toBe(true);
+    // Each input contributes what it owns: the brand is identity, the topic is a subject, the material is text.
+    expect(turns.system?.content).toContain(`品牌：${brand.name}`);
+    expect(turns.system?.content).toContain(`品牌语气：${brand.tone}`);
+    expect(prompt).toContain(`选题：${topicRow.title}`);
+    expect(prompt).toContain(`研究素材：${researchNote.title}`);
+    expect(prompt).toContain(`正文：\n${researchNote.content}`);
+  });
+
+  it("refuses an id that names nothing instead of writing the article without the material", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const itemsBefore = (await listContentItems({ pageSize: 20 })).total;
+    const usageBefore = (await listUsageRecords({ limit: 500 })).length;
+
+    const response = await POST(generateRequest({ researchMaterialId: "material-that-is-gone" }));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(await getResearchMaterial("material-that-is-gone")).toBeNull();
+    // Nothing was written and no model was asked: a material is the run's source text, not a hint, so
+    // "静默替换成其他素材 / 静默降级成没有素材" is not one of the outcomes (P3-01-04).
+    expect(chatCalls(calls)).toEqual([]);
+    expect((await listContentItems({ pageSize: 20 })).total).toBe(itemsBefore);
+    expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
+  });
+
+  it("keeps every client that never heard of the field exactly as it was", async () => {
+    const calls = stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+
+    // The payload an older build sends: the field is simply absent, which the schema defaults to "".
+    const legacy: Partial<Payload> = { ...payloadFixture() };
+    delete legacy.researchMaterialId;
+    const response = await POST(jsonRequest(generateUrl, { ...legacy }));
+    const result = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(result.data.item.metadata.researchMaterialId).toBeUndefined();
+    expect(result.data.item.metadata.researchMaterialVersion).toBeUndefined();
+    expect(result.data.item.sourceUrls).toEqual([]);
+    const prompt = turnsOf(chatCalls(calls)[0]).user?.content ?? "";
+    expect(prompt).not.toContain("研究素材：");
+    expect(prompt).toContain(`自定义素材：\n${topic}\n\n${extraPrompt}`);
+  });
+});
+
+

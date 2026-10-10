@@ -60,6 +60,20 @@ export async function apiPost<T>(url: string, body: unknown, init?: RequestInit)
   return readApiResponse<T>(response);
 }
 
+/**
+ * `PUT`, for the endpoints whose body is the whole value rather than a patch - the AI budget settings
+ * are all four fields at once, and a partial body there would read as "reset the ones not sent".
+ */
+export async function apiPut<T>(url: string, body: unknown, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...init?.headers },
+    body: JSON.stringify(body),
+    ...init,
+  });
+  return readApiResponse<T>(response);
+}
+
 export async function apiPatch<T>(url: string, body: unknown, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     method: "PATCH",
