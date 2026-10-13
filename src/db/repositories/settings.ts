@@ -261,13 +261,18 @@ export async function getAiBudgetSettings(): Promise<AiBudgetSettings> {
     monthlyLimit: data.monthlyLimit ?? defaultAiBudgetSettings.monthlyLimit,
     currency: data.currency ?? defaultAiBudgetSettings.currency,
     unknownCostPolicy: data.unknownCostPolicy ?? defaultAiBudgetSettings.unknownCostPolicy,
+    // CI-P7-03-C1. A row written before the strategy existed (or by a client that does not know it)
+    // falls back to `balanced` - the semantics that row was actually running under - rather than to a
+    // tier that would start refusing or deferring calls nobody asked it to.
+    strategy: data.strategy ?? defaultAiBudgetSettings.strategy,
   };
 }
 
 /**
- * Replaces the budget settings. The whole object is written at once because the four fields describe
- * one decision - the limit, the currency it is quoted in and what to do at the edge of it - and a
- * partial write could leave a limit whose policy does not belong to it.
+ * Replaces the budget settings. The whole object is written at once because the five fields describe
+ * one decision - the limit, the currency it is quoted in, what to do at the edge of it, and how much of
+ * it one piece of work may use (CI-P7-03-C1) - and a partial write could leave a limit whose policy does
+ * not belong to it.
  */
 export async function updateAiBudgetSettings(patch: Partial<AiBudgetSettings>): Promise<AiBudgetSettings> {
   const current = await getAiBudgetSettings();

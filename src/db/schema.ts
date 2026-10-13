@@ -208,6 +208,42 @@ export const knowledgeBase = sqliteTable("knowledge_base", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/**
+ * The knowledge index: one row per chunk of one knowledge record (CI-EMB-01, D2=b/D11).
+ *
+ * `knowledge_base` stays the business entity a user edits; this table is what a semantic query reads. Three
+ * columns carry the rules the card is about:
+ *
+ * - `source_hash` is the identity of the record's *content* (title, body, category, tags, plus the chunking
+ *   and input-template versions). A row whose hash differs from the record's current one is stale: it may
+ *   still exist and still answer a query from its own model, and no reader may treat it as current.
+ * - `provider_id`/`model_id`/`dimensions` identify the model that produced the vector. Vectors of two models
+ *   are never compared (D4), so a model change is a rebuild rather than a silent mismatch.
+ * - `vector_json` is the vector itself. SQLite gets no vector extension here; similarity is computed in
+ *   memory by `cosineSimilarity()`, which is why the row also states the dimension it must be compared at.
+ *
+ * `id` is stable (`<knowledge_id>#<chunk_index>`), which is what makes a re-embedding an update rather than
+ * an append, and what makes a retried task produce one index rather than two.
+ */
+export const knowledgeEmbeddings = sqliteTable("knowledge_embeddings", {
+  id: text("id").primaryKey(),
+  knowledgeId: text("knowledge_id").notNull(),
+  chunkIndex: integer("chunk_index").notNull(),
+  /** The chunking rule that produced this row (`knowledgeChunkingVersion`). */
+  chunkingVersion: text("chunking_version").notNull(),
+  text: text("text").notNull(),
+  /** SHA-256 of this chunk's own text. */
+  chunkHash: text("chunk_hash").notNull(),
+  /** SHA-256 of the record's contributing fields and both template versions. */
+  sourceHash: text("source_hash").notNull(),
+  providerId: text("provider_id").notNull(),
+  modelId: text("model_id").notNull(),
+  dimensions: integer("dimensions").notNull(),
+  vectorJson: text("vector_json").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const difyConnections = sqliteTable("dify_connections", {
   id: text("id").primaryKey(),
   name: text("name").notNull().default(""),
@@ -282,6 +318,52 @@ export const accountMetricSnapshots = sqliteTable("account_metric_snapshots", {
   extraJson: text("extra_json").notNull().default("{}"),
   source: text("source").notNull().default("browser"),
   createdAt: integer("created_at").notNull(),
+});
+
+/**
+ * A marketing lead and its outcome (营销线索与成交, `CI-LEAD-01`).
+ *
+ * The missing half of the business chain: `publish_records` says a content reached a platform and
+ * `metric_snapshots` says how many people saw it, but nothing said whether a person got in touch or
+ * bought anything. This table is that record and nothing more - it is **not** a CRM (no contact
+ * directory, no pipeline automation), the same line the 开发清单 draws for `P2-06`.
+ *
+ * Four decisions worth naming:
+ *
+ * 1. **A lead is linked to what produced it by id, and the link may be absent.** `content_item_id` /
+ *    `publish_record_id` follow the shape `schedules.content_item_id` chose (nullable), because a lead
+ *    that arrived offline is a real lead - it is shown as 未关联内容 instead of being attached to a
+ *    content the user never chose.
+ * 2. **成交金额 is nullable and stored in minor units.** `NULL` means "not recorded", which is not 0:
+ *    the summary counts those deals separately instead of pretending they were worth nothing, and
+ *    minor units keep a sum exact (`1200.50` is `120050`, no float arithmetic over money).
+ * 3. **An amount carries its currency.** `deal_currency` is `''` only while no amount is recorded, so a
+ *    stored number is never an amount without a unit and two currencies are never added together.
+ * 4. **跟进状态 is a closed vocabulary** (`marketingLeadStatuses`, `@/lib/leads`) and 已成交 is the state
+ *    a deal belongs to: `updateMarketingLead` refuses to move a lead that recorded a deal out of `won`
+ *    unless the same call clears it, so no write silently deletes an amount or a closing date.
+ */
+export const marketingLeads = sqliteTable("marketing_leads", {
+  id: text("id").primaryKey(),
+  /** 客户称呼. */
+  name: text("name").notNull(),
+  /** 联系方式, optional: a lead the user has no phone or WeChat for is still a lead. */
+  contact: text("contact").notNull().default(""),
+  /** 来源平台, free text - leads arrive from places this app never published to. */
+  sourcePlatform: text("source_platform").notNull().default(""),
+  contentItemId: text("content_item_id"),
+  publishRecordId: text("publish_record_id"),
+  /** `new` / `following` / `won` / `closed` - see `marketingLeadStatuses`. */
+  status: text("status").notNull().default("new"),
+  note: text("note").notNull().default(""),
+  /** Sum in minor units; `NULL` = 未记录 (never 0). */
+  dealAmountMinor: integer("deal_amount_minor"),
+  /** ISO-ish code, `''` while `deal_amount_minor` is NULL. */
+  dealCurrency: text("deal_currency").notNull().default(""),
+  dealClosedAt: integer("deal_closed_at"),
+  dealNote: text("deal_note").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
 });
 
 export const usageRecords = sqliteTable("usage_records", {
@@ -501,9 +583,9 @@ export const researchMaterials = sqliteTable("research_materials", {
  *   cannot restate what yesterday's call cost.
  *
  * The business identity columns (`task_id`, `run_id`, `node_id`, `parent_usage_id`,
- * `output_asset_id`) are empty strings rather than NULL, matching the convention already used
- * for `ai_model_endpoints.endpoint_id`: SQLite treats NULLs as distinct in a UNIQUE index, and
- * an empty string lets "no task declared" be an ordinary value.
+ * `output_asset_id`, `extension_id`) are empty strings rather than NULL, matching the convention
+ * already used for `ai_model_endpoints.endpoint_id`: SQLite treats NULLs as distinct in a UNIQUE
+ * index, and an empty string lets "no task declared" be an ordinary value.
  */
 export const aiUsageLedger = sqliteTable("ai_usage_ledger", {
   id: text("id").primaryKey(),
@@ -529,6 +611,16 @@ export const aiUsageLedger = sqliteTable("ai_usage_ledger", {
   outputAssetId: text("output_asset_id").notNull().default(""),
   contentItemId: text("content_item_id").notNull().default(""),
   /**
+   * The Marketplace extension this call ran as (CI-P7-05-03), in the storefront's own id space:
+   * `position-<id>` for a published position listing, or the built-in catalogue's own agent id.
+   *
+   * Empty is a real answer and the honest default: most calls are not made as a listing (a chat
+   * answer, a transcription, an image, a rewrite), and a call whose entry selected no published
+   * listing and no catalogue agent is stored as unattributed rather than given a plausible id.
+   * Which id a call may state is decided in one place (`@/lib/marketplace-attribution`).
+   */
+  extensionId: text("extension_id").notNull().default(""),
+  /**
    * The budget hold (CI-P7-03-A) this request was admitted under, empty when it was not gated.
    *
    * This is the *link* between the two records of one call - the hold the gate took before sending
@@ -545,8 +637,10 @@ export const aiUsageLedger = sqliteTable("ai_usage_ledger", {
   cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
   reasoningTokens: integer("reasoning_tokens").notNull().default(0),
   /**
-   * How much of the real usage was seen: `reported` (a usage object arrived), `partial`
-   * (interrupted), `unknown` (nothing arrived). NEVER inferred from zero tokens.
+   * How much of the real usage was seen, on the dimension this row is billed on: `reported`
+   * (the billed amount was measured - a usage object for a token row, this row's own quantity for
+   * an image/second/character row), `partial` (interrupted), `unknown` (nothing arrived).
+   * NEVER inferred from zero tokens or from a zero quantity.
    */
   completeness: text("completeness").notNull().default("unknown"),
   /** Modality-specific units for the kinds that are not token-metered. */

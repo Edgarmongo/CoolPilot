@@ -290,4 +290,38 @@ describe("transcription task", () => {
     expect(listed.map((task) => task.id)).toContain(run.id);
     expect(listed.every((task) => task.type === "media_transcription")).toBe(true);
   });
+
+  it("keeps the budget's refusal as this task's own code, and stores no transcript", async () => {
+    // CI-P7-03-D1. The engine the budget refused: the provider layer maps the gate's
+    // `AI_BUDGET_EXCEEDED` onto this task's `BUDGET_EXCEEDED` *before* a request is sent, so there is no
+    // provider failure to report and nothing to blame on the engine.
+    const refused: import("./providers").TranscriptionProvider = {
+      id: "ai-runtime",
+      async availability() {
+        return { providerId: "ai-runtime", available: true, detail: "fake gateway (test)" };
+      },
+      async transcribe() {
+        throw new contract.TranscriptionFailure("BUDGET_EXCEEDED", "AI_BUDGET_EXCEEDED: over-limit");
+      },
+    };
+    const availability = { providerId: "ai-runtime" as const, available: true, detail: "fake gateway (test)" };
+    vi.mocked(providers.chooseTranscriptionProvider).mockResolvedValue({
+      provider: refused,
+      availability,
+      tried: [availability],
+    });
+
+    const { run } = await transcription.createTranscriptionTask({ ...request, providerId: "ai-runtime" });
+    const outcome = await transcription.executeTranscriptionTask(run.id);
+
+    expect(outcome.kind).toBe("failed");
+    if (outcome.kind !== "failed") return;
+    // The refusal keeps its name, and the run stores nothing: a refused transcription is not a
+    // transcript, and the task view says which code it stopped on.
+    expect(outcome.failure.code).toBe("BUDGET_EXCEEDED");
+    expect(outcome.failure.message).toContain("AI_BUDGET_EXCEEDED");
+    expect(await research.listResearchMaterials()).toHaveLength(0);
+    expect((await tasks.findTaskView(run.id))?.status).toBe("failed");
+    expect((await tasks.listTaskLogs("playbook", run.id)).at(-1)?.data.code).toBe("BUDGET_EXCEEDED");
+  });
 });

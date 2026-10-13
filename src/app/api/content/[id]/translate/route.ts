@@ -4,6 +4,7 @@ import { articleTranslationSchema } from "@/lib/ai/schemas";
 import { htmlToPlainText } from "@/lib/article-themes";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
 import { beginAiBudgetCall, type AiBudgetCallHandle } from "@/lib/ai-budget-guard";
+import { marketplaceExtensionIdOfContentItem } from "@/lib/content-item-listing";
 import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { toParagraphs } from "@/lib/translation-layouts";
 import { countTextCharacters } from "@/lib/usage";
@@ -45,7 +46,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   // CI-P7-01-04. The article being translated is this call's business identity, known before the
   // request; a translation that needed the runtime's self-correcting re-ask is two ledger rows,
   // because both requests were really sent.
-  const usageCall: AiUsageCallContext = { purpose: "content-translate", contentItemId: id };
+  //
+  // CI-P7-05-03 (remaining surface): the same attribution a rewrite carries, from the same stored
+  // provenance - a translation is that article's money too, and the dialog names no listing of its own.
+  const usageCall: AiUsageCallContext = {
+    purpose: "content-translate",
+    contentItemId: id,
+    extensionId: await marketplaceExtensionIdOfContentItem(existing),
+  };
 
   const prompt = [
     `把下面的文章逐段翻译成${targetLanguage}。`,

@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConsolePagination, useClampConsolePage, usePagedItems } from "@/components/ui/console-pagination";
 import { consoleInputClass } from "@/components/ui/console-surface";
-import { apiDelete, apiPatch, swrFetcher } from "@/lib/api-client";
+import { apiDelete, apiErrorTranslationKey, apiPatch, apiPost, swrFetcher } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import {
   knowledgeBaseCategoryLabelKeys,
@@ -40,6 +40,21 @@ import { KnowledgeUploadDialog } from "./knowledge-upload-dialog";
 
 type KnowledgeTab = "local" | "dify";
 
+/** The index reading `GET /api/knowledge-base/embeddings` answers with (CI-EMB-01). */
+type KnowledgeIndexPayload = {
+  model: { providerId: string; modelId: string } | null;
+  summary: {
+    records: number;
+    empty: number;
+    ready: number;
+    pending: number;
+    missing: number;
+    stale: number;
+    incompatible: number;
+    chunks: number;
+  } | null;
+};
+
 function formatDateTime(timestamp: number) {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -59,6 +74,8 @@ export function KnowledgeBaseWorkspace() {
     "/api/dify/connections",
     swrFetcher,
   );
+  /** CI-EMB-01: what the vector index looks like right now, read (never computed) from its own endpoint. */
+  const { data: index, mutate: mutateIndex } = useSWR<KnowledgeIndexPayload>("/api/knowledge-base/embeddings", swrFetcher);
 
   const [category, setCategory] = useState<KnowledgeBaseCategory | "all">("all");
   const [query, setQuery] = useState("");
@@ -71,6 +88,8 @@ export function KnowledgeBaseWorkspace() {
   const [productOpen, setProductOpen] = useState(false);
   const [difyOpen, setDifyOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<DifyConnectionRecord | null>(null);
+  const [indexBusy, setIndexBusy] = useState(false);
+  const [indexNotice, setIndexNotice] = useState("");
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -112,6 +131,27 @@ export function KnowledgeBaseWorkspace() {
   async function handleDeleteConnection(id: string) {
     await apiDelete(`/api/dify/connections/${id}`);
     await mutateConnections();
+  }
+
+  /**
+   * CI-EMB-01: the explicit entry the card requires - the vector index is never rebuilt by saving a record.
+   *
+   * `scope: "stale"` is the ordinary button: it fills in what is missing or outdated. A rebuild of everything
+   * (the model-migration path, D4) is a separate, deliberate action below, so a click here can never recompute
+   * an index that is already current - and the cost of one click is the cost of what is actually stale.
+   */
+  async function buildIndex(scope: "stale" | "rebuild") {
+    setIndexBusy(true);
+    setIndexNotice("");
+    try {
+      await apiPost<{ taskId: string; reused: boolean }>("/api/knowledge-base/embeddings", { scope });
+      setIndexNotice(t("kbIndexStarted"));
+      await mutateIndex();
+    } catch (error) {
+      setIndexNotice(t(apiErrorTranslationKey(error, "kbIndexFailed")));
+    } finally {
+      setIndexBusy(false);
+    }
   }
 
   return (
@@ -161,6 +201,32 @@ export function KnowledgeBaseWorkspace() {
                 className={cn(consoleInputClass, "w-56")}
               />
               <div className="ml-auto flex flex-wrap items-center gap-2">
+                {/*
+                  CI-EMB-01 (D10). The index is built by an explicit action, never by saving a record: this
+                  button asks for what is stale, and the second one rebuilds everything (the migration path a
+                  model change uses). Both create a task and answer immediately - the work runs in the worker /
+                  in this process, and the task system reports its progress.
+                */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={indexBusy}
+                  onClick={() => void buildIndex("stale")}
+                  title={t("kbIndexHint")}
+                >
+                  <RefreshCw size={14} className={cn(indexBusy && "animate-spin")} />
+                  {t("kbBuildIndex")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={indexBusy}
+                  onClick={() => void buildIndex("rebuild")}
+                  title={t("kbRebuildIndexHint")}
+                >
+                  <RefreshCw size={14} />
+                  {t("kbRebuildIndex")}
+                </Button>
                 <Button size="sm" variant="outline" onClick={() => setSmartOpen(true)}>
                   <Sparkles size={14} />
                   {t("kbSmartImport")}
@@ -179,6 +245,21 @@ export function KnowledgeBaseWorkspace() {
                 </Button>
               </div>
             </div>
+
+            {indexNotice ? <NoticeBanner title={indexNotice} /> : null}
+            {index?.summary ? (
+              <p className="text-xs text-zinc-500">
+                {t("kbIndexSummary", {
+                  ready: index.summary.ready,
+                  pending: index.summary.pending,
+                  model: index.model ? `${index.model.providerId}/${index.model.modelId}` : "",
+                })}
+              </p>
+            ) : (
+              // No summary is a reading of its own: either nothing can embed yet, or the index could not be
+              // read. Both are said rather than shown as an index of zero.
+              <p className="text-xs text-amber-600">{t("kbIndexUnavailable")}</p>
+            )}
 
             {isLoading ? (
               <p className="rounded-2xl border border-dashed border-sky-100 px-4 py-16 text-center text-sm text-zinc-500">

@@ -107,6 +107,9 @@ export async function resetRuntime() {
   await runtime.setModelDefaultForCapability("chat", null);
   await runtime.setModelDefaultForCapability("structured_output", null);
   await runtime.setModelDefaultForCapability("image_generation", null);
+  // CI-EMB-01: cleared for the same reason - a leftover `embedding` default would decide what a knowledge case
+  // routes to, and it is exactly the state a semantic-recall case has to set itself.
+  await runtime.setModelDefaultForCapability("embedding", null);
 }
 
 /** Makes one provider/model pair really callable: one credential, one enabled model. */
@@ -155,6 +158,18 @@ export async function prepareImageModel(providerId: string, modelId: string, sec
 }
 
 /**
+ * The embeddings counterpart of `prepareChatModel` (CI-EMB-01): one credential, one enabled `embedding` model
+ * and the capability default, so a case can call `aiRuntime.embed()` - or the knowledge recall that uses it -
+ * without reaching into the registry by hand. The model id has to be one the name rules recognise as an
+ * embedding model (`text-embedding-v4`, `bge-m3`, …), exactly as a real catalog would present it.
+ */
+export async function prepareEmbeddingModel(providerId: string, modelId: string, secret: string) {
+  const row = await prepareModel(providerId, modelId, secret);
+  await runtime.setModelDefaultForCapability("embedding", row?.id ?? "");
+  return row;
+}
+
+/**
  * The two budget states a call site's refusal case needs (CI-P7-03), stated in the one place every
  * route test already reaches.
  *
@@ -195,7 +210,7 @@ export function jsonResponse(body: unknown, status = 200) {
 
 export type RecordedCall = { url: string; init?: RequestInit };
 
-export type StubRoute = { match: (url: string) => boolean; respond: () => Response };
+export type StubRoute = { match: (url: string) => boolean; respond: (call: RecordedCall) => Response };
 
 /** Replaces the global transport and records every call, so a case can assert on the wire. */
 export function stubFetch(routes: StubRoute[]) {
@@ -207,7 +222,7 @@ export function stubFetch(routes: StubRoute[]) {
       calls.push({ url, init });
       const route = routes.find((entry) => entry.match(url));
       // An unexpected call must fail loudly rather than quietly steer a routing assertion.
-      return route ? route.respond() : jsonResponse({ error: { message: "unexpected call" } }, 404);
+      return route ? route.respond({ url, init }) : jsonResponse({ error: { message: "unexpected call" } }, 404);
     }),
   );
   return calls;
@@ -218,10 +233,17 @@ export type RequestBody = {
   temperature?: number;
   response_format?: unknown;
   messages?: Array<{ role: string; content: string }>;
+  /** The embeddings request's own field (CI-EMB-01): the texts the vectors are asked for. */
+  input?: string[];
+  /** The vector size the caller asked for, when it asked for one. */
+  dimensions?: number;
 };
 
 /** The chat turns only: a catalog read also carries an `Authorization` header but is not a model call. */
 export const chatCalls = (calls: RecordedCall[]) => calls.filter((call) => call.url.includes("/chat/completions"));
+
+/** The embeddings calls only (CI-EMB-01), for a case that has to count what a recall actually spent. */
+export const embeddingCalls = (calls: RecordedCall[]) => calls.filter((call) => call.url.includes("/embeddings"));
 
 export const bodyOf = (call: RecordedCall | undefined) => JSON.parse(String(call?.init?.body)) as RequestBody;
 
@@ -231,6 +253,34 @@ export const authorizationsOf = (calls: RecordedCall[]) => chatCalls(calls).map(
 
 export const qwenCatalog = () => jsonResponse({ data: [{ id: "qwen3-max" }] });
 export const deepseekCatalog = () => jsonResponse({ data: [{ id: "deepseek-chat" }] });
+
+/**
+ * The embeddings half of a stubbed provider (CI-EMB-01).
+ *
+ * `vectors` is read positionally, so a case whose request carries more texts than the list has entries still gets
+ * one vector per text (the list cycles) - which is what the adapter requires: an answer with the wrong number of
+ * vectors is refused rather than paired with the wrong text. A case that wants *that* refusal passes a list whose
+ * relevance the assertion makes explicit (`embeddingTask` tests it with a mismatched list).
+ */
+export function embeddingRoute(
+  vectors: number[][],
+  usage: { prompt_tokens: number; total_tokens: number } | null = { prompt_tokens: 7, total_tokens: 7 },
+): StubRoute {
+  return {
+    match: (url) => url.includes("/embeddings"),
+    respond: ({ init }) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { input?: string[]; model?: string };
+      const count = body.input?.length ?? 0;
+      return jsonResponse({
+        data: Array.from({ length: count }, (_, index) => ({
+          index,
+          embedding: vectors[index % vectors.length] ?? [0, 0],
+        })),
+        ...(usage ? { usage } : {}),
+      });
+    },
+  };
+}
 
 /** What a model answers when it understood the schema: the payload as JSON, plus usage to report. */
 export function jsonReply(payload: unknown, usage = { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 }) {

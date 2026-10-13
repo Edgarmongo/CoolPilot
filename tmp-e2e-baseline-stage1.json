@@ -1,0 +1,219 @@
+{
+  "label": "stage1",
+  "at": "2026-10-09T02:59:33.543Z",
+  "git": {
+    "head": "3b48126",
+    "changedEntries": 89
+  },
+  "db": {
+    "file": "web-data\\social-auto-post.db",
+    "bytes": 921600,
+    "mtime": "2026-10-09T02:39:28.516Z"
+  },
+  "tableCount": 29,
+  "tables": {
+    "content_items": 17,
+    "content_assets": null,
+    "publish_records": 3,
+    "publish_logs": null,
+    "runs": 7,
+    "run_events": 21,
+    "schedules": 0,
+    "accounts": 3,
+    "ai_models": 422,
+    "ai_model_capabilities": 923,
+    "agent_runtime_runs": 5,
+    "agent_sessions": null,
+    "products": 1,
+    "knowledge_items": null,
+    "uploaded_files": null,
+    "metrics_snapshots": null
+  },
+  "allTableCounts": {
+    "account_metric_snapshots": 0,
+    "accounts": 3,
+    "agent_runtime_events": 39,
+    "agent_runtime_runs": 5,
+    "ai_credential_keys": 1,
+    "ai_model_capabilities": 923,
+    "ai_model_endpoints": 13,
+    "ai_model_preferences": 0,
+    "ai_model_providers": 16,
+    "ai_models": 422,
+    "ai_probe_results": 0,
+    "ai_providers": 0,
+    "ai_sync_records": 4,
+    "app_settings": 5,
+    "chat_messages": 16,
+    "chat_threads": 2,
+    "chat_tool_calls": 6,
+    "content_items": 17,
+    "dify_connections": 0,
+    "knowledge_base": 0,
+    "metric_snapshots": 0,
+    "positions": 1,
+    "products": 1,
+    "publish_records": 3,
+    "run_events": 21,
+    "runs": 7,
+    "schedules": 0,
+    "sites": 0,
+    "usage_records": 14
+  },
+  "schemas": {
+    "content_items": [
+      "id",
+      "title",
+      "body",
+      "post_ready_text",
+      "source_urls_json",
+      "image_path",
+      "metadata_json",
+      "status",
+      "created_at",
+      "updated_at"
+    ],
+    "publish_records": [
+      "id",
+      "account_id",
+      "account_name",
+      "platform",
+      "title",
+      "content_type",
+      "status",
+      "url",
+      "method",
+      "terminal",
+      "message",
+      "content_item_id",
+      "published_at",
+      "created_at",
+      "updated_at",
+      "views",
+      "likes",
+      "comments",
+      "shares",
+      "favorites",
+      "follows_delta",
+      "completion_rate",
+      "metric_status",
+      "metrics_synced_at",
+      "metrics_source"
+    ],
+    "publish_logs": [],
+    "runs": [
+      "id",
+      "playbook_id",
+      "account_id",
+      "schedule_id",
+      "scheduled_for",
+      "status",
+      "params_json",
+      "result_message",
+      "artifact_path",
+      "created_at",
+      "started_at",
+      "finished_at",
+      "updated_at"
+    ],
+    "run_events": [
+      "id",
+      "run_id",
+      "level",
+      "message",
+      "data_json",
+      "created_at"
+    ],
+    "accounts": [
+      "id",
+      "name",
+      "platform",
+      "url",
+      "account",
+      "profile_path",
+      "memo",
+      "status",
+      "preset_json",
+      "created_at",
+      "updated_at"
+    ]
+  },
+  "contentByType": null,
+  "contentByStatus": [
+    {
+      "status": "draft",
+      "n": 7
+    },
+    {
+      "status": "ready",
+      "n": 10
+    }
+  ],
+  "runsByPlaybook": [
+    {
+      "playbook_id": "topic_article_generator",
+      "status": "queued",
+      "n": 1
+    },
+    {
+      "playbook_id": "video_render",
+      "status": "cancelled",
+      "n": 2
+    },
+    {
+      "playbook_id": "video_render",
+      "status": "failed",
+      "n": 2
+    },
+    {
+      "playbook_id": "video_render",
+      "status": "success",
+      "n": 2
+    }
+  ],
+  "publishByStatus": [
+    {
+      "status": "drafted",
+      "n": 2
+    },
+    {
+      "status": "published",
+      "n": 1
+    }
+  ],
+  "publishByPlatform": [
+    {
+      "platform": "知乎",
+      "status": "drafted",
+      "n": 2
+    },
+    {
+      "platform": "知乎",
+      "status": "published",
+      "n": 1
+    }
+  ],
+  "files": {
+    "artifacts": {
+      "count": 37,
+      "bytes": 4636064
+    },
+    "videos": {
+      "count": 8,
+      "bytes": 123882
+    },
+    "uploads": {
+      "count": 0,
+      "bytes": 0
+    },
+    "browserProfilesDirs": 7
+  },
+  "dataDirTopLevel": [
+    "d:artifacts",
+    "d:browser-profiles",
+    "d:uploads",
+    "d:videos",
+    "f:_tmp-e2e.db",
+    "f:social-auto-post.db"
+  ]
+}

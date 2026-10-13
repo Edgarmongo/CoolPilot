@@ -10,6 +10,7 @@ import {
   ChartLine,
   Database,
   Globe2,
+  Handshake,
   HardDrive,
   History,
   House,
@@ -184,6 +185,9 @@ export const consoleNavItems: ConsoleNavEntry[] = [
       // CI-IA-03, at the author's request - the one exception to that decision.
       { id: "videos", labelKey: "navVideoPublishing", icon: Video, href: "/creation/videos", segment: "/creation/videos" },
       { id: "publish-records", labelKey: "navPublishRecords", icon: ListChecks, href: "/publishing/records", segment: "/publishing/records" },
+      // CI-LEAD-01: 营销线索与成交. It sits next to 发布记录 on purpose - a lead is what a published
+      // content produced, and the page links each lead back to the content and the record it came from.
+      { id: "leads", labelKey: "navMarketingLeads", icon: Handshake, href: "/publishing/leads", segment: "/publishing/leads" },
       // Schedules carry an account and a content item (a publishing plan), so they are publish
       // scheduling rather than a generic workflow engine (IA-01 decision 5).
       { id: "schedules", labelKey: "navSchedules", icon: CalendarClock, href: "/schedules/list", segment: "/schedules/list" },

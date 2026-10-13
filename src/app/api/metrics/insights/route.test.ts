@@ -19,6 +19,7 @@ import { AppError } from "@/lib/app-errors";
  * (`src/test/route-harness.ts`), so it has to be the first `await` here.
  */
 const {
+  allowEveryAiBudgetCall,
   jsonRequest,
   stubFetch,
   chatCalls,
@@ -34,8 +35,10 @@ const {
   credentials,
 } = await import("@/test/route-harness");
 const { POST } = await import("./route");
-const { createPublishRecord } = await import("@/db/repository");
+const { createContentItem, createPublishRecord } = await import("@/db/repository");
 const { updatePublishRecordMetrics } = await import("@/db/repositories/metrics");
+const { listAiUsageLedgerEntries } = await import("@/db/repositories/ai-usage-ledger");
+const { createPosition, updatePosition } = await import("@/db/repositories/positions");
 
 const insightUrl = "http://localhost/api/metrics/insights";
 
@@ -278,5 +281,133 @@ describe("POST /api/metrics/insights on aiRuntime", () => {
     expect(body.code).toBe("AI_BUDGET_EXCEEDED");
     expect(body.data).toBeUndefined();
     expect(calls).toEqual([]);
+  });
+});
+
+/**
+ * CI-P7-05-03 (remaining surface): the Marketplace extension these ledger rows ran as.
+ *
+ * 效果解读 posts a publish record, not an article, so the attribution is read from the article the record
+ * points at - `record.contentItemId` -> that item's own stored provenance, through the same
+ * `marketplaceExtensionIdOfContentItem()` bridge 改写 and 翻译 use. A record naming no article (or an item
+ * whose provenance names nothing) stays unattributed: a platform name and a title are not listings, so
+ * neither is borrowed for one.
+ */
+describe("POST /api/metrics/insights and the Marketplace extension it ran as (CI-P7-05-03)", () => {
+  beforeEach(async () => {
+    vi.unstubAllGlobals();
+    // The file's own refusal case leaves a refusing budget row behind (it is stored, not runtime state, so
+    // `resetRuntime()` does not clear it), and these cases all expect the call to really go out.
+    await allowEveryAiBudgetCall();
+    await resetRuntime();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A published positioning, as the storefront lists it: the record its 我的 tab answers with. */
+  async function publishedPosition(name: string) {
+    const position = await createPosition({ name });
+    if (!position) throw new Error("the published fixture was not created");
+    await updatePosition(position.id, { store: { ...position.store, status: "published" } });
+    return position;
+  }
+
+  /** One stored article, with exactly the provenance a generation would have written on it. */
+  async function storedArticle(metadata: Record<string, unknown>) {
+    const item = await createContentItem({
+      title: "How we ship",
+      body: "<p>Number one: ship early.</p>",
+      postReadyText: "Number one: ship early.",
+      metadata,
+    });
+    if (!item) throw new Error("the article fixture was not created");
+    return item;
+  }
+
+  /** A published piece linked (or not) to an article - the only thing this route is asked for. */
+  async function publishedPiece(title: string, contentItemId?: string) {
+    return mustCreatePublishRecord({
+      accountId: "account-1",
+      accountName: "CoolPilot",
+      platform: "threads",
+      title,
+      contentType: "post",
+      status: "published",
+      contentItemId,
+      publishedAt,
+    });
+  }
+
+  /** The insight rows one request wrote, told apart from the ledger's earlier content by id. */
+  async function rowsWrittenBy(recordId: string, transport: Parameters<typeof stubFetch>[0]) {
+    stubFetch(transport);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const before = new Set((await listAiUsageLedgerEntries({ limit: 500 })).map((row) => row.id));
+
+    const response = await POST(jsonRequest(insightUrl, { publishRecordId: recordId }));
+
+    return {
+      response,
+      rows: (await listAiUsageLedgerEntries({ limit: 500 })).filter((row) => !before.has(row.id)),
+    };
+  }
+
+  const answering = [
+    { match: (url: string) => url.includes("dashscope") && url.endsWith("/models"), respond: qwenCatalog },
+    { match: (url: string) => url.includes("/chat/completions"), respond: () => jsonReply(insight) },
+  ];
+
+  it("attributes the insight to the listing the article it reviews was written as", async () => {
+    const position = await publishedPosition("已上架的效果顾问");
+    const item = await storedArticle({ positioningId: position.id });
+    const record = await publishedPiece("How we ship", item.id);
+
+    const { response, rows } = await rowsWrittenBy(record.id, answering);
+
+    expect(response.status).toBe(200);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.purpose === "insight")).toBe(true);
+    // The article under review is the row's business identity; the listing travels with it.
+    expect(rows.every((row) => row.contentItemId === item.id)).toBe(true);
+    expect(rows.every((row) => row.extensionId === `position-${position.id}`)).toBe(true);
+  });
+
+  it("keeps the attribution on the row of a call whose provider failed", async () => {
+    const position = await publishedPosition("已上架的效果顾问二号");
+    const item = await storedArticle({ positioningId: position.id });
+    const record = await publishedPiece("How we ship", item.id);
+
+    // The request really was sent and may have been billed, so it is a row of its own - and a failed row
+    // is the one a cost report is most likely to have to explain, which is why it carries the same id.
+    const { response, rows } = await rowsWrittenBy(record.id, [
+      { match: (url: string) => url.includes("dashscope") && url.endsWith("/models"), respond: qwenCatalog },
+      { match: (url: string) => url.includes("/chat/completions"), respond: unavailable },
+    ]);
+
+    expect(response.status).toBe(502);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.outcome === "failed")).toBe(true);
+    expect(rows.every((row) => row.extensionId === `position-${position.id}`)).toBe(true);
+  });
+
+  it("leaves a record whose article names no listing unattributed", async () => {
+    // The article's positioning is a draft and its agent id is the picker's own default, and the sibling
+    // record names no article at all: a platform name and a title are not listings, so neither row may
+    // claim one.
+    const draftPosition = await createPosition({ name: "未上架的效果定位" });
+    if (!draftPosition) throw new Error("the draft fixture was not created");
+    const item = await storedArticle({ positioningId: draftPosition.id, agentId: "general" });
+    const linked = await publishedPiece("How we ship", item.id);
+    const unlinked = await publishedPiece("A post with no article behind it");
+
+    for (const recordId of [linked.id, unlinked.id]) {
+      const { response, rows } = await rowsWrittenBy(recordId, answering);
+      expect(response.status).toBe(200);
+      expect(rows.length).toBeGreaterThan(0);
+      // `""` is the statement "this insight ran as no listing", not a missing value.
+      expect(rows.every((row) => row.extensionId === "")).toBe(true);
+    }
   });
 });

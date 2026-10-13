@@ -15,6 +15,7 @@ import {
   emptyAiUsageTokens,
   indexLedgerCalls,
   markInForceModelPrices,
+  measuredUnitQuantity,
   normalizeUsageTokens,
   parseLedgerQuantity,
   pricingBasisFromRow,
@@ -22,8 +23,11 @@ import {
   sortLedgerAttemptsForCallList,
   summarizeAiUsageLedger,
   summarizeLedgerByContent,
+  summarizeLedgerByExtension,
+  summarizeLedgerByRun,
   summarizeLedgerCallGroup,
   usageCompleteness,
+  usageCompletenessFor,
 } from "./ai-usage-ledger";
 
 const pricing: AiUsagePricingBasis = {
@@ -71,6 +75,7 @@ function entry(partial: Partial<AiUsageLedgerEntry>): AiUsageLedgerEntry {
     parentUsageId: partial.parentUsageId ?? "",
     outputAssetId: partial.outputAssetId ?? "",
     contentItemId: partial.contentItemId ?? "",
+    extensionId: partial.extensionId ?? "",
     meteredKind: partial.meteredKind ?? "text",
     tokens: partial.tokens ?? tokens({}),
     completeness: partial.completeness ?? "reported",
@@ -120,6 +125,78 @@ describe("usageCompleteness", () => {
   it("marks a failure as unmeasured and an interruption as partial", () => {
     expect(usageCompleteness("failed", undefined)).toBe("unknown");
     expect(usageCompleteness("interrupted", { inputTokens: 4 })).toBe("partial");
+  });
+});
+
+describe("measuredUnitQuantity", () => {
+  it("reads the amount under the unit the kind is really billed in", () => {
+    expect(measuredUnitQuantity("image", { image: 2 })).toBe(2);
+    // A zero is a measurement: the call was made and produced nothing billable.
+    expect(measuredUnitQuantity("image", { image: 0 })).toBe(0);
+    expect(measuredUnitQuantity("speech", { second: 12.5 })).toBe(12.5);
+    // A kind that may be billed two ways: whichever of its own units is the one recorded.
+    expect(measuredUnitQuantity("speech", { character: 900 })).toBe(900);
+  });
+
+  it("answers nothing for a key the catalog does not price in (CI-P7-05-01)", () => {
+    // The shape an earlier writer used: a plural this module's unit list does not name. It is not a
+    // measurement of `image`, and reading it as one would state a figure for a dimension nobody metered.
+    expect(measuredUnitQuantity("image", { images: 2 })).toBeNull();
+    expect(measuredUnitQuantity("speech", { seconds: 12 })).toBeNull();
+    expect(measuredUnitQuantity("video", { minutes: 1 })).toBeNull();
+  });
+
+  it("refuses anything that is not a non-negative finite number", () => {
+    expect(measuredUnitQuantity("image", { image: "2" })).toBeNull();
+    expect(measuredUnitQuantity("image", { image: -1 })).toBeNull();
+    expect(measuredUnitQuantity("image", { image: Number.NaN })).toBeNull();
+    expect(measuredUnitQuantity("image", { image: Number.POSITIVE_INFINITY })).toBeNull();
+    expect(measuredUnitQuantity("image", { image: { count: 2 } })).toBeNull();
+    expect(measuredUnitQuantity("image", {})).toBeNull();
+    expect(measuredUnitQuantity("image", null)).toBeNull();
+  });
+
+  it("has nothing to read for a token-metered kind, whose amount is its usage object", () => {
+    expect(measuredUnitQuantity("text", { image: 1 })).toBeNull();
+    expect(measuredUnitQuantity("embedding", { call: 1 })).toBeNull();
+  });
+});
+
+describe("usageCompletenessFor", () => {
+  it("asks the token question when the row is token-metered", () => {
+    expect(usageCompletenessFor({ kind: "text", outcome: "success", usage: {} })).toBe("reported");
+    expect(usageCompletenessFor({ kind: "text", outcome: "success", usage: undefined })).toBe("unknown");
+    expect(usageCompletenessFor({ kind: "text", outcome: "interrupted", usage: undefined })).toBe("partial");
+    expect(usageCompletenessFor({ kind: "embedding", outcome: "success", usage: { inputTokens: 7 } })).toBe("reported");
+  });
+
+  it("calls a per-unit row reported when the amount it is billed on was measured", () => {
+    // The gap CI-P7-05-01 closes: an image model reports no tokens at all, so the token question said
+    // `unknown` and every image cost stayed blank however well the amount itself was measured.
+    expect(usageCompletenessFor({ kind: "image", outcome: "success", usage: undefined, quantity: { image: 1 } })).toBe(
+      "reported",
+    );
+    expect(usageCompletenessFor({ kind: "speech", outcome: "success", quantity: { second: 12.5 } })).toBe("reported");
+    // Zero images is what a provider that answered with nothing usable produced - still a measurement.
+    expect(usageCompletenessFor({ kind: "image", outcome: "success", quantity: { image: 0 } })).toBe("reported");
+    // A per-unit row that happens to report tokens too is judged on its own dimension, not on theirs.
+    expect(usageCompletenessFor({ kind: "image", outcome: "success", usage: {}, quantity: { image: 1 } })).toBe(
+      "reported",
+    );
+  });
+
+  it("still refuses to claim a measurement it does not have", () => {
+    expect(usageCompletenessFor({ kind: "image", outcome: "success", quantity: { images: 1 } })).toBe("unknown");
+    expect(usageCompletenessFor({ kind: "image", outcome: "success" })).toBe("unknown");
+    expect(usageCompletenessFor({ kind: "video", outcome: "success", quantity: { second: -1 } })).toBe("unknown");
+  });
+
+  it("keeps an attempt that did not succeed unmeasured, whatever its quantity says", () => {
+    // A call that failed or was cut off may have been billed for work this row cannot see, so the
+    // figure stays blank rather than charging a rate against a count that describes the request.
+    expect(usageCompletenessFor({ kind: "image", outcome: "failed", quantity: { image: 1 } })).toBe("unknown");
+    expect(usageCompletenessFor({ kind: "image", outcome: "interrupted", quantity: { image: 1 } })).toBe("partial");
+    expect(usageCompletenessFor({ kind: "speech", outcome: "interrupted", quantity: {} })).toBe("partial");
   });
 });
 
@@ -587,6 +664,7 @@ describe("call detail readers", () => {
     retryOnly: false,
     contentItemId: "",
     taskId: "",
+    extensionId: "",
     ...partial,
   });
 
@@ -744,3 +822,327 @@ describe("call detail readers", () => {
   });
 });
 
+describe("run and node cost readers (CI-P7-05-02)", () => {
+  it("partitions a run's requests across its nodes, so the total can be checked against them", () => {
+    const runs = summarizeLedgerByRun([
+      entry({
+        id: "a",
+        runId: "r1",
+        nodeId: "plan",
+        costAmount: 0.5,
+        costCurrency: "CNY",
+        tokens: tokens({ totalTokens: 100 }),
+      }),
+      entry({
+        id: "b",
+        runId: "r1",
+        nodeId: "write",
+        costAmount: 0.25,
+        costCurrency: "CNY",
+        tokens: tokens({ totalTokens: 50 }),
+      }),
+      entry({ id: "c", runId: "r1", nodeId: "write", costAmount: null, costSource: "unpriced" }),
+    ]);
+
+    expect(runs).toHaveLength(1);
+    const run = runs[0];
+    expect(run).toMatchObject({
+      runId: "r1",
+      attempts: 3,
+      totalTokens: 150,
+      unpricedAttempts: 1,
+      unmeasuredAttempts: 0,
+      // One request could state no figure, so the run's total is a lower bound.
+      costIsComplete: false,
+      purposes: ["article"],
+    });
+    expect(run.costByCurrency).toEqual([{ currency: "CNY", amount: 0.75, attempts: 2 }]);
+    // Busiest node first; the requests are the same requests, so no row is counted twice or lost.
+    expect(run.nodes.map((node) => [node.nodeId, node.attempts])).toEqual([
+      ["write", 2],
+      ["plan", 1],
+    ]);
+    expect(run.nodes.reduce((sum, node) => sum + node.attempts, 0)).toBe(run.attempts);
+    expect(run.nodes.find((node) => node.nodeId === "write")).toMatchObject({
+      attempts: 2,
+      unpricedAttempts: 1,
+      costIsComplete: false,
+    });
+  });
+
+  it("counts what a failed request reported instead of treating a failure as free", () => {
+    const run = summarizeLedgerByRun([
+      entry({
+        id: "a",
+        runId: "r1",
+        nodeId: "plan",
+        outcome: "failed",
+        costAmount: 0.4,
+        costCurrency: "CNY",
+        tokens: tokens({ totalTokens: 30 }),
+      }),
+      entry({ id: "b", runId: "r1", nodeId: "plan", outcome: "interrupted", costAmount: null, costSource: "unknown" }),
+      entry({ id: "c", runId: "r1", nodeId: "plan", costAmount: 0.1, costCurrency: "CNY" }),
+    ])[0];
+
+    // An interruption and a failure are counted apart, because the ledger keeps them apart.
+    expect(run).toMatchObject({ attempts: 3, failures: 1, interrupted: 1, costIsComplete: false });
+    expect(run.totalTokens).toBe(30);
+    // The failure's own amount is inside the reading, and the interruption is reported as never
+    // measured rather than as a cheap request.
+    expect(run.failureCostByCurrency).toEqual([{ currency: "CNY", amount: 0.4, attempts: 1 }]);
+    expect(run.failureUnpricedAttempts).toBe(0);
+    expect(run.failureUnmeasuredAttempts).toBe(1);
+    expect(run.failureCostIsComplete).toBe(false);
+  });
+
+  it("keeps the retry reading and the failure reading apart, so one request is never billed twice", () => {
+    const run = summarizeLedgerByRun([
+      entry({ id: "a", runId: "r1", nodeId: "draft", attemptIndex: 0, costAmount: 0.5, costCurrency: "CNY" }),
+      entry({
+        id: "b",
+        runId: "r1",
+        nodeId: "draft",
+        attemptIndex: 1,
+        parentUsageId: "a",
+        outcome: "failed",
+        costAmount: 0.3,
+        costCurrency: "CNY",
+      }),
+      entry({
+        id: "c",
+        runId: "r1",
+        nodeId: "draft",
+        attemptIndex: 2,
+        parentUsageId: "b",
+        costAmount: 0.2,
+        costCurrency: "CNY",
+      }),
+    ])[0];
+
+    expect(run).toMatchObject({ attempts: 3, retries: 2, unresolvedRetries: 0, costIsComplete: true });
+    expect(run.costByCurrency).toEqual([{ currency: "CNY", amount: 1, attempts: 3 }]);
+    // Both readings cover request `b`: each is the sum of the rows it names, and neither is a
+    // subtotal of the other - adding them together would bill that request twice.
+    expect(run.retryCostByCurrency).toEqual([{ currency: "CNY", amount: 0.5, attempts: 2 }]);
+    expect(run.failureCostByCurrency).toEqual([{ currency: "CNY", amount: 0.3, attempts: 1 }]);
+    expect(run.retryCostIsComplete).toBe(true);
+    expect(run.failureCostIsComplete).toBe(true);
+  });
+
+  it("counts a repeat whose predecessor is outside the read rows without naming what it repeated", () => {
+    const run = summarizeLedgerByRun([
+      entry({
+        id: "a",
+        runId: "r1",
+        attemptIndex: 1,
+        parentUsageId: "outside-the-window",
+        costAmount: 0.2,
+        costCurrency: "CNY",
+      }),
+      entry({ id: "b", runId: "r1", attemptIndex: 4, costAmount: 0.1, costCurrency: "CNY" }),
+      entry({ id: "c", runId: "r1", attemptIndex: 0, costAmount: 0.1, costCurrency: "CNY" }),
+    ])[0];
+
+    expect(run).toMatchObject({ attempts: 3, retries: 2, unresolvedRetries: 2 });
+    expect(run.retryCostByCurrency).toEqual([{ currency: "CNY", amount: 0.3, attempts: 2 }]);
+    expect(run.retryCostIsComplete).toBe(true);
+    // The first request of the call is not a repeat, so its money is not in the retry reading.
+    expect(run.retryUnpricedAttempts).toBe(0);
+  });
+
+  it("keeps the requests that recorded no run, and the ones inside a run that recorded no node", () => {
+    const runs = summarizeLedgerByRun([
+      entry({ id: "a", runId: "r1", nodeId: "", costAmount: 0.3, costCurrency: "CNY", createdAt: 1_000 }),
+      entry({ id: "b", runId: "r2", nodeId: "plan", costAmount: 0.1, costCurrency: "CNY", createdAt: 5_000 }),
+      entry({ id: "c", runId: "", nodeId: "", costAmount: null, costSource: "unpriced", createdAt: 9_000 }),
+    ]);
+
+    // Newest activity first; the requests that named no run go last, as an admission not a run.
+    expect(runs.map((run) => run.runId)).toEqual(["r2", "r1", ""]);
+    expect(runs[1].nodes.map((node) => node.nodeId)).toEqual([""]);
+    expect(runs[2]).toMatchObject({ attempts: 1, unpricedAttempts: 1, costIsComplete: false, lastAt: 9_000 });
+    // Nothing is invented for the rows that named nothing - not an amount, not a completed reading.
+    expect(runs[2].costByCurrency).toEqual([]);
+    expect(runs[2].retryCostByCurrency).toEqual([]);
+    expect(runs[2].failureCostByCurrency).toEqual([]);
+    expect(runs[2].failureCostIsComplete).toBe(false);
+  });
+
+  it("says nothing at all about an empty ledger", () => {
+    expect(summarizeLedgerByRun([])).toEqual([]);
+  });
+});
+
+describe("extension attribution readers (CI-P7-05-03)", () => {
+  const filters = (partial: Partial<AiCostCenterCallFilters> = {}): AiCostCenterCallFilters => ({
+    purpose: "",
+    outcome: "",
+    costSource: "",
+    model: "",
+    retryOnly: false,
+    contentItemId: "",
+    taskId: "",
+    extensionId: "",
+    ...partial,
+  });
+
+  it("groups the window by the extension each request ran as, and keeps the unattributed rows", () => {
+    const groups = summarizeLedgerByExtension([
+      entry({
+        id: "a",
+        extensionId: "position-p1",
+        purpose: "article",
+        contentItemId: "content-1",
+        costAmount: 0.5,
+        costCurrency: "CNY",
+        tokens: tokens({ totalTokens: 100 }),
+        createdAt: 1_000,
+      }),
+      entry({
+        id: "b",
+        extensionId: "position-p1",
+        purpose: "knowledge",
+        costAmount: 0.25,
+        costCurrency: "CNY",
+        tokens: tokens({ totalTokens: 50 }),
+        createdAt: 3_000,
+      }),
+      entry({
+        id: "c",
+        extensionId: "",
+        purpose: "chat-title",
+        costAmount: null,
+        costSource: "unpriced",
+        createdAt: 9_000,
+      }),
+    ]);
+
+    // Newest activity first; the bucket that named no extension goes last, as an admission.
+    expect(groups.map((group) => group.extensionId)).toEqual(["position-p1", ""]);
+    expect(groups[0]).toMatchObject({
+      attempts: 2,
+      failures: 0,
+      interrupted: 0,
+      retries: 0,
+      totalTokens: 150,
+      unpricedAttempts: 0,
+      unmeasuredAttempts: 0,
+      costIsComplete: true,
+      lastAt: 3_000,
+      purposes: ["article", "knowledge"],
+      contentItemIds: ["content-1"],
+    });
+    expect(groups[0].costByCurrency).toEqual([{ currency: "CNY", amount: 0.75, attempts: 2 }]);
+    // The unattributed bucket is a statement about the money, not a gap: its amount is not invented.
+    expect(groups[1]).toMatchObject({ attempts: 1, unpricedAttempts: 1, costIsComplete: false, lastAt: 9_000 });
+    expect(groups[1].costByCurrency).toEqual([]);
+  });
+
+  it("partitions the window: every row lands in exactly one group, once", () => {
+    const rows = [
+      entry({ id: "a", extensionId: "emotional-story", costAmount: 0.1, costCurrency: "CNY" }),
+      entry({ id: "b", extensionId: "emotional-story", costAmount: 0.2, costCurrency: "CNY" }),
+      entry({ id: "c", extensionId: "position-p9", costAmount: 0.3, costCurrency: "CNY" }),
+      entry({ id: "d", extensionId: "", costAmount: 0.4, costCurrency: "CNY" }),
+    ];
+    const groups = summarizeLedgerByExtension(rows);
+
+    expect(groups.reduce((sum, group) => sum + group.attempts, 0)).toBe(rows.length);
+    expect(groups.map((group) => [group.extensionId, group.attempts])).toEqual([
+      ["emotional-story", 2],
+      ["position-p9", 1],
+      ["", 1],
+    ]);
+    for (const group of groups) {
+      // Each group's total is the sum over its own rows, so the headline can be checked by hand.
+      const total = group.costByCurrency.reduce((sum, money) => sum + money.amount, 0);
+      const expected = rows
+        .filter((row) => row.extensionId === group.extensionId)
+        .reduce((sum, row) => sum + (row.costAmount ?? 0), 0);
+      expect(total).toBeCloseTo(expected, 6);
+    }
+  });
+
+  it("keeps two currencies apart and marks a reading with an unstated figure as a lower bound", () => {
+    const [group] = summarizeLedgerByExtension([
+      entry({ id: "a", extensionId: "position-p1", costAmount: 1, costCurrency: "CNY", attemptIndex: 0 }),
+      entry({ id: "b", extensionId: "position-p1", costAmount: 0.5, costCurrency: "USD", attemptIndex: 1 }),
+      entry({ id: "c", extensionId: "position-p1", costAmount: null, costSource: "unknown" }),
+    ]);
+
+    expect(group.costByCurrency).toEqual([
+      { currency: "CNY", amount: 1, attempts: 1 },
+      { currency: "USD", amount: 0.5, attempts: 1 },
+    ]);
+    expect(group).toMatchObject({ costIsComplete: false, unpricedAttempts: 0, unmeasuredAttempts: 1 });
+    // The repeat reading covers request `b` only, and the unstated request is counted, not assumed.
+    expect(group.retryCostByCurrency).toEqual([{ currency: "USD", amount: 0.5, attempts: 1 }]);
+    expect(group.retryCostIsComplete).toBe(true);
+  });
+
+  it("filters the requests by extension, and leaves every other filter alone", () => {
+    const rows = [
+      entry({ id: "a", extensionId: "position-p1" }),
+      entry({ id: "b", extensionId: "emotional-story" }),
+      entry({ id: "c", extensionId: "" }),
+    ];
+
+    expect(selectLedgerAttempts(rows, filters({ extensionId: "position-p1" })).map((row) => row.id)).toEqual(["a"]);
+    expect(selectLedgerAttempts(rows, filters({ extensionId: "emotional-story" })).map((row) => row.id)).toEqual([
+      "b",
+    ]);
+    // `''` means "no filter", never "the unattributed rows" - that bucket is read in the breakdown.
+    expect(selectLedgerAttempts(rows, filters()).map((row) => row.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("counts a failed request at the amount it reported, and keeps the retry reading separate", () => {
+    const [group] = summarizeLedgerByExtension([
+      entry({
+        id: "a",
+        extensionId: "position-p1",
+        attemptIndex: 0,
+        runId: "run-1",
+        costAmount: 0.5,
+        costCurrency: "CNY",
+      }),
+      entry({
+        id: "b",
+        extensionId: "position-p1",
+        attemptIndex: 1,
+        parentUsageId: "a",
+        outcome: "failed",
+        runId: "run-1",
+        costAmount: 0.3,
+        costCurrency: "CNY",
+      }),
+    ]);
+
+    expect(group).toMatchObject({ attempts: 2, failures: 1, retries: 1, unresolvedRetries: 0 });
+    expect(group.costByCurrency).toEqual([{ currency: "CNY", amount: 0.8, attempts: 2 }]);
+    // Two readings of the same requests, never a third figure: 0.3 is in both.
+    expect(group.retryCostByCurrency).toEqual([{ currency: "CNY", amount: 0.3, attempts: 1 }]);
+    expect(group.failureCostByCurrency).toEqual([{ currency: "CNY", amount: 0.3, attempts: 1 }]);
+    expect(group.retryCostIsComplete).toBe(true);
+    expect(group.failureCostIsComplete).toBe(true);
+  });
+
+  it("says which tasks, runs, nodes and content items spent an extension's money", () => {
+    const [group] = summarizeLedgerByExtension([
+      entry({ id: "a", extensionId: "position-p1", runId: "run-1", nodeId: "writer", contentItemId: "content-1" }),
+      entry({ id: "b", extensionId: "position-p1", runId: "run-2", nodeId: "planner" }),
+      entry({ id: "c", extensionId: "position-p1", taskId: "task-9", nodeId: "writer" }),
+      entry({ id: "d", extensionId: "position-p1" }),
+    ]);
+
+    // The task a row belonged to is what it named, else the run it was sent from - never a blank.
+    expect(group.taskIds).toEqual(["run-1", "run-2", "task-9"]);
+    expect(group.runIds).toEqual(["run-1", "run-2"]);
+    expect(group.nodeIds).toEqual(["planner", "writer"]);
+    expect(group.contentItemIds).toEqual(["content-1"]);
+  });
+
+  it("says nothing at all about an empty ledger", () => {
+    expect(summarizeLedgerByExtension([])).toEqual([]);
+  });
+});

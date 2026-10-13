@@ -169,11 +169,24 @@ export const imageCountLabelKeys: Record<ImageCount, TranslationKey> = {
 
 export const imageCountValues: Record<ImageCount, number> = { few: 1, standard: 3, many: 6 };
 
-export const knowledgeModes = ["position", "off"] as const;
+/**
+ * How AI writing uses the knowledge base (CI-EMB-01, D7=b).
+ *
+ * Three modes, and none of them changes another's meaning:
+ *
+ * - `position` - the enabled entries that apply to the article's positioning, ordered by weight and recency.
+ *   This is the original behaviour, unchanged down to its ordering.
+ * - `semantic` - the enabled entries whose chunk vectors are closest to a query built from the request, with the
+ *   same `enabled` and positioning filters and the same business order breaking near-ties (D6). When no vector
+ *   can answer, it falls back to `position` explicitly (D9) rather than returning nothing silently.
+ * - `off` - no knowledge at all.
+ */
+export const knowledgeModes = ["position", "semantic", "off"] as const;
 export type KnowledgeMode = (typeof knowledgeModes)[number];
 
 export const knowledgeModeLabelKeys: Record<KnowledgeMode, TranslationKey> = {
   position: "awKnowledgeModePosition",
+  semantic: "awKnowledgeModeSemantic",
   off: "awKnowledgeModeOff",
 };
 

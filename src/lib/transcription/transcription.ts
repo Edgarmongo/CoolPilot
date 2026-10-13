@@ -56,6 +56,15 @@ export const transcriptionFailureCodes = [
   "RECOGNIZER_UNAVAILABLE",
   /** No credential/model can serve `speech_to_text`, or the engine the caller asked for is off. */
   "PROVIDER_UNAVAILABLE",
+  /**
+   * The AI budget refused the run **before** the remote engine was asked (CI-P7-03-D1).
+   *
+   * It is deliberately not `TRANSCRIPTION_FAILED`: no provider was asked and no request was sent, so
+   * nothing is billed and nothing failed. The decision itself belongs to the AI budget policy, whose
+   * own `AI_BUDGET_EXCEEDED`/402 arithmetic travels in the message - the same split CI-P3-03's
+   * distillation task makes between *its* codes and the gate's refusal.
+   */
+  "BUDGET_EXCEEDED",
   /** The engine ran and produced no text. Never stored as a transcript. */
   "TRANSCRIPTION_EMPTY",
   /** The run exceeded its own budget and was abandoned. */

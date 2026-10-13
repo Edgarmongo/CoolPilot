@@ -1,6 +1,7 @@
 import { getContentItem } from "@/db/repository";
 import { listAiUsageLedgerEntries } from "@/db/repositories/ai-usage-ledger";
 import { failFromError, ok } from "@/lib/api";
+import { meteringReasonFor } from "@/lib/ai-metering";
 import {
   classifyCallRetry,
   indexLedgerCalls,
@@ -9,6 +10,8 @@ import {
   sortLedgerAttemptsForCallList,
   summarizeAiUsageLedger,
   summarizeLedgerByContent,
+  summarizeLedgerByExtension,
+  summarizeLedgerByRun,
   summarizeLedgerCallGroup,
   summarizeLedgerCurrencies,
 } from "@/lib/ai-usage-ledger";
@@ -95,6 +98,8 @@ function readFilters(params: URLSearchParams): AiCostCenterCallFilters {
     retryOnly: params.get("retry") === "1" || params.get("retry") === "true",
     contentItemId: readString(params.get("contentItemId"), idPattern),
     taskId: readString(params.get("taskId"), idPattern),
+    // `position-<id>` and a catalogue agent id both fit `idPattern` (letters, digits, `.`, `_`, `:`, `-`).
+    extensionId: readString(params.get("extensionId"), idPattern),
   };
 }
 
@@ -194,7 +199,15 @@ function buildOptions(rows: AiUsageLedgerEntry[]) {
       return { key, label: [providerId, modelId].filter(Boolean).join(" · ") };
     })
     .sort((left, right) => left.label.localeCompare(right.label));
-  return { purposes, outcomes, costSources, models };
+  return {
+    purposes,
+    outcomes,
+    costSources,
+    models,
+    // CI-P7-05-03: the extensions this window really named. An empty id is not offered, because
+    // choosing it could only mean "unattributed" - which is what clearing the filter already is.
+    extensions: Array.from(new Set(rows.map((row) => row.extensionId))).filter(Boolean).sort(),
+  };
 }
 
 export async function GET(request: Request) {
@@ -243,6 +256,10 @@ export async function GET(request: Request) {
           index: rows.findIndex((row) => row.id === entry.id),
         },
         trace: await buildTrace(entry, reader),
+        // CI-P7-05-04: why this request's figure is missing, when it is. Derived from the row alone
+        // (its own completeness, price snapshot and units), so the page prints a reason it was given
+        // rather than one it worked out - and a row whose evidence says nothing gets `not-recorded`.
+        reason: meteringReasonFor(entry),
       });
     }
 
@@ -265,6 +282,13 @@ export async function GET(request: Request) {
       hasMore: offset + page.length < ordered.length,
       calls: views,
       byContent,
+      // CI-P7-05-02. Read over the same window's rows as `byContent`, so neither breakdown moves when
+      // the table above is filtered, and both describe exactly the calls this answer scanned.
+      byRun: summarizeLedgerByRun(inWindow),
+      // CI-P7-05-03. The same window's rows again, grouped by the Marketplace extension each request
+      // ran as. A request that named none keeps its own unattributed group, so the two figures - what
+      // was spent as a listing and what was not - always add up to the rows this answer scanned.
+      byExtension: summarizeLedgerByExtension(inWindow),
       options: buildOptions(inWindow),
     };
     return ok(payload);

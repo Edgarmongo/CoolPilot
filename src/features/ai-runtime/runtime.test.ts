@@ -35,6 +35,7 @@ for (const name of legacyModelEnvVars) {
 
 const registry = await import("./registry");
 const sync = await import("./sync");
+const adapters = await import("./adapters");
 const runtime = await import("./runtime");
 const trail = await import("./trail");
 const probe = await import("./probe");
@@ -56,15 +57,29 @@ function jsonResponse(body: unknown, status = 200) {
   } as unknown as Response;
 }
 
-function stubProvider(options: { chatStatus?: number } = {}) {
+function stubProvider(
+  options: {
+    chatStatus?: number;
+    /** The catalog a sync reads; defaults to the three-model payload the chat cases reason about. */
+    catalog?: unknown;
+    /**
+     * What the embeddings endpoint answers (CI-EMB-01): the provider's real wire shape, with switches for
+     * the two answers a caller must be able to recognise as *not* usable (`count`, `dimensions`) and for a
+     * provider that reports no usage at all.
+     */
+    embedding?: { count?: number; dimensions?: number; usage?: boolean };
+  } = {},
+) {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       calls.push({ url, init });
-      if (url.endsWith("/models")) {
-        return jsonResponse(catalogPayload);
+      // `…/models` is a catalog read; `…/models/<id>:generateContent` (Gemini) is a model call, which is
+      // why the query string is part of the match rather than a bare substring.
+      if (url.endsWith("/models") || url.includes("/models?")) {
+        return jsonResponse(options.catalog ?? catalogPayload);
       }
       if (url.includes("/chat/completions")) {
         if (options.chatStatus && options.chatStatus >= 400) {
@@ -73,6 +88,20 @@ function stubProvider(options: { chatStatus?: number } = {}) {
         return jsonResponse({
           choices: [{ message: { content: "pong" } }],
           usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+        });
+      }
+      if (url.includes("/embeddings")) {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { input?: string[] };
+        const count = options.embedding?.count ?? (body.input?.length ?? 0);
+        const width = options.embedding?.dimensions ?? 3;
+        return jsonResponse({
+          data: Array.from({ length: count }, (_, row) => ({
+            index: row,
+            embedding: Array.from({ length: width }, (_, column) => (row + column) / 10),
+          })),
+          // A provider that reports nothing is a real shape, not a test convenience: the ledger's cost
+          // stays NULL for it rather than becoming a `0` (CI-P7-01-04).
+          ...(options.embedding?.usage === false ? {} : { usage: { prompt_tokens: 4, total_tokens: 4 } }),
         });
       }
       return jsonResponse({}, 404);
@@ -525,5 +554,186 @@ describe("ai runtime", () => {
     // nothing, instead of the none it used to record.
     expect(trail.modelAttemptsFrom(failure).map((entry) => entry.kind)).toEqual(["answer", "self-correction"]);
     expect(trail.modelAttemptsFrom(failure).map((entry) => entry.outcome)).toEqual(["success", "success"]);
+  });
+
+  /**
+   * CI-EMB-01: `aiRuntime.embed()`, against the same throwaway database and the same stubbed transport as
+   * the chat cases above.
+   *
+   * What is pinned here is the runtime's half of the embeddings contract, and it is deliberately not a test
+   * of a vendor: the `embedding` capability was already in the frozen vocabulary (`intentRequirements`), so
+   * this call must route exactly like every other one - through the resolver, the candidate chain and the key
+   * pool - and must refuse in the same specific ways. The refusals a caller (and, above it, a cost centre) has
+   * to be able to tell apart are all here: a request with no text, no capable model, no usable credential, and
+   * an answer that is not a usable vector set. None of them may end as an empty vector list.
+   */
+  describe("embeddings", () => {
+    /** A catalog whose only model is an embedding one - `text-embedding-v4` also matches the name rule. */
+    const embeddingCatalog = { data: [{ id: "text-embedding-v4" }] };
+    /** Gemini states its methods, so this model claims `embedding` on the `gemini` protocol. */
+    const geminiEmbeddingCatalog = {
+      models: [
+        {
+          name: "models/text-embedding-004",
+          displayName: "Text Embedding 004",
+          supportedGenerationMethods: ["embedContent"],
+        },
+      ],
+    };
+
+    /** One credential, one enabled embedding model and the `embedding` capability default. */
+    async function prepareEmbeddingModel(providerId: string, modelId: string, credential: string) {
+      await credentials.writeCredential(credentials.credentialRefFor(providerId), credential);
+      await sync.syncProviderCatalog(providerId);
+      const rows = await repository.listModels({ providerId });
+      const target = rows.find((model) => model.modelId === modelId);
+      if (target) await repository.setModelsEnabled([target.id], true);
+      await registry.setModelDefaultForCapability("embedding", target?.id ?? "");
+      return target;
+    }
+
+    it("embeds a batch, keeps its order and reports the provider's own figures", async () => {
+      const calls = stubProvider({ catalog: embeddingCatalog });
+      const target = await prepareEmbeddingModel("qwen", "text-embedding-v4", "sk-qwen-test");
+      expect(target?.capabilities.map((entry) => entry.capability)).toContain("embedding");
+
+      const response = await runtime.embed({ input: ["第一条知识", "second passage"] });
+
+      expect(response.vectors).toHaveLength(2);
+      expect(response.dimensions).toBe(3);
+      expect(response.model).toBe("text-embedding-v4");
+      expect(response.providerId).toBe("qwen");
+      // An embeddings answer has no output side, so the provider's own input figure is the whole reading.
+      expect(response.usage).toEqual({ inputTokens: 4, outputTokens: 0, totalTokens: 4 });
+      expect(response.attempts.at(-1)).toMatchObject({
+        kind: "answer",
+        outcome: "success",
+        modelId: "text-embedding-v4",
+        usage: { inputTokens: 4, outputTokens: 0, totalTokens: 4 },
+      });
+      // The requirement is the intent's own, so a caller never has to name a provider or a model.
+      expect(response.route).toMatchObject({ providerId: "qwen", protocol: "openai-compatible" });
+      expect(response.route.requirement.capabilities).toEqual(["embedding"]);
+
+      const embedCall = calls.find((call) => call.url.includes("/embeddings"));
+      expect(embedCall?.url).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings");
+      const body = JSON.parse(String(embedCall?.init?.body));
+      expect(body).toMatchObject({ model: "text-embedding-v4", input: ["第一条知识", "second passage"] });
+      // The request carries no `dimensions` unless the caller asked for one.
+      expect(body).not.toHaveProperty("dimensions");
+    });
+
+    it("reports no usage when the provider reports none, instead of a zero", async () => {
+      stubProvider({ catalog: embeddingCatalog, embedding: { usage: false } });
+      await prepareEmbeddingModel("qwen", "text-embedding-v4", "sk-qwen-test");
+
+      const response = await runtime.embed({ input: ["一"] });
+      expect(response.usage).toBeUndefined();
+      expect(response.attempts.at(-1)?.usage).toBeUndefined();
+      // The vector itself is still real: a missing figure does not make the answer unusable.
+      expect(response.vectors[0]).toHaveLength(3);
+    });
+
+    it("sends the dimension the caller asked for, and refuses an answer that ignored it", async () => {
+      const calls = stubProvider({ catalog: embeddingCatalog, embedding: { dimensions: 8 } });
+      await prepareEmbeddingModel("qwen", "text-embedding-v4", "sk-qwen-test");
+
+      const response = await runtime.embed({ input: ["一"], dimensions: 8 });
+      expect(response.dimensions).toBe(8);
+      expect(JSON.parse(String(calls.find((call) => call.url.includes("/embeddings"))?.init?.body))).toMatchObject({
+        dimensions: 8,
+      });
+
+      // 4 is not what was asked for, so these vectors could never sit beside the stored ones.
+      stubProvider({ catalog: embeddingCatalog, embedding: { dimensions: 4 } });
+      await expect(runtime.embed({ input: ["一"], dimensions: 8 })).rejects.toMatchObject({
+        code: "MODEL_EMBEDDING_INVALID",
+        status: 502,
+      });
+    });
+
+    it("refuses a short or non-numeric vector set instead of pairing vectors with the wrong text", async () => {
+      stubProvider({ catalog: embeddingCatalog, embedding: { count: 1 } });
+      await prepareEmbeddingModel("qwen", "text-embedding-v4", "sk-qwen-test");
+      await expect(runtime.embed({ input: ["一", "二"] })).rejects.toMatchObject({
+        code: "MODEL_EMBEDDING_INVALID",
+        status: 502,
+      });
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) =>
+          String(input).includes("/embeddings")
+            ? jsonResponse({ data: [{ embedding: [0.1, null, 0.3] }] })
+            : jsonResponse(embeddingCatalog),
+        ),
+      );
+      await expect(runtime.embed({ input: ["一"] })).rejects.toMatchObject({ code: "MODEL_EMBEDDING_INVALID" });
+    });
+
+    it("refuses a request that carries no text before any provider is asked", async () => {
+      const calls = stubProvider({ catalog: embeddingCatalog });
+      await prepareEmbeddingModel("qwen", "text-embedding-v4", "sk-qwen-test");
+
+      await expect(runtime.embed({ input: [] })).rejects.toMatchObject({
+        code: "MODEL_EMBEDDING_INVALID",
+        status: 400,
+      });
+      expect(calls.filter((call) => call.url.includes("/embeddings"))).toHaveLength(0);
+    });
+
+    it("stops with a credential error instead of embedding without a key", async () => {
+      const calls = stubProvider({ catalog: embeddingCatalog });
+      await prepareEmbeddingModel("qwen", "text-embedding-v4", "");
+
+      await expect(runtime.embed({ input: ["一"] })).rejects.toMatchObject({ code: "MODEL_CREDENTIAL_MISSING" });
+      expect(calls.filter((call) => call.url.includes("/embeddings"))).toHaveLength(0);
+
+      await credentials.writeCredential(qwenRef, "sk-qwen-test");
+    });
+
+    it("names the missing capability when no configured model can embed", async () => {
+      stubProvider();
+      const [embeddingModel] = (await repository.listModels({ providerId: "qwen" })).filter(
+        (model) => model.modelId === "text-embedding-v4",
+      );
+      // The capability is what the refusal is about, so it is withdrawn rather than the model: a model
+      // that is simply disabled would answer `MODEL_NOT_CONFIGURED`, which is a different statement.
+      await repository.setModelCapability({
+        modelRowId: embeddingModel.id,
+        capability: "embedding",
+        supported: false,
+        source: "USER_OVERRIDE",
+      });
+      await registry.setModelDefaultForCapability("embedding", null);
+
+      const failure: unknown = await runtime.embed({ input: ["一"] }).catch((error: unknown) => error);
+      expect(failure).toMatchObject({ code: "MODEL_CAPABILITY_UNAVAILABLE", status: 409 });
+      expect((failure as { details?: { missing?: string[] } }).details?.missing).toContain("embedding");
+
+      // Put the name rule's own claim back, so this case leaves the registry as it found it.
+      await repository.setModelCapability({
+        modelRowId: embeddingModel.id,
+        capability: "embedding",
+        supported: true,
+        source: "MODEL_CATALOG",
+      });
+    });
+
+    it("refuses a protocol whose adapter has no embeddings call", async () => {
+      stubProvider({ catalog: geminiEmbeddingCatalog });
+      const target = await prepareEmbeddingModel("gemini", "text-embedding-004", "gemini-key");
+      expect(target?.capabilities.map((entry) => entry.capability)).toContain("embedding");
+      // The fact the refusal below acts on, stated once: only the OpenAI-compatible protocol speaks
+      // embeddings in this build, exactly like `transcribe` before it.
+      expect(adapters.adapterFor("gemini").embed).toBeUndefined();
+
+      await expect(
+        runtime.embed({ input: ["一"], model: "text-embedding-004", providerId: "gemini" }),
+      ).rejects.toMatchObject({
+        code: "MODEL_CAPABILITY_UNAVAILABLE",
+        status: 409,
+      });
+    });
   });
 });

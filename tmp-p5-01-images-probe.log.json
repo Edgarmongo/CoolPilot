@@ -1,0 +1,70 @@
+{
+  "card": "CI-P5-01/P5-01-05/08",
+  "mark": "E2E05-封面语义-1791615384756",
+  "exchanges": [
+    {
+      "step": "create",
+      "status": 201,
+      "id": "a9ROsGQYwjs9hDveOku_F",
+      "images": []
+    },
+    {
+      "step": "patch-set",
+      "status": 200,
+      "imagePath": "E2E05-cover.png",
+      "images": [
+        "E2E05-cover.png"
+      ]
+    },
+    {
+      "step": "get-after-set",
+      "status": 200,
+      "imagePath": "E2E05-cover.png",
+      "images": [
+        "E2E05-cover.png"
+      ]
+    },
+    {
+      "step": "patch-clear",
+      "status": 200,
+      "imagePathType": "undefined",
+      "images": [],
+      "raw": {
+        "ok": true,
+        "data": {
+          "id": "a9ROsGQYwjs9hDveOku_F",
+          "title": "E2E05-封面语义-1791615384756",
+          "body": "",
+          "postReadyText": "",
+          "sourceUrls": [],
+          "metadata": {
+            "type": "article",
+            "images": []
+          },
+          "status": "ready",
+          "createdAt": 1791615384793,
+          "updatedAt": 1791615384878
+        }
+      }
+    },
+    {
+      "step": "get-after-clear",
+      "status": 200,
+      "imagePathType": "undefined",
+      "images": []
+    },
+    {
+      "step": "patch-restore",
+      "status": 200,
+      "imagePath": "E2E05-cover.png",
+      "images": [
+        "E2E05-cover.png"
+      ]
+    }
+  ],
+  "cleanup": {
+    "itemId": "a9ROsGQYwjs9hDveOku_F",
+    "status": 200
+  },
+  "finishedAt": "2026-10-10T06:56:24.953Z"
+}

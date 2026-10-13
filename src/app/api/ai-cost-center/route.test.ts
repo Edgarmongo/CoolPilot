@@ -37,7 +37,20 @@ type CostCenterPayload = {
       byDay: Array<{ dayStart: number; attempts: number; costAmount: number; unpricedAttempts: number }>;
     };
     usage: { rangeDays: number; totals: { articles: number } };
-    catalog: { meteredKinds: string[]; pricedKinds: string[] };
+    catalog: {
+      meteredKinds: string[];
+      pricedKinds: string[];
+      metering: Array<{
+        kind: string;
+        attempts: number;
+        measuredAttempts: number;
+        unpricedAttempts: number;
+        unmeasuredAttempts: number;
+        reasons: string[];
+        priced: boolean;
+        gap: string;
+      }>;
+    };
   };
 };
 
@@ -182,5 +195,39 @@ describe("/api/ai-cost-center", () => {
     const answer = await getCostCenter();
     expect(answer.body.data?.catalog.pricedKinds).toEqual(expect.arrayContaining(["text", "image"]));
     expect(answer.body.data?.catalog.pricedKinds).not.toContain("speech");
+  });
+
+  it("names every dimension, including the ones this runtime cannot meter (CI-P7-05-04)", async () => {
+    const answer = await getCostCenter();
+    const data = answer.body.data;
+    const metering = data?.catalog.metering ?? [];
+
+    // Every dimension the ledger knows, in the vocabulary's own order, whether or not it was called.
+    expect(metering.map((entry) => entry.kind)).toEqual([
+      "text",
+      "image",
+      "video",
+      "speech",
+      "embedding",
+      "agent",
+    ]);
+
+    // 无法准确计量 is *stated* rather than being a dimension that never appears: this runtime still has no
+    // call path for video, and agent money is metered as the text rows of its nodes rather than as rows of its
+    // own. `embedding` is no longer in that list (CI-EMB-01): the knowledge index writes its own rows.
+    expect(metering.find((entry) => entry.kind === "video")).toMatchObject({
+      attempts: 0,
+      gap: "no-runtime-path",
+    });
+    expect(metering.find((entry) => entry.kind === "embedding")).toMatchObject({ gap: "" });
+    expect(metering.find((entry) => entry.kind === "agent")).toMatchObject({ gap: "metered-through-text" });
+
+    // The window's own rows, with the same counts the headline is built from - and the reason the
+    // unpriced rows cannot state a figure, read off those rows rather than assumed from the catalog.
+    const text = metering.find((entry) => entry.kind === "text");
+    expect(text?.unpricedAttempts).toBe(data?.ledger.totals.unpricedAttempts);
+    expect(text?.reasons).toContain("no-price-for-dimension");
+    // An image dimension with rows this file never wrote: nothing to read, and no gap either.
+    expect(metering.find((entry) => entry.kind === "image")).toMatchObject({ attempts: 0, gap: "" });
   });
 });

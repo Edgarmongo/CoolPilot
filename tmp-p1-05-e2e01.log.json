@@ -1,0 +1,218 @@
+{
+  "case": "E2E-01",
+  "mark": "E2E05-文章生成-1791516674973",
+  "base": "http://127.0.0.1:3000",
+  "startedAt": "2026-10-09T03:31:14.973Z",
+  "steps": [
+    {
+      "step": "1-config-check",
+      "at": "2026-10-09T03:31:15.400Z",
+      "httpStatus": 200,
+      "defaults": {},
+      "enabledModelCount": 2,
+      "enabledModels": [
+        {
+          "id": "openai:openai/default:deepseek-flash",
+          "provider_id": "openai",
+          "endpoint_id": "openai/default",
+          "model_id": "deepseek-flash",
+          "display_name": "deepseek-flash",
+          "model_type": "chat",
+          "context_window": null,
+          "enabled": 1
+        },
+        {
+          "id": "openai:openai/default:deepseek-v4-pro",
+          "provider_id": "openai",
+          "endpoint_id": "openai/default",
+          "model_id": "deepseek-v4-pro",
+          "display_name": "deepseek-v4-pro",
+          "model_type": "chat",
+          "context_window": null,
+          "enabled": 1
+        }
+      ],
+      "preferences": [],
+      "credentialKeyCount": 1,
+      "openaiEndpoint": {
+        "endpointId": "openai/default",
+        "baseUrl": "https://api.deepseek.com",
+        "protocol": "openai-compatible",
+        "status": "ok",
+        "usableKeyCount": 1,
+        "modelCount": 2,
+        "callableCount": 2
+      },
+      "chat": {
+        "capability": "chat",
+        "total": 265,
+        "callable": 2
+      },
+      "structuredOutput": {
+        "capability": "structured_output",
+        "total": 195,
+        "callable": 0
+      },
+      "settings": {
+        "textProvider": "openai",
+        "openAIModel": "",
+        "openAIBaseUrl": "https://api.deepseek.com"
+      }
+    },
+    {
+      "step": "2-db-before",
+      "at": "2026-10-09T03:31:15.414Z",
+      "content": 17,
+      "usage": 14,
+      "runs": 7
+    },
+    {
+      "step": "3-generate",
+      "at": "2026-10-09T03:31:21.192Z",
+      "request": {
+        "topic": "E2E05-文章生成-1791516674973",
+        "prompt": "受控端到端测试样本：写一段 120 字以内的中文短文。",
+        "maxWords": 120,
+        "languageCode": "zh-CN",
+        "type": "article",
+        "articleStyle": "advertorial",
+        "industry": "general",
+        "audience": "unlimited",
+        "imageStrategy": "product",
+        "imageCount": "few",
+        "deAi": false,
+        "knowledgeMode": "position",
+        "positioningId": ""
+      },
+      "status": 201,
+      "ms": 5776,
+      "ok": true,
+      "error": null,
+      "provider": "openai",
+      "model": "deepseek-flash",
+      "images": [],
+      "item": {
+        "id": "nOUvzx1LaT6m-ORP_Hp_j",
+        "title": "文案总卡壳？试试这个帮手",
+        "status": "ready",
+        "bodyLength": 111,
+        "postReadyLength": 125,
+        "metadata": {
+          "type": "article",
+          "prompt": "受控端到端测试样本：写一段 120 字以内的中文短文。",
+          "topic": "E2E05-文章生成-1791516674973",
+          "generationType": "topic",
+          "agentId": "general",
+          "agentName": "通用写作",
+          "aiWriting": {
+            "materialSource": "free",
+            "articleStyle": "advertorial",
+            "industry": "general",
+            "wordCount": 120,
+            "audience": "unlimited",
+            "targetPlatform": "",
+            "coreKeywords": "",
+            "language": "zh-CN",
+            "imageStrategy": "product",
+            "imageCount": "few",
+            "deAi": false,
+            "knowledgeMode": "position",
+            "positioningId": ""
+          },
+          "images": [],
+          "positioningId": "zIh9UGx5dZmxxzTOU0tH-",
+          "provider": "openai",
+          "model": "deepseek-flash"
+        }
+      },
+      "bodyPreview": "写文案最怕开头难：想法很多，落笔就乱。把需求交给 E2E05-文章生成，它先给吸引人的标题，再顺出分段正文，口吻自然，像这篇受控端到端测试样本一样清楚。\n\n不用硬凑灵感，先搭好初稿，再按自己风格微调。省时省力，发布更轻松。",
+      "rawIfFailed": null
+    },
+    {
+      "step": "4-db-after-generate",
+      "at": "2026-10-09T03:31:21.195Z",
+      "content": 18,
+      "usage": 15,
+      "delta": {
+        "content": 1,
+        "usage": 1
+      }
+    },
+    {
+      "0": {
+        "provider": "openai",
+        "model": "deepseek-flash",
+        "kind": "article",
+        "status": "success",
+        "input_tokens": 353,
+        "output_tokens": 1157,
+        "total_tokens": 1510,
+        "word_count": 108,
+        "content_item_id": "nOUvzx1LaT6m-ORP_Hp_j"
+      },
+      "step": "4b-usage-row",
+      "at": "2026-10-09T03:31:21.195Z"
+    },
+    {
+      "step": "5-reopen",
+      "at": "2026-10-09T03:31:22.273Z",
+      "status": 200,
+      "titleMatches": true,
+      "bodyMatches": true,
+      "metadataMatches": true,
+      "postReadyMatches": true,
+      "dbRow": {
+        "id": "nOUvzx1LaT6m-ORP_Hp_j",
+        "title": "文案总卡壳？试试这个帮手",
+        "body": "写文案最怕开头难：想法很多，落笔就乱。把需求交给 E2E05-文章生成，它先给吸引人的标题，再顺出分段正文，口吻自然，像这篇受控端到端测试样本一样清楚。\n\n不用硬凑灵感，先搭好初稿，再按自己风格微调。省时省力，发布更轻松。",
+        "post_ready_text": "文案总卡壳？试试这个帮手\n\n写文案最怕开头难：想法很多，落笔就乱。把需求交给 E2E05-文章生成，它先给吸引人的标题，再顺出分段正文，口吻自然，像这篇受控端到端测试样本一样清楚。\n\n不用硬凑灵感，先搭好初稿，再按自己风格微调。省时省力，发布更轻松。",
+        "image_path": "",
+        "metadata_json": "{\"type\":\"article\",\"prompt\":\"受控端到端测试样本：写一段 120 字以内的中文短文。\",\"topic\":\"E2E05-文章生成-1791516674973\",\"generationType\":\"topic\",\"agentId\":\"general\",\"agentName\":\"通用写作\",\"aiWriting\":{\"materialSource\":\"free\",\"articleStyle\":\"advertorial\",\"industry\":\"general\",\"wordCount\":120,\"audience\":\"unlimited\",\"targetPlatform\":\"\",\"coreKeywords\":\"\",\"language\":\"zh-CN\",\"imageStrategy\":\"product\",\"imageCount\":\"few\",\"deAi\":false,\"knowledgeMode\":\"position\",\"positioningId\":\"\"},\"images\":[],\"positioningId\":\"zIh9UGx5dZmxxzTOU0tH-\",\"provider\":\"openai\",\"model\":\"deepseek-flash\"}",
+        "status": "ready"
+      }
+    },
+    {
+      "step": "6-patch",
+      "at": "2026-10-09T03:31:22.370Z",
+      "request": {
+        "title": "E2E05-文章生成-1791516674973-已修改",
+        "body": "E2E05-文章生成-1791516674973 正文修改后：这是受控 E2E 编辑步骤写入的内容。",
+        "postReadyText": "E2E05-文章生成-1791516674973-已修改\n\nE2E05-文章生成-1791516674973 正文修改后：这是受控 E2E 编辑步骤写入的内容。"
+      },
+      "patchStatus": 200,
+      "patchBody": "{\"ok\":true,\"data\":{\"id\":\"nOUvzx1LaT6m-ORP_Hp_j\",\"title\":\"E2E05-文章生成-1791516674973-已修改\",\"body\":\"E2E05-文章生成-1791516674973 正文修改后：这是受控 E2E 编辑步骤写入的内容。\",\"postReadyText\":\"E2E05-文章生成-1791516674973-已修改\\n\\nE2E05-文章生成-1791516674973 正文修改后：这是受控 E2E 编辑步骤写入的内容。\",\"sourceUrls\":[],\"metadata\":{\"type\":\"article\",\"prompt\":\"受控端到端测试样本：写一段 120 字以内的中文短文。\",\"topic\":\"E2E05-文章生成-1791516674973\",\"generationType\":\"topic\",\"agentId…(887 chars)",
+      "reopenStatus": 200,
+      "titlePersisted": true,
+      "bodyPersisted": true,
+      "postReadyPersisted": true,
+      "dbRow": {
+        "title": "E2E05-文章生成-1791516674973-已修改",
+        "body": "E2E05-文章生成-1791516674973 正文修改后：这是受控 E2E 编辑步骤写入的内容。",
+        "post_ready_text": "E2E05-文章生成-1791516674973-已修改\n\nE2E05-文章生成-1791516674973 正文修改后：这是受控 E2E 编辑步骤写入的内容。",
+        "image_path": "",
+        "status": "ready"
+      }
+    },
+    {
+      "step": "7-failure-404",
+      "at": "2026-10-09T03:31:22.389Z",
+      "status": 404,
+      "body": "{\"ok\":false,\"error\":\"Not found\",\"code\":\"NOT_FOUND\",\"message\":\"Not found\"}"
+    },
+    {
+      "step": "8-delete",
+      "at": "2026-10-09T03:31:22.434Z",
+      "deleteStatus": 200,
+      "deleteBody": "{\"ok\":true,\"data\":{\"deleted\":true}}",
+      "getAfterDeleteStatus": 404,
+      "dbAfter": {
+        "content": 17,
+        "usage": 15,
+        "runs": 7,
+        "leftoverE2E05": 0
+      },
+      "contentBackToBaseline": true
+    }
+  ],
+  "finishedAt": "2026-10-09T03:31:22.434Z"
+}

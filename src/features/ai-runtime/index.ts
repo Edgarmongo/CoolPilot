@@ -12,7 +12,7 @@ export {
   isProtocolImplemented,
   openAICompatibleAdapter,
 } from "./adapters";
-export type { AdapterChatOptions, AdapterChatResult, AdapterContext, AdapterTranscriptionOptions, AdapterTranscriptionResult, ProtocolAdapter } from "./adapters";
+export type { AdapterChatOptions, AdapterChatResult, AdapterContext, AdapterEmbedOptions, AdapterEmbedResult, AdapterTranscriptionOptions, AdapterTranscriptionResult, ProtocolAdapter } from "./adapters";
 export {
   capabilityFailureReasons,
   detectCapabilities,
@@ -58,7 +58,7 @@ export {
 } from "./key-pool";
 export type { CredentialKeyDiagnosis, CredentialKeyPlan, CredentialKeySelection, KeyedRunResult } from "./key-pool";
 export { probeModelCapability, probeableCapabilities } from "./probe";
-export { aiRuntime, chat, chatForIntent, chatStructured, generateImage, transcribe } from "./runtime";
+export { aiRuntime, chat, chatForIntent, chatStructured, embed, generateImage, transcribe } from "./runtime";
 export type { StructuredChatRequest, StructuredChatResponse } from "./runtime";
 export { attachModelAttempts, modelAttemptsFrom } from "./trail";
 export { discoverProviderCatalogs, fetchProviderCatalog, syncProviderCatalog } from "./sync";

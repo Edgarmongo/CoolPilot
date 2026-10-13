@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, ensureDatabase } from "@/db/client";
 import { knowledgeBase } from "@/db/schema";
+import { deleteKnowledgeChunks } from "@/db/repositories/knowledge-embeddings";
 import { isKnowledgeBaseCategory, isKnowledgeBaseOrigin, isKnowledgeBaseWeight } from "@/lib/knowledge-base";
 import type { KnowledgeBaseRecord } from "@/lib/types";
 
@@ -107,6 +108,11 @@ export async function updateKnowledgeBase(
 
 export async function deleteKnowledgeBase(id: string) {
   await ensureDatabase();
+  // CI-EMB-01 (D5): a knowledge record's delete takes its chunk vectors with it, so the index holds no
+  // orphan pointing at a record nobody can open. The vector table has no foreign key to cascade from - the
+  // schema is built with `CREATE TABLE IF NOT EXISTS` on an existing database - so the cleanup is explicit
+  // here, at the one entry that deletes a record.
+  await deleteKnowledgeChunks(id);
   await db.delete(knowledgeBase).where(eq(knowledgeBase.id, id));
 }
 

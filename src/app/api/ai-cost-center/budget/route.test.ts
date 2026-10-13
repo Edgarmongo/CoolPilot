@@ -17,6 +17,7 @@ await import("@/test/route-harness");
 const { GET, PUT } = await import("./route");
 const { createAiUsageLedgerEntry, listAiUsageLedgerEntries } = await import("@/db/repositories/ai-usage-ledger");
 const { listAiBudgetDecisions, listAiBudgetReservations } = await import("@/db/repositories/ai-budget");
+const { writeAppSetting } = await import("@/db/repositories/settings");
 const { budgetPeriodOf, roundAmount } = await import("@/lib/ai-budget");
 
 type BudgetSettings = {
@@ -24,6 +25,15 @@ type BudgetSettings = {
   monthlyLimit: number | null;
   currency: string;
   unknownCostPolicy: string;
+  /** CI-P7-03-C1: how much of the limit one piece of work may use. */
+  strategy: string;
+};
+
+/** What one tier does at each of the two boundaries it acts on. */
+type StrategyLines = {
+  callShare: number | null;
+  stepShare: number | null;
+  stepStopsAtZero: boolean;
 };
 
 type BudgetPayload = {
@@ -45,6 +55,8 @@ type BudgetPayload = {
     remaining: number | null;
     policies: string[];
     unknownCostPolicies: string[];
+    strategies: string[];
+    strategyLines: Record<string, StrategyLines>;
   };
 };
 
@@ -79,12 +91,22 @@ describe("/api/ai-cost-center/budget", () => {
       monthlyLimit: null,
       currency: "CNY",
       unknownCostPolicy: "allow",
+      // CI-P7-03-C1: the middle tier, which is what a fresh install's ceiling semantics are.
+      strategy: "balanced",
     });
     // The guarantee travels with the answer, so a page cannot describe a harder one than the code gives.
     expect(answer.body.data?.enforcement).toBe("cross-process-atomic");
     // The vocabularies travel too: the page shows the policies the code implements, not its own list.
     expect(answer.body.data?.policies).toEqual(["off", "warn", "block"]);
     expect(answer.body.data?.unknownCostPolicies).toEqual(["allow", "block"]);
+    // And the tiers, for the same reason - every one of them with a description of its own stops, so a
+    // tier cannot be offered on screen without saying where it stops.
+    expect(answer.body.data?.strategies).toEqual(["cost-saving", "balanced", "quality-first"]);
+    expect(Object.keys(answer.body.data?.strategyLines ?? {}).sort()).toEqual([
+      "balanced",
+      "cost-saving",
+      "quality-first",
+    ]);
 
     // The period is the gate's own: a natural calendar month, not the usage page's rolling window.
     expect(answer.body.data?.period).toEqual(budgetPeriodOf(Date.now()));
@@ -109,6 +131,10 @@ describe("/api/ai-cost-center/budget", () => {
       monthlyLimit: 12.5,
       currency: "CNY",
       unknownCostPolicy: "allow",
+      // Absent from the payload, so the boundary's own default applies: the endpoint takes the whole
+      // object at once, and a caller that does not know the tier keeps the behaviour it had (`balanced`)
+      // rather than being moved to one that would start refusing or deferring calls nobody asked it to.
+      strategy: "balanced",
     });
     expect(saved.body.data?.remaining).toBe(12.5);
 
@@ -183,6 +209,44 @@ describe("/api/ai-cost-center/budget", () => {
 
     const after = await readBudget();
     expect(settingsOf(after.body)).toEqual(settingsOf(before.body));
+  });
+
+  it("moves the execution strategy on a save, and reads a row written before it existed as it ran", async () => {
+    // The tier travels with the write and the next read agrees, so the page shows what is in force.
+    const saved = await writeBudget({
+      policy: "block",
+      monthlyLimit: 10,
+      currency: "CNY",
+      unknownCostPolicy: "allow",
+      strategy: "cost-saving",
+    });
+    expect(saved.status).toBe(200);
+    expect(settingsOf(saved.body)?.strategy).toBe("cost-saving");
+    expect(settingsOf((await readBudget()).body)?.strategy).toBe("cost-saving");
+
+    // A tier nobody implements is a payload the endpoint refuses, not one it quietly replaces.
+    const unknownTier = await writeBudget({
+      policy: "block",
+      monthlyLimit: 10,
+      currency: "CNY",
+      unknownCostPolicy: "allow",
+      strategy: "frugal",
+    });
+    expect(unknownTier.status).toBe(400);
+    expect(unknownTier.body.code).toBe("INVALID_PAYLOAD");
+    // And the refusal left the saved tier alone.
+    expect(settingsOf((await readBudget()).body)?.strategy).toBe("cost-saving");
+
+    // A row written before the tier existed (`ai-budget` with no `strategy`, as an older build wrote it)
+    // has to read back as the semantics it was actually running under - `balanced` - rather than being
+    // moved to a tier that would start refusing or deferring calls nobody asked it to.
+    await writeAppSetting("ai-budget", {
+      policy: "block",
+      monthlyLimit: 10,
+      currency: "CNY",
+      unknownCostPolicy: "allow",
+    });
+    expect(settingsOf((await readBudget()).body)?.strategy).toBe("balanced");
   });
 
   it("writes nothing about a call, whether the page is read or saved", async () => {

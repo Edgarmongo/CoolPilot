@@ -1,0 +1,670 @@
+﻿node_modules\.bin\vitest.cmd : [33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future 
+major version of Vite:
+At line:1 char:139
++ ... ; $env:FORCE_COLOR='0'; node_modules\.bin\vitest.cmd run 2>&1 | Out-F ...
++                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([33m(!) Your V...ersion of Vite::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.11 [39m[90mD:/devworkspace/software/workspace/myproject/CoolPilot[39m
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mlegacy sites table migration[2m > [22m[2mleaves a workspace that never had the legacy table alone
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/features/ai-runtime/cold-start.test.ts[2m > [22m[2mcold-start catalog discovery[2m > [22m[2mleaves a keyless install alone: no network call, nothing enabled
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/lib/ai-budget-guard.process.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/lib/article-images.test.ts[2m > [22m[2mresolveArticleImages on aiRuntime[2m > [22m[2mcopies a product photo into artifacts and leaves the source where the product keeps it
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/features/ai-runtime/runtime.test.ts[2m > [22m[2mai runtime[2m > [22m[2mseeds providers, endpoints and the gateway catalog as knowledge only
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/lib/research-extraction/extraction-task.test.ts[2m > [22m[2mthe research-distillation task[2m > [22m[2mstores the result on the material, describing where it came from
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/positions/generate/route.test.ts[2m > [22m[2mPOST /api/positions/generate on aiRuntime[2m > [22m[2manswers 200 with the normalised draft, the provider/model the runtime used and one usage row
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/content/generate/route.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/content/mindmap/route.test.ts[2m > [22m[2mPOST /api/content/mindmap on aiRuntime[2m > [22m[2manswers 200 with the model's outline verbatim, as the plain text it is
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/content/[id]/rewrite/route.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/knowledge-base/ai-parse/route.test.ts[2m > [22m[2mPOST /api/knowledge-base/ai-parse on aiRuntime[2m > [22m[2manswers 201 with the structured entry, the provider/model the runtime used and one usage row
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/ai-writing/generate/route.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/images/route.test.ts[2m > [22m[2mPOST /api/images on aiRuntime[2m > [22m[2manswers 201 with the stored file, its URL and the provider/model the runtime really used
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/lib/article-generation.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/worker/runner.test.ts[2m > [22m[2mthe CI-P7-03 step gate in the worker[2m > [22m[2mrefuses an AI playbook before its first request, and records that as the run's own failure
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mlegacy sites table migration[2m > [22m[2mrenames the legacy table when there is no accounts table to merge into
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mlegacy sites table migration[2m > [22m[2mmoves accounts stranded in the legacy table into an accounts table that exists
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mlegacy sites table migration[2m > [22m[2mmoves accounts stranded in the legacy table into an accounts table that exists
+[22m[39m[db] Moved 3 account(s) out of the legacy sites table.
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mlegacy sites table migration[2m > [22m[2mkeeps one row when both tables describe the same account id
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mlegacy sites table migration[2m > [22m[2mkeeps one row when both tables describe the same account id
+[22m[39m[db] Moved 2 account(s) out of the legacy sites table.
+
+ [31m鉂?[39m src/worker/runner.test.ts [2m([22m[2m3 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[33m 6442[2mms[22m[39m
+[31m     [31m脳[31m refuses an AI playbook before its first request, and records that as the run's own failure[39m[33m 5891[2mms[22m[39m
+[31m     [31m脳[31m refuses the rewriting import at the head of its URL step, before the page is fetched[39m[32m 285[2mms[22m[39m
+     [32m鉁?[39m lets the same import through when it rewrites nothing, under the very same refusing budget[32m 264[2mms[22m[39m
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mlegacy sites table migration[2m > [22m[2mfills the default of a column the legacy table predates
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mlegacy sites table migration[2m > [22m[2mfills the default of a column the legacy table predates
+[22m[39m[db] Moved 3 account(s) out of the legacy sites table.
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mlegacy sites table migration[2m > [22m[2mchanges nothing when the migration runs again
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mlegacy sites table migration[2m > [22m[2mchanges nothing when the migration runs again
+[22m[39m[db] Moved 3 account(s) out of the legacy sites table.
+
+[90mstdout[2m | src/app/api/content/[id]/translate/route.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mprice catalog migration[2m > [22m[2mreads a catalog written before the dimension existed and gives it the key this build wants
+[22m[39m[db] ai_model_prices: 4 column(s) added, 1 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mprice catalog migration[2m > [22m[2mholds one price per dimension from one instant once migrated, and still refuses a duplicate
+[22m[39m[db] ai_model_prices: 4 column(s) added, 1 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstderr[2m | src/db/client.test.ts[2m > [22m[2mprice catalog migration[2m > [22m[2mrefuses to rebuild over rows it cannot tell apart, names them, and drops nothing
+[22m[39m[db] ai_model_prices holds 1 key(s) that collide once metered_kind is part of the key: dupe/m/text@1700000000000 (2 rows). The previous index was kept and 
+idx_ai_model_prices_scope_kind_effective was not created.
+
+[90mstderr[2m | src/db/client.test.ts[2m > [22m[2mprice catalog migration[2m > [22m[2mrefuses to rebuild over rows it cannot tell apart, names them, and drops nothing
+[22m[39m[db] ai_model_prices holds 1 key(s) that collide once metered_kind is part of the key: dupe/m/text@1700000000000 (2 rows). The previous index was kept and 
+idx_ai_model_prices_scope_kind_effective was not created.
+
+ [32m鉁?[39m src/features/ai-runtime/cold-start.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 13149[2mms[22m[39m
+     [33m[2m鉁?[22m[39m leaves a keyless install alone: no network call, nothing enabled [33m 7574[2mms[22m[39m
+     [33m[2m鉁?[22m[39m makes a lone API key callable during seeding, so the request path discovers nothing (G3) [33m 1208[2mms[22m[39m
+     [33m[2m鉁?[22m[39m does not re-sync a provider whose catalog is already discovered [33m 3290[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stays silent when the catalog cannot be reached, and retries it later (start-up must not fail) [33m 1075[2mms[22m[39m
+[90mstdout[2m | src/db/client.test.ts[2m > [22m[2mprice catalog migration[2m > [22m[2mchanges nothing when the catalog migration runs again
+[22m[39m[db] ai_model_prices: 4 column(s) added, 1 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/db/client.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 15448[2mms[22m[39m
+     [33m[2m鉁?[22m[39m leaves a workspace that never had the legacy table alone [33m 4683[2mms[22m[39m
+     [33m[2m鉁?[22m[39m renames the legacy table when there is no accounts table to merge into [33m 2842[2mms[22m[39m
+     [33m[2m鉁?[22m[39m moves accounts stranded in the legacy table into an accounts table that exists [33m 2012[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps one row when both tables describe the same account id [33m 514[2mms[22m[39m
+     [33m[2m鉁?[22m[39m fills the default of a column the legacy table predates [33m 766[2mms[22m[39m
+     [33m[2m鉁?[22m[39m changes nothing when the migration runs again [33m 875[2mms[22m[39m
+     [33m[2m鉁?[22m[39m reads a catalog written before the dimension existed and gives it the key this build wants [33m 1370[2mms[22m[39m
+     [33m[2m鉁?[22m[39m holds one price per dimension from one instant once migrated, and still refuses a duplicate [33m 931[2mms[22m[39m
+     [33m[2m鉁?[22m[39m refuses to rebuild over rows it cannot tell apart, names them, and drops nothing [33m 853[2mms[22m[39m
+     [33m[2m鉁?[22m[39m changes nothing when the catalog migration runs again [33m 581[2mms[22m[39m
+[90mstdout[2m | src/app/api/metrics/insights/route.test.ts[2m > [22m[2mPOST /api/metrics/insights on aiRuntime[2m > [22m[2manswers with the insight the runtime produced and the model that really ran
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/content/import-url/route.test.ts[2m > [22m[2mPOST /api/content/import-url on aiRuntime[2m > [22m[2mimports the page and answers 201 with the rewritten draft, its usage row and the runtime's provider
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/ai-budget-guard.process.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 11667[2mms[22m[39m
+     [33m[2m鉁?[22m[39m admits exactly as many processes as the limit has room for, and refuses the rest [33m 3310[2mms[22m[39m
+     [33m[2m鉁?[22m[39m settles one hold exactly once when two processes ask at the same time [33m 3187[2mms[22m[39m
+     [33m[2m鉁?[22m[39m counts a hold a dead process left behind, and stops counting it when its TTL passes [33m 5167[2mms[22m[39m
+ [32m鉁?[39m src/app/api/content/[id]/translate/route.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 7510[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 200 with the aligned translation and the provider/model the runtime really used [33m 545[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the 400 guards it still words itself, and validates before it asks anything [33m 729[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 502 for a schema-valid answer whose paragraphs are blank, and records no usage [33m 1472[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the runtime's single corrective retry, and reports the usage of both answers [33m 1414[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the gate's own 402 instead of translating, and records nothing [33m 2473[2mms[22m[39m
+[90mstdout[2m | src/lib/scraper.test.ts[2m > [22m[2mscraper generators on aiRuntime[2m > [22m[2masks for structured output through the runtime and reports the model that really ran
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/research/[id]/extraction/route.test.ts[2m > [22m[2m/api/research/[id]/extraction[2m > [22m[2manswers the stored result, its earlier versions and whether it is still current
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/research/[id]/extraction/route.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 1526[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the stored result, its earlier versions and whether it is still current [33m 776[2mms[22m[39m
+ [32m鉁?[39m src/app/api/content/import-url/route.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 6166[2mms[22m[39m
+     [33m[2m鉁?[22m[39m imports the page and answers 201 with the rewritten draft, its usage row and the runtime's provider [33m 883[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's own 400 MODEL_CREDENTIAL_MISSING when the rewrite has no usable key [33m 480[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 500 UNKNOWN_ERROR for a provider failure, keeping the scraper's own wrapper (D2-a) [33m 3325[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps its own message-only 400 for a payload it cannot use, and reads no page [33m 1320[2mms[22m[39m
+ [32m鉁?[39m src/app/api/metrics/insights/route.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 6819[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers with the insight the runtime produced and the model that really ran [33m 875[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 502 with the upstream status in details when the provider itself fails [33m 3009[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps answering 404 for an unknown record, without asking any model [33m 1763[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the gate's own 402 before the prompt reaches a model, and sends nothing [33m 474[2mms[22m[39m
+[90mstdout[2m | src/lib/videos/video-render-task.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/content/mindmap/route.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 20549[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 200 with the model's outline verbatim, as the plain text it is [33m 6710[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers with the model when no capability default is set, instead of refusing [33m 822[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the whiteboard's preflight with 204 and the CORS contract, without a model [33m 610[2mms[22m[39m
+     [33m[2m鉁?[22m[39m asks with the topic the schema trimmed, and with nothing else added [33m 3531[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's 503 when nothing is configured, with no legacy error class [33m 344[2mms[22m[39m
+     [33m[2m鉁?[22m[39m passes the runtime's 400 on when the credential is gone [33m 2535[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps answering 502 for a provider that fails, with the upstream status in details [33m 3163[2mms[22m[39m
+     [33m[2m鉁?[22m[39m never answers with an empty outline: a blank answer is the runtime's 502 [33m 2141[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the gate's own 402 instead of asking the model, and books nothing [33m 398[2mms[22m[39m
+ [32m鉁?[39m src/lib/videos/video-render-task.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 2005[2mms[22m[39m
+     [33m[2m鉁?[22m[39m renders a queued row through the worker's own dispatch [33m 566[2mms[22m[39m
+ [32m鉁?[39m src/lib/scraper.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 6304[2mms[22m[39m
+     [33m[2m鉁?[22m[39m asks for structured output through the runtime and reports the model that really ran [33m 783[2mms[22m[39m
+     [33m[2m鉁?[22m[39m passes a credential failure through unwrapped, so consumers can branch on its code (D-P3-3) [33m 1998[2mms[22m[39m
+     [33m[2m鉁?[22m[39m refuses the rewrite before it is sent, with the gate's own error rather than the legacy wording [33m 968[2mms[22m[39m
+     [33m[2m鉁?[22m[39m refuses the topic draft before it is sent, on the very same budget [33m 1834[2mms[22m[39m
+ [32m鉁?[39m src/features/ai-runtime/runtime.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 23301[2mms[22m[39m
+     [33m[2m鉁?[22m[39m seeds providers, endpoints and the gateway catalog as knowledge only [33m 7626[2mms[22m[39m
+     [33m[2m鉁?[22m[39m syncs a catalog, keeps it callable and routes by capability [33m 498[2mms[22m[39m
+     [33m[2m鉁?[22m[39m relaxes optional capabilities instead of failing the request [33m 992[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stops with a credential error instead of calling a provider without a key [33m 2344[2mms[22m[39m
+     [33m[2m鉁?[22m[39m surfaces upstream failures with the provider's status [33m 609[2mms[22m[39m
+     [33m[2m鉁?[22m[39m rotates to the next key when the provider rejects the first one [33m 749[2mms[22m[39m
+     [33m[2m鉁?[22m[39m falls over to the next candidate model when one keeps failing [33m 335[2mms[22m[39m
+     [33m[2m鉁?[22m[39m never falls over when the caller pinned a provider (D2: no silent downgrade) [33m 1118[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the key state in the database, never the key [33m 2054[2mms[22m[39m
+     [33m[2m鉁?[22m[39m prefers a provider without pinning it (G1: preference still falls over) [33m 4070[2mms[22m[39m
+     [33m[2m鉁?[22m[39m imports the legacy settings once and then stays idempotent (G2) [33m 465[2mms[22m[39m
+     [33m[2m鉁?[22m[39m retries once when a model answers with invalid JSON (G5) [33m 538[2mms[22m[39m
+     [33m[2m鉁?[22m[39m reports structured output that never validates [33m 1597[2mms[22m[39m
+[90mstdout[2m | src/lib/transcription/transcription-task.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/lib/tools/tool-library.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/lib/videos/video-render-tool.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/transcription/transcription-task.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 1674[2mms[22m[39m
+ [32m鉁?[39m src/lib/videos/video-render-tool.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 1908[2mms[22m[39m
+[90mstdout[2m | src/app/api/research/[id]/fetch/route.test.ts[2m > [22m[2mPOST /api/research/[id]/fetch[2m > [22m[2mrecords a successful read: the page's own text, its cover, and when it was read
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/repository.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/ai-writing/generate/route.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 23667[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 201 with the stored article, its images, and the provider/model the runtime really used [33m 3246[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 400 with the runtime's code when the model has no credential, and stores nothing [33m 852[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 502 with the upstream status in details when the provider itself fails [33m 3247[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the 400 INVALID_PAYLOAD guard, and validates before it reads or asks anything [33m 886[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the runtime's single corrective retry, and reports the usage of both answers [33m 1065[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the topic it was opened from: the id on the article, the article on the topic (CI-P2-01) [33m 3319[2mms[22m[39m
+     [33m[2m鉁?[22m[39m still answers the article when the topic it names is gone, and links nothing [33m 3718[2mms[22m[39m
+     [33m[2m鉁?[22m[39m injects the brand the config selected, and records the version it was written as [33m 677[2mms[22m[39m
+     [33m[2m鉁?[22m[39m writes as no brand when the payload names none, which is what every older client does [33m 3315[2mms[22m[39m
+ [32m鉁?[39m src/db/repository.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 1215[2mms[22m[39m
+ [32m鉁?[39m src/app/api/research/[id]/fetch/route.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 1146[2mms[22m[39m
+     [33m[2m鉁?[22m[39m records a successful read: the page's own text, its cover, and when it was read [33m 651[2mms[22m[39m
+[90mstdout[2m | src/lib/metrics-repository.test.ts[2m > [22m[2mmetrics repository[2m > [22m[2mround-trips metrics through migrations and the repository
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/metrics-repository.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 1361[2mms[22m[39m
+     [33m[2m鉁?[22m[39m round-trips metrics through migrations and the repository [33m 1359[2mms[22m[39m
+ [32m鉁?[39m src/lib/tools/tool-library.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 4111[2mms[22m[39m
+     [33m[2m鉁?[22m[39m runs it once approved, and reports the runtime's own failure as a value [33m 2030[2mms[22m[39m
+[90mstdout[2m | src/lib/tasks/task-library.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/tasks/task-library.test.ts [2m([22m[2m24 tests[22m[2m)[22m[33m 2056[2mms[22m[39m
+ [32m鉁?[39m src/app/api/positions/generate/route.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 25808[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 200 with the normalised draft, the provider/model the runtime used and one usage row [33m 6738[2mms[22m[39m
+     [33m[2m鉁?[22m[39m clamps an oversized answer, and never lets one set a field this route owns [33m 1746[2mms[22m[39m
+     [33m[2m鉁?[22m[39m falls back to the local draft when nothing is configured, without asking anyone [33m 3345[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the fallback - not the runtime's 400 - when the credential is gone [33m 677[2mms[22m[39m
+     [33m[2m鉁?[22m[39m falls back when the provider itself fails, after exactly one attempt [33m 2451[2mms[22m[39m
+     [33m[2m鉁?[22m[39m falls back after a schema-invalid answer on both attempts, and keeps nothing half-applied [33m 3949[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps answering 400 for an unusable payload, and never falls back for one [33m 1017[2mms[22m[39m
+     [33m[2m鉁?[22m[39m asks with the sentence whole, at the schema's own ceiling [33m 601[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers with the model when no capability default is set, instead of falling back [33m 2965[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the gate's own 402 instead of inventing a fallback draft, and books nothing [33m 2312[2mms[22m[39m
+[90mstdout[2m | src/lib/agent/langgraph-engine.test.ts[2m > [22m[2mlocal agent LLM tool planning[2m > [22m[2mwires an image plan to the latest post context instead of drafting a new post
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/knowledge-base/ai-parse/route.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 25881[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 201 with the structured entry, the provider/model the runtime used and one usage row [33m 6717[2mms[22m[39m
+     [33m[2m鉁?[22m[39m caps the paste at 8000 characters, and stores the answer rather than the paste [33m 730[2mms[22m[39m
+     [33m[2m鉁?[22m[39m normalises a badly-behaved answer instead of storing it verbatim [33m 4215[2mms[22m[39m
+     [33m[2m鉁?[22m[39m falls back to the local parse when nothing is configured, without asking anyone [33m 588[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the fallback - not the runtime's 400 - when the credential is gone [33m 3408[2mms[22m[39m
+     [33m[2m鉁?[22m[39m falls back when the provider itself fails, after exactly one attempt [33m 3195[2mms[22m[39m
+     [33m[2m鉁?[22m[39m falls back after a schema-invalid answer on both attempts, and stores nothing half-parsed [33m 1445[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers with the model when no capability default is set, instead of falling back [33m 3001[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the gate's own 402 instead of falling back to the local parse, and stores nothing [33m 2328[2mms[22m[39m
+[90mstdout[2m | src/lib/ai/generate.test.ts[2m > [22m[2mimage facade on aiRuntime[2m > [22m[2mgenerates an image through the runtime and writes the artifact file (G3)
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/research/[id]/extraction/topics/route.test.ts[2m > [22m[2m/api/research/[id]/extraction/topics[2m > [22m[2mcreates the topic the index names, recording where the idea came from
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/ai-cost-center/estimate/route.test.ts[2m > [22m[2m/api/ai-cost-center/estimate[2m > [22m[2mprices a named model from the catalog as a range, and says who it priced
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/ai-cost-center/estimate/route.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 876[2mms[22m[39m
+     [33m[2m鉁?[22m[39m prices a named model from the catalog as a range, and says who it priced [33m 481[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers a question with no model named by resolving the route, and says the route is unresolved [33m 348[2mms[22m[39m
+[90mstdout[2m | src/lib/agent/local-tools.test.ts[2m > [22m[2mlocal tool model calls on the runtime[2m > [22m[2mreports the provider and model the runtime really used for the image prompt
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/research/[id]/extraction/topics/route.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 1290[2mms[22m[39m
+     [33m[2m鉁?[22m[39m creates the topic the index names, recording where the idea came from [33m 904[2mms[22m[39m
+ [32m鉁?[39m src/lib/ai/generate.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 1350[2mms[22m[39m
+     [33m[2m鉁?[22m[39m generates an image through the runtime and writes the artifact file (G3) [33m 1085[2mms[22m[39m
+[90mstdout[2m | src/app/api/tools/[name]/route.test.ts[2m > [22m[2mPOST /api/tools/[name][2m > [22m[2manswers a host task that does not exist with 400
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/agent/local-tools.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 811[2mms[22m[39m
+     [33m[2m鉁?[22m[39m reports the provider and model the runtime really used for the image prompt [33m 713[2mms[22m[39m
+ [32m鉁?[39m src/app/api/tools/[name]/route.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 797[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers a host task that does not exist with 400 [33m 329[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers an unapproved side-effecting tool with 409, and runs it once approved [33m 433[2mms[22m[39m
+[90mstdout[2m | src/lib/ai-budget-guard.test.ts[2m > [22m[2mthe CI-P7-03 budget gate[2m > [22m[2mholds a call's ceiling and gives it back, once, on release
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/ai-cost-center/calls/route.test.ts[2m > [22m[2m/api/ai-cost-center/calls[2m > [22m[2manswers one row per request, reads the retry off the chain, and covers every request in the call total
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/publish/verify/route.test.ts[2m > [22m[2mPOST /api/publish/verify[2m > [22m[2mwrites one published record and moves the item to posted when the session left the editor
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/content/[id]/rewrite/route.test.ts [2m([22m[2m13 tests[22m[2m)[22m[33m 28630[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 200 with the rewritten body, the provider/model the runtime really used, and one usage row [33m 3467[2mms[22m[39m
+     [33m[2m鉁?[22m[39m reads the article the `[id]` segment names, and prompts with its flattened body only [33m 793[2mms[22m[39m
+     [33m[2m鉁?[22m[39m caps the source at the route's own limit, cutting inside the last paragraph it can fit [33m 2717[2mms[22m[39m
+     [33m[2m鉁?[22m[39m counts the characters of the rewritten body, not of the source it was given [33m 1574[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's own 400 MODEL_CREDENTIAL_MISSING when the model has no credential [33m 2301[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the pool's own 429 MODEL_CREDENTIAL_UNAVAILABLE when every stored key is out of rotation [33m 3308[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's own 503 MODEL_NOT_CONFIGURED when nothing is configured at all [33m 2244[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's own 502 MODEL_UPSTREAM_FAILED when the provider itself fails [33m 766[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's own 502 MODEL_UPSTREAM_NO_CONTENT when the model answers without any text [33m 3315[2mms[22m[39m
+     [33m[2m鉁?[22m[39m still answers its own 502 EMPTY_RESULT for an answer that carries no text at all [33m 3276[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the gate's own 402 AI_BUDGET_EXCEEDED instead of calling the model at all [33m 1168[2mms[22m[39m
+ [32m鉁?[39m src/app/api/ai-cost-center/calls/route.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 708[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers one row per request, reads the retry off the chain, and covers every request in the call total [33m 557[2mms[22m[39m
+ [32m鉁?[39m src/lib/ai-budget-guard.test.ts [2m([22m[2m14 tests[22m[2m)[22m[33m 1014[2mms[22m[39m
+     [33m[2m鉁?[22m[39m holds a call's ceiling and gives it back, once, on release [33m 383[2mms[22m[39m
+[90mstdout[2m | src/lib/agent/chat-thread-title.test.ts[2m > [22m[2mchat thread title generation on the runtime[2m > [22m[2masks the runtime with the title schema and keeps the answer it returned
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/agent/langgraph-engine.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 3922[2mms[22m[39m
+     [33m[2m鉁?[22m[39m wires an image plan to the latest post context instead of drafting a new post [33m 2502[2mms[22m[39m
+     [33m[2m鉁?[22m[39m posts existing generated text and image from context [33m 665[2mms[22m[39m
+ [32m鉁?[39m src/app/api/publish/verify/route.test.ts [2m([22m[2m16 tests[22m[2m)[22m[33m 982[2mms[22m[39m
+     [33m[2m鉁?[22m[39m writes one published record and moves the item to posted when the session left the editor [33m 585[2mms[22m[39m
+[90mstdout[2m | src/db/repositories/ai-usage-ledger.test.ts[2m > [22m[2mai model price catalog[2m > [22m[2mreturns no price when the catalog has nothing to say
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/db/repositories/ai-usage-ledger.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 664[2mms[22m[39m
+     [33m[2m鉁?[22m[39m returns no price when the catalog has nothing to say [33m 499[2mms[22m[39m
+[90mstdout[2m | src/app/api/research/[id]/route.test.ts[2m > [22m[2mGET /api/research/[id][2m > [22m[2manswers the material a generation entry asked for, in the shape it renders
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/agent/chat-thread-title.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 1246[2mms[22m[39m
+     [33m[2m鉁?[22m[39m asks the runtime with the title schema and keeps the answer it returned [33m 1087[2mms[22m[39m
+ [32m鉁?[39m src/app/api/research/[id]/route.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 823[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the material a generation entry asked for, in the shape it renders [33m 421[2mms[22m[39m
+[90mstdout[2m | src/db/repositories/brands.test.ts[2m > [22m[2mbrands repository[2m > [22m[2mstores what the console's minimal create sends, with the rest defaulted
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/db/repositories/brands.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 540[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stores what the console's minimal create sends, with the rest defaulted [33m 443[2mms[22m[39m
+[90mstdout[2m | src/app/api/publish/route.test.ts[2m > [22m[2mPOST /api/publish[2m > [22m[2manswers published, and logs one dated row, for an account the platform took
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/models/prices/route.test.ts[2m > [22m[2m/api/models/prices[2m > [22m[2madds a price and answers with the catalog the page renders
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/repositories/ai-budget.test.ts[2m > [22m[2mthe stored budget holds[2m > [22m[2madds a period up by the same rule the pure summariser uses
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/models/prices/route.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 648[2mms[22m[39m
+     [33m[2m鉁?[22m[39m adds a price and answers with the catalog the page renders [33m 601[2mms[22m[39m
+[90mstdout[2m | src/lib/backup.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/features/ai-runtime/key-pool.test.ts[2m > [22m[2mcredential key pool[2m > [22m[2mrotates to the next key when the provider rate-limits the first
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/backup.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 1040[2mms[22m[39m
+ [32m鉁?[39m src/db/repositories/ai-budget.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 825[2mms[22m[39m
+     [33m[2m鉁?[22m[39m adds a period up by the same rule the pure summariser uses [33m 605[2mms[22m[39m
+ [32m鉁?[39m src/app/api/publish/route.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 1338[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers published, and logs one dated row, for an account the platform took [33m 969[2mms[22m[39m
+[90mstdout[2m | src/app/api/publish/draft/route.test.ts[2m > [22m[2mPOST /api/publish/draft[2m > [22m[2mhands the session the content it drafted, so a later verify can attribute the publish
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/publish/draft/route.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 490[2mms[22m[39m
+     [33m[2m鉁?[22m[39m hands the session the content it drafted, so a later verify can attribute the publish [33m 448[2mms[22m[39m
+ [32m鉁?[39m src/features/ai-runtime/key-pool.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 982[2mms[22m[39m
+     [33m[2m鉁?[22m[39m rotates to the next key when the provider rate-limits the first [33m 573[2mms[22m[39m
+[90mstdout[2m | src/app/api/content/[id]/platform-versions/route.test.ts[2m > [22m[2mGET /api/content/[id]/platform-versions[2m > [22m[2manswers the base, every adapter on offer and the versions saved so far
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/repositories/topics.test.ts[2m > [22m[2mtopics repository[2m > [22m[2mstores what the console's minimal create sends, with the rest defaulted
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/db/repositories/topics.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 528[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stores what the console's minimal create sends, with the rest defaulted [33m 421[2mms[22m[39m
+ [32m鉁?[39m src/app/api/content/[id]/platform-versions/route.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 608[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the base, every adapter on offer and the versions saved so far [33m 426[2mms[22m[39m
+[90mstdout[2m | src/app/api/content/lifecycle/route.test.ts[2m > [22m[2mGET /api/content/lifecycle[2m > [22m[2mlinks a planned content item to its publish records, per platform
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/content/lifecycle/route.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 526[2mms[22m[39m
+     [33m[2m鉁?[22m[39m links a planned content item to its publish records, per platform [33m 395[2mms[22m[39m
+[90mstdout[2m | src/app/api/settings/brand/logo/route.test.ts[2m > [22m[2m/api/settings/brand/logo[2m > [22m[2mstores the uploaded logo inside the uploads section of the workspace
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/settings/brand/logo/route.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 725[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stores the uploaded logo inside the uploads section of the workspace [33m 586[2mms[22m[39m
+[90mstdout[2m | src/features/ai-settings/model-gateway-sync.test.ts[2m > [22m[2mmodel gateway sync[2m > [22m[2mrefuses to sync while the feature switch is off
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/features/ai-settings/model-gateway-sync.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 768[2mms[22m[39m
+     [33m[2m鉁?[22m[39m refuses to sync while the feature switch is off [33m 538[2mms[22m[39m
+[90mstdout[2m | src/app/api/ai-cost-center/budget/route.test.ts[2m > [22m[2m/api/ai-cost-center/budget[2m > [22m[2manswers a fresh install with the gate off, no ceiling, and the month it means
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/ai-cost-center/budget/route.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 945[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers a fresh install with the gate off, no ceiling, and the month it means [33m 676[2mms[22m[39m
+[90mstdout[2m | src/lib/ai-usage-ledger-recorder.test.ts[2m > [22m[2mai usage ledger writer[2m > [22m[2mwrites one row per request, in the order they were sent, chained to the one before
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/dictionaries.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 319[2mms[22m[39m
+     [33m[2m鉁?[22m[39m does not contain empty or visibly corrupted text [33m 305[2mms[22m[39m
+ [32m鉁?[39m src/lib/ai-usage-ledger-recorder.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 799[2mms[22m[39m
+     [33m[2m鉁?[22m[39m writes one row per request, in the order they were sent, chained to the one before [33m 715[2mms[22m[39m
+[90mstdout[2m | src/app/api/research/route.test.ts[2m > [22m[2mGET /api/research[2m > [22m[2manswers every material, newest edit first, so the screen can filter and search what it has
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/db/client.transaction.test.ts[2m > [22m[2mthe database's transactional ability[2m > [22m[2mrolls a drizzle transaction back when the body throws
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/research/route.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 946[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers every material, newest edit first, so the screen can filter and search what it has [33m 718[2mms[22m[39m
+[90mstdout[2m | src/app/api/brands/[id]/route.test.ts[2m > [22m[2mGET /api/brands/[id][2m > [22m[2manswers the brand the wizard asked for, in the shape it renders
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/db/client.transaction.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 643[2mms[22m[39m
+     [33m[2m鉁?[22m[39m rolls a drizzle transaction back when the body throws [33m 621[2mms[22m[39m
+[90mstdout[2m | src/db/repositories/research.test.ts[2m > [22m[2mresearch materials repository[2m > [22m[2mstores a hand-written note as ready text, with no read behind it
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/ai-cost-center/route.test.ts[2m > [22m[2m/api/ai-cost-center[2m > [22m[2manswers one window with the ledger's money view and the delivered-output view
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/brands/[id]/route.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 778[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the brand the wizard asked for, in the shape it renders [33m 661[2mms[22m[39m
+[90mstdout[2m | src/app/api/topics/[id]/route.test.ts[2m > [22m[2mGET /api/topics/[id][2m > [22m[2manswers the topic the wizard asked for, in the shape it renders
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/db/repositories/research.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 641[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stores a hand-written note as ready text, with no read behind it [33m 530[2mms[22m[39m
+ [32m鉁?[39m src/app/api/ai-cost-center/route.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 601[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers one window with the ledger's money view and the delivered-output view [33m 546[2mms[22m[39m
+ [32m鉁?[39m src/app/api/topics/[id]/route.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 591[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the topic the wizard asked for, in the shape it renders [33m 510[2mms[22m[39m
+[90mstdout[2m | src/app/api/schedules/[id]/route.test.ts[2m > [22m[2mPATCH /api/schedules/[id] (CI-P2-04-05)[2m > [22m[2mmoves a content-linked plan to a new single occurrence
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/schedules/[id]/route.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 504[2mms[22m[39m
+     [33m[2m鉁?[22m[39m moves a content-linked plan to a new single occurrence [33m 490[2mms[22m[39m
+[90mstdout[2m | src/app/api/research/upload/route.test.ts[2m > [22m[2mPOST /api/research/upload[2m > [22m[2mimports a text file as a file material whose text is the file's own
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/content/[id]/route.test.ts[2m > [22m[2mGET /api/content/[id][2m > [22m[2manswers the stored item the id names, in the shape the editor opens
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/research/upload/route.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 531[2mms[22m[39m
+     [33m[2m鉁?[22m[39m imports a text file as a file material whose text is the file's own [33m 513[2mms[22m[39m
+ [32m鉁?[39m src/app/api/content/[id]/route.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 554[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the stored item the id names, in the shape the editor opens [33m 510[2mms[22m[39m
+[90mstdout[2m | src/app/api/calendar/route.test.ts[2m > [22m[2mGET /api/calendar (CI-P2-04 content linkage)[2m > [22m[2mnames the content item a plan occurrence belongs to
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+[90mstdout[2m | src/app/api/topics/route.test.ts[2m > [22m[2mGET /api/topics[2m > [22m[2manswers every topic, so the screen can filter and search what it has
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/app/api/calendar/route.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 582[2mms[22m[39m
+     [33m[2m鉁?[22m[39m names the content item a plan occurrence belongs to [33m 535[2mms[22m[39m
+ [32m鉁?[39m src/app/api/topics/route.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 549[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers every topic, so the screen can filter and search what it has [33m 523[2mms[22m[39m
+ [32m鉁?[39m src/lib/paths.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 184[2mms[22m[39m
+[90mstdout[2m | src/app/api/brands/route.test.ts[2m > [22m[2mGET /api/brands[2m > [22m[2manswers every brand, so the screen and the wizard can select from what they have
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/workspace/manifest.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 283[2mms[22m[39m
+ [32m鉁?[39m src/app/api/brands/route.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 504[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers every brand, so the screen and the wizard can select from what they have [33m 470[2mms[22m[39m
+ [32m鉁?[39m src/lib/article-generation.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 36959[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stores one ready item and one usage row, and answers the item, its images and the runtime's pair [33m 3393[2mms[22m[39m
+     [33m[2m鉁?[22m[39m asks with the caller's prefix ahead of the positioning prompt, and builds the article prompt itself [33m 1661[2mms[22m[39m
+     [33m[2m鉁?[22m[39m resolves the positioning and the knowledge itself: the default, a row that is gone, and off [33m 4323[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stores the caller's provenance verbatim and adds only the four facts it owns [33m 3362[2mms[22m[39m
+     [33m[2m鉁?[22m[39m uses the caller's fallback only when the model answers an empty title, and stores no image otherwise [33m 4239[2mms[22m[39m
+     [33m[2m鉁?[22m[39m lets the runtime's failure through unchanged and stores nothing [33m 3388[2mms[22m[39m
+     [33m[2m鉁?[22m[39m refuses before the prompt is sent, so the caller gets the gate's own 402 and nothing is stored [33m 2202[2mms[22m[39m
+     [33m[2m鉁?[22m[39m writes as the brand the request named, records its version, and never mixes in the other one [33m 2770[2mms[22m[39m
+     [33m[2m鉁?[22m[39m treats a brand id that is gone as no brand instead of borrowing another one [33m 4598[2mms[22m[39m
+     [33m[2m鉁?[22m[39m moves the recorded version when the brand is edited, so a later edit stays visible [33m 3717[2mms[22m[39m
+ [32m鉁?[39m src/lib/credentials.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 106[2mms[22m[39m
+ [32m鉁?[39m src/electron/branding.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 109[2mms[22m[39m
+ [32m鉁?[39m src/lib/media-artifact-library.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 47[2mms[22m[39m
+ [32m鉁?[39m src/app/api/images/upload/route.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 46[2mms[22m[39m
+ [32m鉁?[39m src/app/api/agent/artifacts/route.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 51[2mms[22m[39m
+[90mstdout[2m | src/app/api/transcription/route.test.ts
+[22m[39m[db] ai_model_prices: 0 column(s) added, 0 index(es) replaced, idx_ai_model_prices_scope_kind_effective rebuilt.
+
+ [32m鉁?[39m src/lib/videos/video-renderer.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 98[2mms[22m[39m
+ [32m鉁?[39m src/app/api/transcription/route.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 122[2mms[22m[39m
+ [32m鉁?[39m src/lib/console-nav.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m鉁?[39m src/lib/image-library.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+ [32m鉁?[39m src/app/api/products/image/route.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 44[2mms[22m[39m
+ [32m鉁?[39m src/app/api/videos/route.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m鉁?[39m src/lib/calendar.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m鉁?[39m src/lib/api-client.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+ [32m鉁?[39m src/lib/tools/tool-call.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 34[2mms[22m[39m
+ [32m鉁?[39m src/lib/content-lifecycle.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 32[2mms[22m[39m
+ [32m鉁?[39m src/lib/platform-versions-render.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 114[2mms[22m[39m
+ [32m鉁?[39m src/app/api/workspace/manifest/route.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 171[2mms[22m[39m
+ [32m鉁?[39m src/lib/validation.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m鉁?[39m src/lib/platform-content.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32m鉁?[39m src/lib/agent/schedule-intent.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 27[2mms[22m[39m
+ [32m鉁?[39m src/features/ai-settings/provider-registry.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m鉁?[39m src/lib/tasks/task-view.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m鉁?[39m src/lib/videos/video-render.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m鉁?[39m src/lib/ai-usage-ledger.test.ts [2m([22m[2m48 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m鉁?[39m src/lib/research-extraction/extraction.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+ [32m鉁?[39m src/lib/ai-budget.test.ts [2m([22m[2m42 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m鉁?[39m src/lib/schedule.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m鉁?[39m src/lib/article-themes.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m鉁?[39m src/lib/workspace/overview.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m鉁?[39m src/lib/metrics.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m鉁?[39m src/lib/agent/tool-registry.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m鉁?[39m src/lib/i18n-coverage.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m鉁?[39m src/lib/browser-preview-session.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m鉁?[39m src/lib/media-artifact-ref.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m鉁?[39m src/lib/positions.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m鉁?[39m src/features/ai-settings/model-gateway-payload.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m鉁?[39m src/lib/platform-version-view.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m鉁?[39m src/features/ai-runtime/normalizers.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m鉁?[39m src/lib/article-images.test.ts [2m([22m[2m20 tests[22m[2m)[22m[33m 39321[2mms[22m[39m
+     [33m[2m鉁?[22m[39m copies a product photo into artifacts and leaves the source where the product keeps it [33m 6245[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the source extension, lower-cased, and falls back to .png when the path has none [33m 606[2mms[22m[39m
+     [33m[2m鉁?[22m[39m skips a product photo that is not on disk and still copies the one that is [33m 336[2mms[22m[39m
+     [33m[2m鉁?[22m[39m ignores a blank entry instead of asking the filesystem about it [33m 352[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stops at target, in the order the caller selected the products [33m 1480[2mms[22m[39m
+     [33m[2m鉁?[22m[39m never reads a source page when the strategy is product only [33m 1662[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stores the source page's og:image as the remote URL it is, and writes no file [33m 945[2mms[22m[39m
+     [33m[2m鉁?[22m[39m reads at most the first three source urls [33m 335[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps going after a page that is down or carries no og:image [33m 428[2mms[22m[39m
+     [33m[2m鉁?[22m[39m adds the same image only once [33m 1084[2mms[22m[39m
+     [33m[2m鉁?[22m[39m generates the missing image, names the article in the prompt and reports nothing else [33m 3710[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the image provider pinned instead of falling over to the other one (G3) [33m 2587[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers with no images instead of failing when the provider is down [33m 2019[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers with no images for an install that has no credential at all [33m 2663[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the images it already has when generation fails (best effort) [33m 3319[2mms[22m[39m
+     [33m[2m鉁?[22m[39m spends at most maxGeneratedArticleImages per run, even when the target asks for more [33m 4799[2mms[22m[39m
+     [33m[2m鉁?[22m[39m generates only what the earlier sources left open [33m 2088[2mms[22m[39m
+     [33m[2m鉁?[22m[39m never asks a provider when the earlier sources already reached the target [33m 1750[2mms[22m[39m
+     [33m[2m鉁?[22m[39m fills in order: the product copy, then the page's og:image, then a generation [33m 2615[2mms[22m[39m
+ [32m鉁?[39m src/mindmap/mindmap-history.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m鉁?[39m src/lib/ai-writing.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m鉁?[39m src/mindmap/mindmap-layout.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m鉁?[39m src/features/ai-runtime/capability.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m鉁?[39m src/lib/api.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m鉁?[39m src/mindmap/mindmap-model.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m鉁?[39m src/lib/account-risk.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m鉁?[39m src/lib/research.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m鉁?[39m src/lib/browser-preview-shared.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m鉁?[39m src/lib/publish-groups.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m鉁?[39m src/features/ai-settings/model-gateway-catalog.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m鉁?[39m src/app/api/tools/route.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m鉁?[39m src/mindmap/mindmap-markdown.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m鉁?[39m src/lib/agent/settings-validation.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m鉁?[39m src/lib/metric-parse.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m鉁?[39m src/lib/publish-results.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m鉁?[39m src/electron/server-runtime.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m鉁?[39m src/features/ai-settings/mainstream-model-catalog.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m鉁?[39m src/lib/text-diff.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m鉁?[39m src/lib/usage.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m鉁?[39m src/lib/videos/video-template.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m鉁?[39m src/whiteboard/drawnix/utils/board-markdown.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m鉁?[39m src/app/api/images/route.test.ts [2m([22m[2m19 tests[22m[2m)[22m[33m 40757[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 201 with the stored file, its URL and the provider/model the runtime really used [33m 6748[2mms[22m[39m
+     [33m[2m鉁?[22m[39m trims the prompt the schema accepted and sends nothing else the caller passed [33m 782[2mms[22m[39m
+     [33m[2m鉁?[22m[39m takes the image size from the settings, never from the request [33m 2867[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the image provider pinned instead of silently using the other one (G3) [33m 1622[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's own 409 MODEL_CAPABILITY_UNAVAILABLE when the pinned provider has no image model [33m 705[2mms[22m[39m
+     [33m[2m鉁?[22m[39m routes a gemini-pinned install through the Gemini endpoint, leaving the OpenAI-shaped size alone [33m 3187[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 400 INVALID_PAYLOAD for a body it cannot use, without asking any provider [33m 1358[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's own 503 MODEL_NOT_CONFIGURED when the install has no credential at all [33m 2596[2mms[22m[39m
+     [33m[2m鉁?[22m[39m no longer syncs the pinned provider's catalog on demand (P3-B-3) [33m 1378[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's own 400 MODEL_CREDENTIAL_MISSING when the key is revoked after the model was configured [33m 3069[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the flat 500 when the provider rejects the key [33m 3258[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's own 502 MODEL_UPSTREAM_FAILED when the provider is down [33m 1183[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the runtime's own 502 MODEL_UPSTREAM_NO_CONTENT when the provider answers without any image data [33m 1908[2mms[22m[39m
+     [33m[2m鉁?[22m[39m still guards the empty image the adapter let through, and writes no file [33m 2995[2mms[22m[39m
+     [33m[2m鉁?[22m[39m gives every generated image its own file name [33m 4707[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers the gate's own 402 instead of asking a provider, and writes no file [33m 2017[2mms[22m[39m
+ [32m鉁?[39m src/lib/artifact-image-url.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m鉁?[39m src/lib/translation-layouts.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m鉁?[39m src/features/ai-runtime/trail.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m鉁?[39m src/lib/knowledge-base.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m鉁?[39m src/mindmap/mindmap-document.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m鉁?[39m src/lib/knowledge-file.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m鉁?[39m src/app/api/content/generate/route.test.ts [2m([22m[2m14 tests[22m[2m)[22m[33m 40793[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 201 with the stored item and asks the runtime with this route's own prompts and schema [33m 3507[2mms[22m[39m
+     [33m[2m鉁?[22m[39m maps the legacy language field, the default positioning and an empty prompt onto the article [33m 1998[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 400 with the runtime's code when the model has no credential, and stores nothing [33m 3301[2mms[22m[39m
+     [33m[2m鉁?[22m[39m answers 502 with the upstream status in details when the provider itself fails [33m 1250[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the 400 payload guard, and validates before it reads or asks anything [33m 1293[2mms[22m[39m
+     [33m[2m鉁?[22m[39m assembles the prompt from the chosen agent, the knowledge mode and what the positioning lookup found [33m 5225[2mms[22m[39m
+     [33m[2m鉁?[22m[39m reads the brand and the topic the payload names, and records both on the article [33m 641[2mms[22m[39m
+     [33m[2m鉁?[22m[39m switches brands without carrying the previous brand's fields into the next run [33m 4079[2mms[22m[39m
+     [33m[2m鉁?[22m[39m writes with no brand and no topic when the payload names none, or names rows that are gone [33m 4027[2mms[22m[39m
+     [33m[2m鉁?[22m[39m reads the material and writes its own text into the prompt, recording which version was read [33m 748[2mms[22m[39m
+     [33m[2m鉁?[22m[39m carries a material nobody has read without inventing a 姝ｆ枃, and offers no image source for it [33m 4150[2mms[22m[39m
+     [33m[2m鉁?[22m[39m writes with a topic, a brand and a material at once, keeping each on its own terms [33m 3134[2mms[22m[39m
+     [33m[2m鉁?[22m[39m refuses an id that names nothing instead of writing the article without the material [33m 1421[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps every client that never heard of the field exactly as it was [33m 2949[2mms[22m[39m
+ [32m鉁?[39m src/lib/transcription/local-speech.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m鉁?[39m src/lib/topics.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m鉁?[39m src/lib/image-search.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m鉁?[39m src/lib/agent/chat-context.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m鉁?[39m src/lib/content-images.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m鉁?[39m src/lib/editor-link.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m鉁?[39m src/lib/video-library.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m鉁?[39m src/lib/brands.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m鉁?[39m src/lib/content-filter.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m鉁?[39m src/lib/content-image-reconciliation.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m鉁?[39m src/components/accounts/shared.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m鉁?[39m src/lib/products.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m鉁?[39m src/lib/publish-run-teardown.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m鉁?[39m src/lib/app-store-catalog.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m鉁?[39m src/lib/run-budget-pause.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m鉁?[39m src/lib/agent/system-prompt.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m鉁?[39m src/worker/scheduler-service.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m鉁?[39m src/lib/research-extraction/extraction-task.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 43216[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stores the result on the material, describing where it came from [33m 7106[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps two materials' results from each other's text [33m 3407[2mms[22m[39m
+     [33m[2m鉁?[22m[39m leaves no result behind when the model cannot be reached at all [33m 1812[2mms[22m[39m
+     [33m[2m鉁?[22m[39m leaves no result behind when the provider itself fails [33m 1376[2mms[22m[39m
+     [33m[2m鉁?[22m[39m refuses an answer the schema rejects, and one with nothing usable in it [33m 6379[2mms[22m[39m
+     [33m[2m鉁?[22m[39m refuses a material that is gone, one with no text, and a request that is not one [33m 590[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the version it replaced, and never overwrites the material's own text [33m 4062[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stores one version when the same task row is executed twice [33m 3283[2mms[22m[39m
+     [33m[2m鉁?[22m[39m does not distil a task that already reached a terminal status [33m 1116[2mms[22m[39m
+     [33m[2m鉁?[22m[39m collapses a repeat submission that is still in flight, and honours an idempotency key [33m 3002[2mms[22m[39m
+     [33m[2m鉁?[22m[39m starts a task once per process and lists it for the console [33m 3322[2mms[22m[39m
+     [33m[2m鉁?[22m[39m distils while the month is inside its ceiling, and gives the hold back afterwards [33m 3161[2mms[22m[39m
+     [33m[2m鉁?[22m[39m stops the run before sending anything once the month is already over the ceiling [33m 1282[2mms[22m[39m
+     [33m[2m鉁?[22m[39m refuses a model with no price on file under the strict policy, and never reads it as free [33m 2300[2mms[22m[39m
+     [33m[2m鉁?[22m[39m keeps the runtime's own retry inside the one gated call it belongs to [33m 1013[2mms[22m[39m
+
+[31m鈳幆鈳幆鈳幆鈳?[39m[1m[41m Failed Tests 2 [49m[22m[31m鈳幆鈳幆鈳幆鈳?[39m
+
+[41m[1m FAIL [22m[49m src/worker/runner.test.ts[2m > [22mthe CI-P7-03 step gate in the worker[2m > [22mrefuses an AI playbook before its first request, and records that 
+as the run's own failure
+[31m[1mAssertionError[22m: expected 'paused' to be 'failed' // Object.is equality[39m
+
+Expected: [32m"[7mfail[27med"[39m
+Received: [31m"[7mpaus[27med"[39m
+
+[36m [2m鉂?[22m src/worker/runner.test.ts:[2m89:27[22m[39m
+    [90m 87|[39m
+    [90m 88|[39m     [35mconst[39m after [33m=[39m [35mawait[39m [34mgetRun[39m(run[33m.[39mid)[33m;[39m
+    [90m 89|[39m     [34mexpect[39m(after[33m?.[39mstatus)[33m.[39m[34mtoBe[39m([32m"failed"[39m)[33m;[39m
+    [90m   |[39m                           [31m^[39m
+    [90m 90|[39m     // The gate's own arithmetic reaches the run log, so a stopped run鈥?    [90m 91|[39m     
+[34mexpect[39m(after[33m?.[39mresultMessage)[33m.[39m[34mtoContain[39m(refusalWording)[33m;[39m
+
+[31m[2m鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆[1/2]鈳?[22m[39m
+
+[41m[1m FAIL [22m[49m src/worker/runner.test.ts[2m > [22mthe CI-P7-03 step gate in the worker[2m > [22mrefuses the rewriting import at the head of its URL step, before 
+the page is fetched
+[31m[1mAssertionError[22m: expected 'paused' to be 'failed' // Object.is equality[39m
+
+Expected: [32m"[7mfail[27med"[39m
+Received: [31m"[7mpaus[27med"[39m
+
+[36m [2m鉂?[22m src/worker/runner.test.ts:[2m114:27[22m[39m
+    [90m112|[39m
+    [90m113|[39m     [35mconst[39m after [33m=[39m [35mawait[39m [34mgetRun[39m(run[33m.[39mid)[33m;[39m
+    [90m114|[39m     [34mexpect[39m(after[33m?.[39mstatus)[33m.[39m[34mtoBe[39m([32m"failed"[39m)[33m;[39m
+    [90m   |[39m                           [31m^[39m
+    [90m115|[39m     [34mexpect[39m(after[33m?.[39mresultMessage)[33m.[39m[34mtoContain[39m(refusalWording)[33m;[39m
+    [90m116|[39m     // The gate runs at the head of the iteration, so even the page re鈥?
+[31m[2m鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆[2/2]鈳?[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m151 passed[39m[22m[90m (152)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m1245 passed[39m[22m[90m (1247)[39m
+[2m   Start at [22m 14:28:40
+[2m   Duration [22m 47.38s[2m (transform 34.42s, setup 11.17s, import 140.57s, tests 474.76s, environment 22ms)[22m
+

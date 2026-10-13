@@ -32,6 +32,7 @@ vi.mock("@/lib/ai/compat", () => {
  * (`src/test/route-harness.ts`), so it has to be the first `await` here.
  */
 const {
+  allowEveryAiBudgetCall,
   bodyOf,
   chatCalls,
   credentials,
@@ -45,6 +46,8 @@ const {
 } = await import("@/test/route-harness");
 const { POST } = await import("./route");
 const { createContentItem, getContentItem, listUsageRecords } = await import("@/db/repository");
+const { listAiUsageLedgerEntries } = await import("@/db/repositories/ai-usage-ledger");
+const { createPosition, updatePosition } = await import("@/db/repositories/positions");
 const { htmlToPlainText } = await import("@/lib/article-themes");
 const { toParagraphs } = await import("@/lib/translation-layouts");
 const { countTextCharacters } = await import("@/lib/usage");
@@ -415,5 +418,117 @@ describe("POST /api/content/[id]/translate on aiRuntime", () => {
     expect(payload.data).toBeUndefined();
     expect(calls).toEqual([]);
     expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
+  });
+});
+
+/**
+ * CI-P7-05-03 (remaining surface): the Marketplace extension these ledger rows ran as.
+ *
+ * 翻译 arrives with an article id and a dialog that names no listing, so the only attribution this route
+ * can state is the one the article's own stored provenance holds - the same answer 改写 gets, because
+ * both read it through `marketplaceExtensionIdOfContentItem()`. What is pinned here is that the stored
+ * provenance reaches the rows, on *every* row of the call (a self-correcting re-ask is two rows), and
+ * that an article naming nothing stays unattributed rather than inheriting an identity from the request.
+ */
+describe("POST /api/content/[id]/translate and the Marketplace extension it ran as (CI-P7-05-03)", () => {
+  beforeEach(async () => {
+    vi.unstubAllGlobals();
+    // The budget row is stored, not runtime state, so `resetRuntime()` does not clear the refusal the
+    // file's own gate case leaves behind - and every case here expects the call to really go out.
+    await allowEveryAiBudgetCall();
+    await resetRuntime();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A published positioning, as the storefront lists it: the record its 我的 tab answers with. */
+  async function publishedPosition(name: string) {
+    const position = await createPosition({ name });
+    if (!position) throw new Error("the published fixture was not created");
+    await updatePosition(position.id, { store: { ...position.store, status: "published" } });
+    return position;
+  }
+
+  /** One stored article, with exactly the provenance a generation would have written on it. */
+  async function storedArticle(metadata: Record<string, unknown>) {
+    const item = await createContentItem({
+      title: storedTitle,
+      body: storedBody,
+      postReadyText: htmlToPlainText(storedBody),
+      metadata,
+    });
+    if (!item) throw new Error("the article fixture was not created");
+    return item;
+  }
+
+  /** The rows one request wrote, told apart from the ledger's earlier content by id. */
+  async function rowsWrittenBy(run: () => Promise<Response>, routes: Parameters<typeof stubFetch>[0]) {
+    stubFetch(routes);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const before = new Set((await listAiUsageLedgerEntries({ limit: 500 })).map((row) => row.id));
+
+    const response = await run();
+    expect(response.status).toBe(200);
+
+    return (await listAiUsageLedgerEntries({ limit: 500 })).filter((row) => !before.has(row.id));
+  }
+
+  const oneAnswer = [
+    { match: (target: string) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+    { match: (target: string) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+  ];
+
+  it("attributes the translation to the published position the article was written as", async () => {
+    const position = await publishedPosition("已上架的翻译顾问");
+    const item = await storedArticle({ positioningId: position.id });
+
+    const rows = await rowsWrittenBy(() => translate(item.id, sourcePayload()), oneAnswer);
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.purpose === "content-translate")).toBe(true);
+    // The article being translated is this call's business identity, and the listing joins it.
+    expect(rows.every((row) => row.contentItemId === item.id)).toBe(true);
+    expect(rows.every((row) => row.extensionId === `position-${position.id}`)).toBe(true);
+  });
+
+  it("attributes both rows of a self-correcting re-ask, because both requests were really sent", async () => {
+    const position = await publishedPosition("已上架的翻译顾问二号");
+    const item = await storedArticle({ positioningId: position.id });
+    let answer = 0;
+    const retrying = [
+      ...oneAnswer.slice(0, 1),
+      {
+        match: (target: string) => target.includes("/chat/completions"),
+        // The first answer forgets the paragraph array and is rejected; the correction turn is a second
+        // request, and a second charge, so it is a second row of the *same* call.
+        respond: () => {
+          answer += 1;
+          return answer === 1 ? jsonReply({ title: draftTitle }) : jsonReply(draft);
+        },
+      },
+    ];
+
+    const rows = await rowsWrittenBy(() => translate(item.id, sourcePayload()), retrying);
+
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.extensionId === `position-${position.id}`)).toBe(true);
+  });
+
+  it("leaves an article whose provenance names no listing unattributed", async () => {
+    // The position the generation resolved is a draft; `general` is the picker's own default and not a
+    // catalogue listing. Neither can be named, so the rows stay unattributed instead of claiming one.
+    const draftPosition = await createPosition({ name: "未上架的翻译定位" });
+    if (!draftPosition) throw new Error("the draft fixture was not created");
+    const pickerOnly = await storedArticle({ positioningId: draftPosition.id, agentId: "general" });
+    const bare = await storedArticle({});
+
+    for (const item of [pickerOnly, bare]) {
+      const rows = await rowsWrittenBy(() => translate(item.id, sourcePayload()), oneAnswer);
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((row) => row.extensionId === "")).toBe(true);
+      expect(rows.every((row) => row.contentItemId === item.id)).toBe(true);
+    }
   });
 });

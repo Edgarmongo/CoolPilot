@@ -479,6 +479,43 @@ export type TranscriptionResponse = {
   route: ModelRoute;
 };
 
+/**
+ * A text-embedding request (CI-EMB-01).
+ *
+ * `input` is a batch because that is what the capability really is: a caller with twenty chunks to embed
+ * sends one request, and the runtime hands back twenty vectors in the same order. The order is part of
+ * the contract - vector *i* belongs to `input[i]`, and an answer that cannot keep that promise is
+ * refused (see the adapter's `parseEmbeddingPayload`).
+ */
+export type EmbeddingRequest = {
+  input: string[];
+  /** Pin an exact model id; when omitted the runtime routes by the `embedding` capability. */
+  model?: string;
+  providerId?: string;
+  preferProviderId?: string;
+  /** Ask for a specific vector size, for the models that offer a choice. */
+  dimensions?: number;
+  forceUnhealthyCredential?: boolean;
+};
+
+export type EmbeddingResponse = {
+  /** One vector per input text, in the order they were sent. */
+  vectors: number[][];
+  /** The vector length the provider really returned. Never a value inferred from a model name. */
+  dimensions: number;
+  model: string;
+  providerId: string;
+  credentialLabel: string;
+  attempts: ModelAttempt[];
+  /**
+   * What the provider reported, or absent when it reported nothing. An embeddings response has no
+   * output side, so `outputTokens` is 0 when a figure exists at all - and the ledger, not this field,
+   * decides what a missing figure means (a NULL cost, never a zero).
+   */
+  usage?: TokenUsage;
+  route: ModelRoute;
+};
+
 export type ModelCandidate = {
   model: ModelRecord;
   provider: ModelProviderRecord;

@@ -392,6 +392,7 @@ export function aiBudgetDecisionDetails(preview: {
     reasons: decision.reasons,
     policy: decision.policy,
     unknownCostPolicy: decision.unknownCostPolicy,
+    strategy: decision.strategy,
     enforcement: decision.enforcement,
     period: decision.period,
     currency: decision.currency,

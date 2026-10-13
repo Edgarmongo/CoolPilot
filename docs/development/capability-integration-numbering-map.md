@@ -75,7 +75,7 @@
 | P1-01 统一媒体产物管理 | `CI-P1-01` | **done** | §附录 B-1 |
 | P1-02 统一长任务管理 | `CI-P1-02` | **done** | §附录 B-2 |
 | P1-03 统一媒体工具注册 | `CI-P1-03` | **done** | §附录 B-3 |
-| P1-04 定义视频模板与渲染任务 | `CI-P1-04` | **done** | §附录 B-4（含 3 条已知限制） |
+| P1-04 定义视频模板与渲染任务 | `CI-P1-04` | **done**（子项 **`CI-P1-04-07`** 于 2026-10-12 补登：视频渲染**面板** + 两个**读取**路由；子项**不占**一级卡号、主线 §1 未改，见 §23） | §附录 B-4（4 条已知限制中**已知限制 3 已由 `CI-P1-04-07` 关闭**；补登记录见 §附录 B-4 §8） |
 | **P1-05 工作流编排内核（erxes）** | **无** | —（新清单新增） | 新清单 §三 第 193–209 行 |
 | P2-01 选题管理 | `CI-P2-01` | **done** | §附录 B-5 |
 | P2-02 品牌资料管理 | `CI-P2-02` | **done** | §附录 B-6 |
@@ -83,7 +83,8 @@
 | P2-04 内容生命周期与日历 | `CI-P2-04` | **done**（本轮交付，见 §4.3） | §4.3 证据表 + 主线 §5 本卡交付记录 |
 | P2-05 多平台内容模型 | `CI-P2-05` | **done（仅模型与 API 契约；无 UI 消费者、无真实 HTTP 冒烟，见 §4.4）** | 主线 §1 第 **49** 行（本表原记「第 47 行」为位移前旧值）+ §4.4 证据表 |
 | **P2-06 创作者资料与内容分群（erxes）** | **无** | —（新清单新增） | 新清单 §四 第 275–291 行 |
-| **P2-07 多平台内容版本管理 UI（我方实现层补充，清单无对应条目）** | **`CI-P2-07`** | **todo**（2026-10-10 作者授权立项，见 §4.5） | `CI-P2-05` 的**界面消费者**；`CI-P2-06` 已被清单 §四 第 279 行占用，故取下一空位 |
+| **P2-07 多平台内容版本管理 UI（我方实现层补充，清单无对应条目）** | **`CI-P2-07`** | **done**（2026-10-12 按作者授权修正：本表原记 `todo` 为 2026-10-10 立项时的旧值，与主线 §1 第 50 行的 `done` 不一致；交付事实见 §4.5、主线 §15。**本次只改该状态字段**，未动历史行号与其它差异） | `CI-P2-05` 的**界面消费者**；`CI-P2-06` 已被清单 §四 第 279 行占用，故取下一空位 |
+| **营销线索与成交（我方实现层补充，清单无对应条目）** | **`CI-LEAD-01`** | **done**（2026-10-12 作者直派立项；作者原给建议编号 `CI-P2-06A`，全仓冲突核验后改取**独立支线** `CI-LEAD-*`，理由见 **§24**） | 清单里**没有**对应条目（**非 8 个开源项目来源**）；只新增 `marketing_leads` 一张本地表，内容/发布关系复用 `content_items` / `publish_records` |
 | P3-01 研究素材管理 | `CI-P3-01` | **done** | §附录 B-8 |
 | P3-02 转写与摘要 | `CI-P3-02` | **done**（主卡曾 `partial`，B-10 收尾） | §附录 B-9 / B-10 |
 | P3-03 研究结果进入创作 | `CI-P3-03` | **done**（RAG 预留按计划不做） | §附录 B-10 |
@@ -100,8 +101,8 @@
 | **P8-02 一级菜单与成本总览** | `CI-P7-02` | **`in_progress`**（菜单改名 + 成本总览首屏已落地，见 §4.1；同卡的调用明细/追溯归 P8-03，未开工） | 主线 §13 第 418–425 行；**菜单改名与首个真实费用界面同卡交付，不可拆**（§13 第 405 行） |
 | P8-03 全链路调用明细与业务归因 | `CI-P7-02-04` / `CI-P7-02-05` | **`done`**（调用明细 + 追溯 + 单篇内容成本已落地，见 §4.2；导出与「产物是否被采用」不在本卡范围） | 旧 P7-02 一卡含新 P8-02+P8-03，属粒度差异 |
 | P8-04 生成前成本预估与预算控制 | `CI-P7-03` | **`done`**（预估层 + 自然月预算 + 请求发出前闸门 + 执行中预留已落地并实测；`P7-03-04` 三种执行策略**未交付**、暂停/恢复是「终止 + 重跑」、并发仅 `in-process-soft`，逐条记录见主线 **§附录 D**，卡体仍为 §13 第 442–447 行） | 主线 §13 第 **442–447** 行（原卡无「完成标准」行）；完成标准来源 = 作者裁定稿 `docs/development/ci-p7-03-design-draft.md` §2；**行号更正（2026-10-10，经作者授权）**：本表原记「427–432」、主线 §附录原记「第 433 行起」、本文档 §4.4 原记「实际标题行 437」，三者均为插入交付记录前的过期行号，实测块为 **442–447**、标题行 **442**（本次交付记录落在**文件末尾的 §附录 D**，**未插入 §13**，因此上述行号**保持不变**）；本卡期间曾把仓库根 `tmp-*` 整批误删（**60** 个：**38** 个此前各卡的取证文件已按 Cline 检查点快照 `981594f` 逐字节还原并验证，**22** 个为本任务自身临时产物、未恢复且无文档引用），详见主线 §附录 D「工作区操作事故与恢复」 |
-| P8-05 质量指标与成本优化建议 | `CI-P7-04` | **todo** | 主线 §13 第 434–438 行 |
-| P8-06 覆盖所有 AI 能力与扩展契约 | `CI-P7-05` | **部分就绪**（`metered_kind` + `quantity_json` 表/键/计价函数已在，缺非文本维度录价表单） | 主线 B-11 §7 第 3 条 |
+| P8-05 质量指标与成本优化建议 | `CI-P7-04` | **`done`**（2026-10-11 交付并实测：真实质量 / 成本读数 + 单位合格产出成本（目标函数）+ 可解释建议 + 一键应用「执行档位」；`人工修改幅度` 的「幅度」在本安装中**不存在记录**，页面按「无法计量」如实呈现；**未**跑浏览器渲染验证，逐条记录见主线 **§附录 L** 与本文档 §14） | 主线 §13 第 **465–469** 行（标题行 **465**）；**行号更正（2026-10-11）**：本表原记「434–438」，系插入 `CI-P7-02` 交付记录行与 `CI-P2-07` 行之前的过期值，实测为 465–469 |
+| P8-06 覆盖所有 AI 能力与扩展契约 | `CI-P7-05` | **部分就绪**（`metered_kind` + `quantity_json` 表/键/计价函数已在，缺非文本维度录价表单；**`CI-P7-05-02`（Agent / Workflow 节点级调用记录 + 运行总成本 + 失败 / 重试成本）已于 2026-10-11 交付并实测**，见主线 **§附录 M** 与本文档 **§15**；**`CI-P7-05-03`（Marketplace 扩展的扩展标识 / 任务标识与调用费用归属）已于 2026-10-11 交付并实测**：账本新增 `extension_id`、归属规则收敛到单一裁决点（已上架 position 清单 > 目录 agent > `''`）、成本中心新增按扩展的费用明细与筛选，见主线 **§附录 N** 与本文档 **§16**；**`CI-P7-05-04`（无法准确计量的服务必须**显式标记**，而不是漏记）已于 2026-10-11 交付并实测**：**不新增列、不回填**——`src/lib/ai-metering.ts` 的 `meteringReasonFor()` 只读行内既有证据（`outcome` / `completeness` / 价格快照 / 用量单位）派生 10 条原因，成本中心新增「未述明原因」列与**六维度恒列出的「计量覆盖」表**（video / embedding `no-runtime-path`、agent 按 text 行计量、真实库 image 1 行为 `quantity-unit-mismatch`），见主线 **§附录 P** 与本文档 **§18**；`-01` **未交付**） | 主线 B-11 §7 第 3 条 + 主线 §13 第 **471–476** 行（`CI-P7-05` 卡体，行号本轮实测） |
 | **P8-07 可观测性 / Trace / 评估（Spanlens）** | **无** | —（新清单新增） | 新清单 §九-A 第 696–743 行（含 5 个子项） |
 
 **编号错位（必须注意）**：旧主线的 `CI-P7` = **成本与质量优化中心**，对应新清单的 **P8**；新清单的 **P7** = **Marketplace 生态**，旧主线**没有**这个阶段（旧编号 `CI-P7-05` 里出现的「Marketplace」只是成本覆盖范围的一小项）。引用历史交付记录时，看到 `CI-P7-*` 一律按「新 P8-*」读，不要当成 Marketplace。
@@ -322,6 +323,11 @@ A1–A7 → 卡片编号（与主线附录 C 同源，这里只列编号便于�
 
 19. **CI-IA-03（菜单归属与命名修订）的两个副作用（本次，如实登记）**：① **工作区基线**：本卡**未新增、未删除任何文件**，改动全部落在 CI-IA-01 已登记的同一批文件上（`src/lib/console-nav.ts`、`src/lib/console-nav.test.ts`、`src/locales/{zh-cn,zh-hk,en}.json`，以及未跟踪的 `docs/development/menu-information-architecture.md`、`docs/menu-inventory.md`、`docs/coolpilot-capability-integration-plan.md` 与本文件）；本卡**未运行** `git status`（不触碰用户未提交工作），故不给出新的条目数，基线沿用 §7 第 18 条时点的 **271（104 M + 167 ??）**；**未执行**任何 `git add` / `commit` / `push` / `reset` / `clean` / `stash`。② **行号位移**：主线 `docs/coolpilot-capability-integration-plan.md` §1 新增 `CI-IA-03` 一行（第 **63** 行，插在 `CI-IA-02` 行之后）→ 主线**第 63 行之后整体再 +1**；叠加 CI-IA-01 / 02 的位移，**第 61 行之后的引用相对 CI-IA-01 之前共偏 +3**。本文件 §7 新增本条（连同前置空行共 **+2 行**）→ 本文件 **§8 起行号再 +2**（与第 17 / 18 条同一处理，按规则「先报告差异、不顺手修正」，**不批量改写**既有引用）；本次「§11 追加于文末」**不影响任何既有行号**。③ **真实库与运行实例**：本卡冒烟全部为只读 GET，**未写入** dev server 数据库、**未重启** `:3000` 实例；**未**新增任何表 / 列 / 迁移，**未触碰**冻结面（AI Runtime / C2 发布语义）。④ 一处**顺带的事实更正**（非本卡功能）：IA 文档 §11.2 原把 CP-IA-02 的日志文件写成 `vitest-final.log`，实际为 `vitest-full.log`（另存在 `vitest-full2.log`），已按实测更正。
 
+20. **本轮（能力探测接入预算与账本；编号待作者指定）的事实与副作用（2026-10-11，如实登记）**：① **改动面**：**1 个新文件**（`src/app/api/ai/models/probe/route.test.ts`，293 行 / 7 用例）+ **3 个变更文件**（`src/features/ai-runtime/probe.ts` 262 行、`src/app/api/ai/models/probe/route.ts` 84 行、`src/lib/ai-metering.ts` 204 → 208 行）；**未改**任何数据模型（无新表 / 列 / 迁移）、**未触碰**发布语义 C2。② **闸门落点实测**：`beginAiBudgetCall(` 的调用点在 `src` 下 = **15 处 / 13 个文件**，**本卡只新增 1 处**（`src/app/api/ai/models/probe/route.ts:38`），其余 14 处一行未碰；另有 `src/lib/ai-budget-guard.ts:623`（闸门内部自身调用）与 `src/test/ai-budget-probe.ts:42`（测试探针）不计入。③ **数字口径（实测）**：全量 `npx vitest run` **exit 0 / 170 文件 1483 用例**（§18 上一轮 169 / 1476 → **+1 文件 / +7 用例**）；`npx tsc --noEmit` exit 0；本卡 4 个文件 `npx eslint` exit 0；`git diff --check` exit 0。④ **行号位移：零** —— 主线 **§附录 Q** 整体追加于文件末尾，§1 **未加行**，唯一触碰既有行的地方是 §附录 P · P.8「下一步编号」的**同行加字**（无位移）→ 主线既有引用**不需要修正**。本文件 **§7 新增本条与第 21 条**（连同空行 **+4 行**）→ 本文件 **§8 起行号 +4**（按规则「先报告差异、不顺手修正」，**不批量改写**既有引用）。⑤ **未执行** `git add` / `commit` / `push` / `reset` / `clean` / `stash`。
+21. **待编号候选卡登记：Embedding 能力端到端接入（2026-10-11，未开工）**：① **登记位置** = 主线 **§附录 R** + 本文件 **§20**；② **不代填编号**（尤其**不**占 `CI-P7-05-05`）——两侧清单都没有它的号（`CI-P7-05-01` / 新清单 `P8-06` 第一条只管计量与**录价**；`CI-P3-03` / `P3-03-05` 的 RAG 预留是**有意未做**，见 §附录 B-10 §4）；③ **阻塞项** = 设计稿 `docs/model-layer-spec.md` **§15 Q1「向量存储放哪」**未决：(a) `ai_embeddings` 表 + JSON 列 + 内存暴力检索 / (b) `sqlite-vec` 类扩展（本仓库用 `@libsql/client`，有构建与分发风险）/ (c) 独立本地索引文件（自研，工作量最大）；比较材料见主线 **§附录 R.3**，**结论由作者给**；④ 本轮**未改业务代码 / 未建表 / 未发任何 AI 调用**；⑤ **未执行** `git add` / `commit` / `stash`。（**2026-10-11 追加**：该卡的阻塞项 **Q1 向量存储已裁定为方案 (a)** —— 裁定正文写入设计稿文末 **§15-Q1 决策记录**，执行拆分登记为主线 **§附录 S（阶段 0–7）**；仍未开工，仍无编号。）
+
+22. **Q1 向量存储裁定 + Embedding 执行清单登记轮（2026-10-11）的事实与副作用（如实登记）**：① **改动面（纯文档 3 个文件）**：设计稿 `docs/model-layer-spec.md` 文末新增 **§15-Q1 决策记录**（裁定 = **方案 (a)：SQLite JSON 持久化向量 + TypeScript 内存暴力检索**）并**就地标注 3 处**（§15 表格 Q1 行、落地检查清单那一行、§11.4 第 ⑦ 步）；主线计划新增 **§附录 S：Embedding 开发执行清单**（阶段 0–7 的执行拆分，S.1–S.10）；本文件 **§19 下一步③ / §20 状态与阻塞项行 / §7 第 21 条**同轮更新 + **§7 本条**。② **行号位移**：设计稿**零位移**（§15 表格 `:972`、落地检查清单 `:987–993` 仍指向原内容 —— 这正是把裁定正文**追加于文末**而不插进 §15 表格下方的原因；新增节在 `:1002` 起）；主线计划**零位移**（§附录 S 追加于文件末尾，§附录 R 内 7 处均为**同行替换**）；本文件因**新增本条（+2 行）**，**§8 起行号 +2** —— 按规则「先报告差异、不顺手修正」，**不批量改写**既有引用。③ **不替作者勾选**：落地检查清单那一行是「§15 的 Q1–Q5 全有结论」，Q2–Q5 仍无结论 → 只就地标注现状，**勾选框保持未勾选**。④ 本轮**未改业务代码 / 未新增表 / 列 / 迁移 / 未写任何实现代码 / 未发任何 AI 调用**；⑤ **未执行** `git add` / `commit` / `push` / `reset` / `clean` / `stash`。
+
 ## 8. CI-IA-01（控制台菜单信息架构重整）状态：done（2026-10-10）
 
 > **卡片来源**：作者 2026-10-10 的菜单重整要求（「把左侧导航按用户业务目标分成 8 组、统一命名、三语同步，不新增没有真实页面的占位菜单」）。**它不来自 10 个开源项目整合清单**，因此本文件 §3 的新旧编号对照表**不含本卡**，也不占用任何 `CI-P*` 卡号。
@@ -427,4 +433,341 @@ A1–A7 → 卡片编号（与主线附录 C 同源，这里只列编号便于�
 | 兄弟入口评估 | `?topicId=`（AI 写作向导）**无同样问题**（既有写法本就是「settle 后再记」），真实浏览器复核软导航后素材已预填 → **本卡未改**；`ai-writing-step-output.tsx:127` 的既有 `?edit=` 入口需一次真实生成，**未运行** |
 | 遗留 | ① 打包版 Electron 未验证（且该缺陷的触发器是 React **开发态**多跑的一轮 setup/cleanup，生产构建是否曾受影响**未测**、不得据此推断）；② 真实发布 `/api/publish` 未跑；③ 仅测 `zh-cn`；④ `src/worker/runner.test.ts` 的 2 条失败仍属作者在途 CI-P7-03 基线 |
 | Git | 全程**未**执行 `git add` / `commit` / `push` / `reset` / `clean` / `stash`；探针脚本与证据落在 `%TEMP%\cp-sc-01\`，仓库根未新增文件；测试数据（2 条内容 + 1 条临时选题）均按应用自身接口删除并复查（`get-after=404`、`topics` 计数回到 0） |
+
+
+## 14. CI-P7-04（= P8-05）状态：done（2026-10-11）
+
+> **卡片来源**：主线 §13 第 **465–469** 行（`### CI-P7-04：质量与成本优化`），三条子项 = ①首轮通过率 / 人工修改幅度 / 平均重试次数 / 内容采用率 ②单位合格产出的成本（优化目标函数）③基于真实数据提出优化建议、**用户确认后**才调整策略。卡片不来自 10 个开源项目整合清单的额外来源，因此本文件 §3 那一行**本来就存在**，本轮只是把状态与行号一并更正（见 §3 第 103 行）。逐条证据见主线 **§附录 L**。
+
+| 项 | 内容 |
+| --- | --- |
+| 交付物（实测行数） | 新增 `src/lib/quality-cost.ts`（612）+ `quality-cost.test.ts`（500，27 例）、`src/db/repositories/quality-cost.ts`（140）、`src/app/api/ai-cost-center/quality/route.ts`（168）+ `route.test.ts`（331，10 例）、`src/components/cost-center/quality-panel.tsx`（511）；改写 `src/components/cost-center/cost-center-client.tsx`（+6/−18，接入面板并删掉「未开工」占位）、`src/lib/validation.ts`（+32/−3，`aiQualitySuggestionRequestSchema`）、三语 locale（各 +121/−2 键，其中**本卡新增 79 个 `quality*` 键**、删除 2 个占位键 `costCenterTaskQuality` / `costCenterStubNote`；同一 diff 里其余新增键属工作区**其他在途卡**） |
+| 关键口径（写进类型与文案） | ①没有分母的比率一律 `null` 而非 `0`（无调用 / 无采用产出 / 无渲染版本）；②`首轮通过率` = 一次调用只发一个请求、且是该调用的**第一个**请求（`attemptIndex === 0`）、且成功，沿 `parentUsageId` 找不到前任的请求只计入 `calls` / `requests` 与 `unresolvedPredecessorRequests`，**不计入两个通过率**（保守口径）；③`人工修改幅度` 只报得到的那一半（人工重写过的渲染版本占比）+ 显式 `magnitudeRecorded: false`；④目标函数按**币种分别**算，未归因金额不丢弃、单列 `unattributedByCurrency`，缺价时单位成本标为下限 `≥`；⑤采用 = 内容状态到 `posted` |
+| 唯一的写动作 | 建议只有三种动作：`strategy`（唯一会写设置的，写预算 `strategy` 档位）、`link`（价格目录 / 预算页签）、`none`（明说没有开关）。`POST` **只带一个建议 id**，档位在请求到达时由服务端**重新推导**：premise 不成立 → `409 suggestion-not-applicable`（无写入），body 非法 → `400 INVALID_PAYLOAD`；写入成功后返回**写完之后的窗口**，页面不再自行猜测 |
+| 验证结果（本轮实跑） | `npx vitest run src/lib/quality-cost.test.ts src/app/api/ai-cost-center/quality/route.test.ts` → **exit 0**（2 文件 / **37 用例**）；全量 `npx vitest run` → **exit 0**（**167 文件 / 1408 用例**，净增 2 文件 / 37 用例全部来自本卡）；`npx tsc --noEmit` → **exit 0**；`eslint` 本卡 8 个改动文件 → **exit 0（初跑 2 条 warning 已在卡内修掉）**；三语键集合**完全一致**、各 2378 键，被删键 `qualitySuggestionRule` 及其引用 **0 命中**；真实 dev server（作者在跑，未另起 / 未终止）`GET /api/ai-cost-center/quality?range=7` → **200** 真实 payload（`calls 6 / requests 6 / retries 0 / 通过率 1`；`content created 20 {draft 7, ready 13, posted 0} / adoptionRate 0`；`humanEdits editRate null + magnitudeRecorded false`；`objective adoptedOutputs 0 / tokensPerOutput null / byCurrency [] / unpricedRequests 5`；`suggestions [record-prices(link), review-adoption(none)]`；`budget {policy off, monthlyLimit null, strategy balanced}`）；`POST {"suggestionId":"review-adoption"}` → **409**（无写入） |
+| 未验证（如实登记） | ①**未跑浏览器（Playwright）渲染验证**于新页签，UI 层只有 `tsc` + `eslint` + 接口契约测试；②**未**在真实库上真的点一次「应用」（会改写作者真实预算档位），写入路径只在临时库单测覆盖；③`人工修改幅度` 的**幅度**在本安装中**不存在**（无前后文本、条目 `updatedAt` 因任何写入而变），属**数据缺失**而非实现缺失；④真实库自然状态下只走到空态 / 降级态（`posted = 0`、价格目录为空），非空目标函数表与 `applied` 提示条只在临时库单测里走过；⑤打包版 Electron 未验证（各卡共通基线） |
+| Git | 未执行 `git add` / `commit` / `push` / `reset` / `clean` / `stash`（仅只读 `git status` / `git diff` 取证）；日志与证据落在 `%TEMP%\cp-p7-04\`，仓库根 `?? tmp-*` 仍为 **73**、本卡未新增 |
+| 下一步 | **`CI-P7-05` 覆盖全部 AI 能力与 Marketplace**（主线 §13 第 **471** 行起）；其中 `CI-P7-05-01`（图片 / 视频 / 语音 / Embedding 接入同一计量与**定价**，即 §7 第 6 条与 §附录 I 的遗留）正是本卡在真实库上暴露的那条缺口：`unpricedRequests` 非零时「单位合格产出的成本」只能是下限或「无法计量」 |
+
+## 15. CI-P7-05-02（= P8-06 的第二条）状态：done（2026-10-11）
+
+> **卡片来源**：主线 §13 第 **471–476** 行（`### CI-P7-05：覆盖全部 AI 能力与 Marketplace`，标题行 **471**，行号本轮实测）。本轮交付的是其中**第 474 行**这一条 —— `P7-05-02`「Agent / Workflow 的**节点级调用记录**、**总成本**与**失败重试成本**」。同卡族的 `-01` / `-03` / `-04` **未交付**，故 `CI-P7-05` 整体仍为「部分就绪」（§3 第 104 行已同步补记）。逐条证据见主线 **§附录 M**。
+
+| 项 | 内容 |
+| --- | --- |
+| 交付物（本卡改动实测） | 类型：`src/lib/types.ts` 新增 `AiUsageRunNodeCost`（1100–1117）/ `AiUsageRunCost`（1132–1164）+ `AiCostCenterCallsPayload.byRun`（1199）；纯函数：`src/lib/ai-usage-ledger.ts` 新增 `summarizeLedgerByRun`（配套 `rollLedgerRows` / `ledgerEntryRepeatsCall` / `summarizeRunNodes`）；接口：`src/app/api/ai-cost-center/calls/route.ts` **+4 行**（`byRun: summarizeLedgerByRun(inWindow)`）；页面：`src/components/cost-center/cost-center-client.tsx` 的 `callByRun`（204）/ `amountCell`（234–247）/ `retryText`（250–261）/ 卡片（789–882）；单测：`src/lib/ai-usage-ledger.test.ts` 新增 `describe("run and node cost readers (CI-P7-05-02)")` **6 例**、`src/app/api/ai-cost-center/calls/route.test.ts` 新增 **1 例**；文案：三语各新增 **17** 个 `costCenterRuns*` 键（同 diff 的其余 123 个键属工作区其他在途卡） |
+| 关键口径（写进类型与文案） | ①**运行总额 = 它自己的节点行之和**，节点是一份**划分**（每条请求恰好进一个桶，`''` 桶保留为「未归类 / 未记录节点」而不是折进命名节点或丢行）；②**失败成本与重试成本是同一批请求的两种读数，永不相加**（一笔请求可以既重试又失败；唯一的总和是账面金额），卡片下方常驻说明；③失败的请求按**自己报出的**金额与 token 计入，失败≠免费；④未计价 / 未计量的行进 `unpricedAttempts` / `unmeasuredAttempts`，对应读数标 `≥` + 徽标，**一条金额都没有时写「无金额读数」而不是 0**；⑤前任落在读取行之外的重试仍计入 `retries`，另报 `unresolvedRetries` 且不编造它重复了什么；⑥金额按币种分别给出，不跨币种相加；⑦与 `byContent` 同读一条 `inWindow`，读数**不随上表筛选 / 翻页跳动**；⑧**纯只读**，本卡无任何写入路径 |
+| 验证结果（本轮实跑） | 定向 `npx vitest run`（账本 + 路由 + i18n 覆盖，3 文件）→ **exit 0 / 70 用例**；全量 `npx vitest run` → **167 文件 / 1429 用例全通过**（本卡净增 7 例，其余增量属其他在途卡）；`npx tsc --noEmit` → **exit 0**；`npx eslint` 本卡 6 个源文件 → **exit 0 / 0 problems**；三语键集合**完全一致**、各 **2395** 键（本卡新增 17 个 `costCenterRuns*`）；真实 dev server（作者在跑，未另起 / 未终止）`GET /api/ai-cost-center/calls?range=7` → **200**、10326 字节，`byRun` 1 组：`runId ""`、`attempts 6` = **节点行之和 6**、`totalTokens 6156`、`costByCurrency []`、`unpricedAttempts 5 / unmeasuredAttempts 1`、`costIsComplete false`（本安装尚未录价、6/6 条请求未记 run / node，读数与库内真实状态一致）；**真实浏览器（Playwright）三语冒烟 → exit 0、72 项断言 0 失败**（探针拦下页面自身请求的 payload 后逐格核对 DOM：合计 = 节点之和 = `attempts`、失败 / 中断 / Token / 重试逐格一致、未归类组按本语言文案出现、无金额读数如实呈现、无运行时错误） |
+| 未验证（如实登记） | ①真实库里 **6/6** 条请求 `runId` / `nodeId` 为空 → 实际页面只有**一个未归类组 + 一行节点**，多节点形态、未解析重试标注、`≥` 下限分支**未在真实库自然状态下出现**（由临时库单测与探针 payload 分支覆盖）；②真实库 `retries / failures / interrupted` 全为 **0**；③金额读数为空 → 「无金额」以外的金额渲染只在单测走过，**根因是范围外的 `-01`（非文本维度录价）未交付**；④窗口边缘被切开的一次运行两侧各计一次（既有取舍）；⑤打包版 Electron 未验证（各卡共通基线） |
+| Git | 未执行 `git add` / `commit` / `push` / `reset` / `clean` / `stash`（仅只读 `git status` / `git diff` 取证）；`git status --porcelain` 实测 **127** 条（含其他在途卡）；仓库根 `?? tmp-*` 为**此前各卡遗留**，**本卡未新增**（探针 / 取证脚本 / live 响应 / 日志均在 `%TEMP%\cp-p7-05-02\`） |
+| 下一步 | `CI-P7-05-01`（图片 / 视频 / 语音 / Embedding 接入同一计量与**定价**）——本卡与 §附录 L 已从两个方向暴露这条缺口：价格目录为空时，运行成本只能是「无金额读数」；随后 `-03`（Marketplace 归属）、`-04`（无法计量显式标记） |
+
+## 16. CI-P7-05-03（= P8-06 的第三条）状态：done（2026-10-11）
+
+> **卡片来源**：主线 §13 第 **471–476** 行（`### CI-P7-05：覆盖全部 AI 能力与 Marketplace`，标题行 **471**，行号本轮实测）。本轮交付的是其中**第 475 行**这一条 —— `P7-05-03`「Marketplace 扩展的扩展标识、任务标识与调用费用归属」。同卡族的 `-01` / `-04` **未交付**，故 `CI-P7-05` 整体仍为「部分就绪」（§3 第 104 行已同步补记）。逐条证据见主线 **§附录 N**。
+
+| 项 | 内容 |
+| --- | --- |
+| 交付物（本卡改动实测） | 数据：`src/db/schema.ts` 新增 `extensionId`（**540**，注释 **536–539**，身份列约定注释 **503–505**）；迁移：`src/db/client.ts`（**714** `ALTER`、**719** 索引 `idx_ai_usage_ledger_extension_created`，**不回填历史行**）；仓储：`src/db/repository.ts`（**1251 / 1317 / 1362**）；类型：`src/lib/types.ts`（**779** `AiUsageLedgerEntry.extensionId`、**1089** `AiUsageCallContext`、**1198–1225** `AiUsageExtensionCost`、**1277** `byExtension`、**1285** `options.extensions`）；归属规则（新文件）：`src/lib/marketplace-attribution.ts`（**36** `MarketplaceExtensionSource`、**52** `marketplaceExtensionIdOf`）；货架 id 同源：`src/lib/app-store-catalog.ts`（**72 / 78 / 90**）+ `src/app/api/app-store/route.ts`（**14**）；真实调用点：`src/lib/article-generation.ts`（**93 / 181–187**）、`src/app/api/content/generate/route.ts`（**181**）、`src/app/api/knowledge-base/ai-parse/route.ts`（**63–77 / 104**）；读数：`src/lib/ai-usage-ledger.ts`（**498** 筛选、**932–990** `summarizeLedgerByExtension`）；接口：`src/app/api/ai-cost-center/calls/route.ts`（**101 / 206–208 / 286**）；页面：`src/components/cost-center/cost-center-client.tsx`（**80 / 177 / 207 / 399–439 / 905–1010**）；文案：三语各 **10** 个键（9 个 `costCenterExtensions*` + 1 个 `costCenterCallsFilterExtension`）；单测：新文件 `src/lib/marketplace-attribution.test.ts` **5 例** + 既有 5 个文件新增 **14 例**（账本读数 7、账本写入 1、成本中心接口 1、文章生成 2、知识库解析 1、货架目录 2）= 本卡 **19 例 / 1 个新文件** |
+| 关键口径（写进类型与文案） | ① 归属规则**只有一个裁决点** `marketplaceExtensionIdOf()`：**已上架 position 的清单 id（`position-<id>`）> 目录里真实存在的 agent id > `''`**；② **草稿 position 不是清单**（有 id、有名字，但货架没有它）；③ **picker 专用 id 不是清单**（`general` / `marketing` 是选择器默认值，`extensionAgentId` 专为把两者分开而存在）；④ `''` 是**读数不是缺口**：未归属行照样进明细并显示「未归属」，不折进命名扩展、不丢行；`options.extensions` 不把空串当选项；查询参数传空 = **不筛选**；⑤ 每组总计 = 其自身行之和，**重试与失败是同一批请求的两种读数、永不相加**；⑥ 一条请求只有一个身份（不合并、不拆分）；⑦ 无金额时如实写「无金额」而不是 0；⑧ **不伪造 Marketplace 执行条目**——不安装、不建任务实体，账本里每个非空 `extension_id` 都能在货架找到同名 id |
+| 验证结果（本轮实跑） | 定向 `npx vitest run`（本卡 7 文件）→ **exit 0 / 125 用例**；全量 `npx vitest run` → **exit 0 / 168 文件 1448 用例全通过**（§15 记录上一张卡 167 / 1429，差额 1 文件 / 19 用例与本卡增量一致）；`npx tsc --noEmit` → **exit 0**（首轮如实报出 1 个错误：新夹具用了不属于 `aiUsageCostSources` 的 `"unmeasured"`，改为词表内 `"unknown"` 后复跑通过）；`npx eslint` 本卡 21 个文件 → **exit 0 / 0 problems**；`git diff --check` 无空白告警（仅 Windows `autocrlf` 换行提示）；三语键集合 **2405 / 2405 / 2405 完全一致**（missing 0 / extra 0）、各新增 10 键、无 BOM、客户端 139 个 `costCenter*` 引用 **0 未解析**；真实 dev server（作者在跑，未另起 / 未终止）`GET /api/ai-cost-center/calls?range=7` → **200** / 11131 字节、答复含 `byExtension`（**1 组**：`extensionId ""`、`attempts 6` = `totals.attempts`、`totalTokens 6156`、`costByCurrency []`、`unpriced 5 / unmeasured 1`、`costIsComplete false`）、`options.extensions []`、`filters.extensionId ""`；`?extensionId=`（空）→ **200 / matched 6**（= 不筛选） |
+| 未验证（如实登记） | ① 真实库**没有非空扩展 id**：未上架任何 position、本轮未在真实库跑文章生成与知识库解析 → live 6/6 行都是 `''`（部分是加列前的历史行 = 「当时没有记」；部分属下面第 ② 条）；因此 `position-<id>` / 目录 agent 分组**只在临时库单测出现**；② 只接线了「调用时真知道自己是谁」的两条链路（文章生成、带 `positionId` 的解析），工作区另有 **12 个**账本写入模块（13 条写入路径）未接线而一律 `''`（agent 运行时 `langgraph-engine` / `local-tools`、`image-generation`、`transcription/providers`、`scraper`、`content/[id]/rewrite`、`content/[id]/translate`、`content/mindmap`、`metrics/insights`、`research-extraction`、`chat-thread-title`、`positions/generate`）——其中 agent 运行时与图片生成在真实使用中可能正跑在某个已上架 position 的工作流内，这是 `-03` 的**剩余面**，本卡不猜测该关系；反向说明 `positions/generate` 本就该是 `''`；③ **未跑真实浏览器三语冒烟**（本卡页面验证 = live payload 逐字段 + 临时库单测 + 键集合脚本 + tsc / eslint）；④ 打包版 Electron 未验证（各卡共通基线）；⑤ 金额读数为空属范围外的 `-01` |
+| Git | 未执行 `git add` / `commit` / `push` / `reset` / `clean` / `stash`（仅只读 `git status` / `git diff` / `git ls-files --eol` 取证）；`git status --porcelain` 实测 **140** 条（含其他在途卡）；仓库根 `?? tmp-*` / `?? dev-server.*` 等为**此前各卡遗留**，**本卡未新增**（证据全在 `%TEMP%\cp-p7-05-03\`） |
+| 下一步 | `CI-P7-05-01`（图片 / 视频 / 语音 / Embedding 接入同一计量与**定价**）与 `-04`（无法计量必须显式标记）；`-03` 自身剩余面 = 把其余调用点接到同一裁决点（需要「run → 清单」关系落地）+ 下拉从「窗口内出现过的 id」升级为「货架里的清单」 |
+
+## 17. CI-P7-05-03「剩余面」（Marketplace 扩展标识：改写 / 翻译 / 效果解读 / 文章配图 接线与归属单测）状态：done（2026-10-11）
+
+> **卡片来源**：主线 §13 第 **475** 行那一条（`CI-P7-05-03`）的**剩余面**，即主线 **§附录 N.6 第 2 条 / N.7** 自己写下的「把其余调用点接到同一裁决点」那一半：首次交付（§附录 N 与本文 **§16**）只接线了「调用时真的知道自己是谁」的两条链路，本轮把**改写 / 翻译 / 效果解读 / 文章配图**接上，其余 9 条写入路径**仍如实 `''`**并逐条登记。逐条证据见主线 **§附录 O**；`CI-P7-05` 整体仍为「部分就绪」（§3 第 104 行未再改动，`-01` / `-04` 未交付）。
+
+| 项 | 内容 |
+| --- | --- |
+| 交付物（本轮改动实测） | 归属桥（**新文件**）：`src/lib/content-item-listing.ts`（**1–2** 依赖、**6–26** 口径注释、**29–51** `contentItemListingProvenance`、**63–69** `marketplaceExtensionIdOfContentItem`）——只读**已存 provenance**（`metadata.positioningId` + `metadata.agentId`）并交给同一个裁决点 `marketplaceExtensionIdOf()`，非字符串一律 `""`；调用点：`src/app/api/content/[id]/rewrite/route.ts`（**7 / 69–79 / 123 / 150**）、`src/app/api/content/[id]/translate/route.ts`（**7 / 50–56 / 93 / 119**）、`src/app/api/metrics/insights/route.ts`（**6 / 53–63 / 89 / 100**，由 `record.contentItemId` 指向的文章取归属）、`src/lib/article-generation.ts`（**18 / 183–190 / 221–229 / 213 / 282**）+ `src/lib/article-images.ts`（**70–76 / 130**）+ `src/lib/agent/image-generation.ts`（**73–82 / 104–111 / 138 / 148 / 157**，只在非空时把 id 带进账本上下文）；单测 **5 个文件 / 14 例**（改写 3、翻译 3、效果解读 3、文章配图 2、文章生成 3），合计 **+542** 行 |
+| 关键口径（本轮钉住） | ① 归属只读**已存的 provenance**，不读页面 / 对话框 / 标题 / 平台名；② **一次请求一个身份**：成功 / 重试 / 失败三种行带同一个 id（自纠重问两行同 id）；③ **一篇文章一个身份**：文章行与它的封面行由问过一次的同一个答案给出，不分叉；④ `''` 是**读数不是缺口**（照进明细、显示「未归属」、不被折进别的扩展）；⑤ **「被拒绝」≠「失败」**：预算闸门拒绝不写行，provider 失败照写并带 id；⑥ **不猜**：谁真的不知道自己是谁就继续 `''` |
+| 13 条路径的最终状态 | **已归属 4 条**（本轮）：改写（**123 / 150**）、翻译（**93 / 119**）、效果解读（**89 / 100**）、文章配图（`image-generation` **138 / 148 / 157**，仅覆盖「调用方交 id」的那一半）；**仍 `''` 9 条**：`scraper` 改写（**105 / 115**）与选题成文（**168 / 173**）＝只带 `runId`（**84 / 145**）、`langgraph-engine`（**193 / 198**，只有 `runId` + `nodeId` **170**）、`local-tools`（**233 / 238**，**197**）、`content/mindmap`（**108 / 117**，主题字符串不指文章 **82**）、`research-extraction`（**212 / 215**，`runId` **181**）、`chat-thread-title`（**107 / 115**，`runId` **72**）、`transcription/providers`（**344 / 351**，`307`）、`positions/generate`（**89 / 106**，**本就该是 `''`**，那一刻还没有清单 **62**）；另有**独立配图 `/api/images`** 与 `local-tools` 里那条生成图片的路径仍 `''`（payload 只有 `prompt` / 只有 `runId`）。首次交付已接线的两条（`article-generation` **213 / 282**、`ai-parse` **104 / 132**）口径未改 |
+| 验证结果（本轮实跑） | 定向 `npx vitest run`（本卡 5 文件：改写路由 / 翻译路由 / 效果解读路由 / `article-images` / `article-generation`）→ **exit 0 / 5 文件 73 用例**；其中 `article-images` + `article-generation` → **exit 0 / 2 文件 36 用例**；`npx vitest run 'src/app/api/content/'` → **exit 0 / 10 文件 96 用例**；全量 `npx vitest run` → **exit 0 / 168 文件 1462 用例全通过**（§16 记录上一轮 168 / 1448，差额 **+14 用例** = 3+3+3+2+3，**文件数不变**）；`npx tsc --noEmit` → **exit 0**（首轮即通过）；`npx eslint`（5 个测试文件 + 7 个接线源文件）→ **exit 0 / 0 problems**；**隔离修复**：两处新 `describe` 的 `beforeEach` 先 `allowEveryAiBudgetCall()` 再 `resetRuntime()`——预算行是**存储状态**，`resetRuntime()` 清不掉同一文件前面那条拒绝用例留下的拒绝（首轮如实报出 6 例 402 而非 200）；**读数口径**：第一次全量运行曾在与另一条 `npx tsc` / 上一轮 vitest 并跑时报 2 例失败（两轮共用被 pin 的临时库），单独复跑全绿，记录以 **168 / 1462** 为准 |
+| 未验证（如实登记） | ① 13 条路径里 **9 条仍 `''`**，其中 agent 运行时与**独立配图 `/api/images`** 在真实使用中很可能正跑在某个已上架 position 的工作流内，但**「run → 清单」这条关系今天并不存在**（本轮只读取证：`POST /api/images` payload 只有 `prompt`；`POST /api/agent/chat` 只有 `threadId` / `site` / `params` 与随后的 `runId`）——**不编造**，继续 `''`；② 本轮**未取真实库 / live 读数**，真实的 `position-<id>` 与目录 agent 分组**仍只在临时库单测出现**，§附录 N.5 的 live 结论未被新实测覆盖；③ 本轮未改源与文案，也未跑真实浏览器三语冒烟（三语键集合不变：各 2405 键）；④ 打包版 Electron 未验证（各卡共通基线）；⑤ 金额读数为空仍属范围外的 `-01` |
+| Git | 未执行 `git add` / `commit` / `push` / `reset` / `clean` / `stash`（仅只读 `git status --short` / `git diff --stat` 取证）；本轮改动 = 5 个测试文件（**+542** 行）+ 主线文档**附录 O**（未跟踪文件，不出现在 `git diff`）+ 本文件 **§17**；`src/lib/content-item-listing.ts`、3 个路由与 3 个 lib 的接线属同一张卡剩余面的源改动，**未提交** |
+| 下一步 | `CI-P7-05-01`（图片 / 视频 / 语音 / Embedding 接入同一计量与**定价**）与 `-04`（无法计量必须显式标记）；`-03` 自身剩余面 = 让「run → 清单」关系落地，再把 agent 运行时 / 独立配图 / 采集（改写与选题成文）/ 思维导图 / 研究抽取 / 会话标题 / 转录接到同一裁决点 |
+
+---
+
+## 18. CI-P7-05-04 AI 服务可计量性边界状态：done（2026-10-11）
+
+> **卡片来源**：主线 §13 第 **476** 行那一条 —— 「`P7-05-04` 无法准确计量的服务必须**显式标记**，而不是漏记」。本卡与 §17 无关（那条是 `-03` 的剩余面），是 `CI-P7-05` 卡体四子项里**从未开工**的一条。
+> **一句话**：账本一直如实记着「金额说不出来」（`cost_amount` NULL + `cost_source` 四态 + `completeness` 三态），却从没说过**为什么**；本卡把「为什么」变成账本自己就能陈述的读数，并把**六个计量维度全部列出**——其中 video / embedding 在本运行时**没有任何调用路径**，它们被**点名**而不是从列表里消失。逐条证据见主线 **§附录 P**。
+> **登记**：§3 第 **104** 行本轮**在同一行内**补记本卡（行号不变）；**§17 那句「§3 第 104 行未再改动」是当轮的登记**，本轮已按同一约定补记，特此并列（不改写 §17 的历史记录）。
+
+| 项 | 内容 |
+| --- | --- |
+| 交付物（本轮改动实测） | **2 个新文件**：`src/lib/ai-metering.ts`（**204** 行：`meteringReasonFor()`、`summarizeLedgerMeteringCoverage()`、`aiMeteredKindProducers` 维度声明）+ `src/lib/ai-metering.test.ts`（**234** 行 / **12 例**）；**6 个变更文件**：`src/lib/types.ts`（原因词表第 **645–685** 行 + 覆盖类型与 `catalog.metering` 第 **975–1044** 行 + `AiUsageCallView.reason`）、`src/app/api/ai-cost-center/calls/route.ts`（第 **4 / 259–262** 行）、`src/app/api/ai-cost-center/route.ts`（第 **3 / 33–66** 行，总览改为一次读取后 `summarizeAiUsageLedger` + `summarizeLedgerMeteringCoverage`，两个读数同源）、`src/components/cost-center/cost-center-client.tsx`（原因列 + 计量覆盖表）、两个路由测试（各 +1 例）；**3 个 locale**（**+25 键 ×3**，2405 → **2430**）；主线 **§附录 P** + 本 **§18**。**另净增 14 例**（12 + 1 + 1） |
+| 关键口径（本轮钉住） | ① **不新增数据库列、不做迁移、不回填**——原因所需的证据（`outcome` + `completeness` + `pricing_json` + `quantity_json`）**已在行上**，读侧按同一规则派生，**历史行同样可读**（真实库那行 image 就是这么读出原因的）；② **只读行内证据**：绝不读 purpose / 模型名 / 页面 / `extensionId`，`extensionId` 为空**不参与任何计量判断**；③ **证据不足就留白**：`not-recorded`，不推断（含「可用用量落在被存成 `unknown` 的历史行上」这种形状）；④ **按词表而不是按数据建表**：六维度恒列出，`video` / `embedding` = `no-runtime-path`、`agent` = `metered-through-text`，与「本窗口没调用」**分开表述**；⑤ **不重复建模**：`cost_source` / `completeness` 原样复用，四个既有读数列一字未改；⑥ **金额算法、预算、闸门、runtime 路由 / 重试 / 故障转移 / 密钥轮换一行未碰** |
+| 原因词表（10 条） | `no-price-for-dimension` / `price-kind-mismatch` / `price-unit-unspecified`（未定价一侧）→ `usage-not-reported` / `quantity-not-recorded` / `quantity-unit-mismatch` / `quantity-unusable` / `attempt-failed`（未测量一侧）→ `call-interrupted`（部分未知）→ `not-recorded`（不推断）。逐条触发证据与「用户该做什么」见主线 §附录 P.2 |
+| 界面 | 调用明细新增「**未述明原因**」列（`colSpan` 11 → 12）；成本总览「价格目录覆盖」卡内新增「**计量覆盖**」表（维度 / 本窗口行数 / 已述明·未定价·未述明 / 生效价格 / 状态与原因）。判定顺序：维度声明缺口 → 本窗口无调用 → 该维度行上真实存在的原因 |
+| 验证结果（本轮实跑） | 定向 `npx vitest run`（7 文件：`ai-metering` / `ai-usage-ledger` / `ai-usage-ledger-recorder` / `dictionaries` / 成本中心 `route` / `calls` / `quality`）→ **exit 0 / 7 文件 118 用例**；全量 `npx vitest run` → **exit 0 / 169 文件 1476 用例全通过**（§17 记录上一轮 168 / 1462，差额 **+1 文件 / +14 用例**，与本卡净增一致）；`npx tsc --noEmit` → **exit 0**；`npx eslint`（8 个变更文件）→ **exit 0 / 0 problems**；`git diff --check` → **exit 0** |
+| 真实接口（本轮实测，与临时库分开报告） | 作者正在跑的 dev server `127.0.0.1:3000`，**只读 GET**（未另起实例、未终止用户进程、未发真实模型请求、未写真实库）：`GET /api/ai-cost-center?range=7` → **200 / 2585 字节**（改动前同端点 1678 字节，差额 = 新增 `catalog.metering`），`pricedKinds []`、`metering` 逐维度：text 5 行全 `no-price-for-dimension`、image 1 行 `quantity-unit-mismatch`、video/embedding `no-runtime-path`、speech 0 行无缺口、agent `metered-through-text`；`GET /api/ai-cost-center/calls?range=7&limit=25` → **200 / 11335 字节**，6 行逐行 `reason` 与库一致（覆盖表计数 = 总额计数）。证据：`%TEMP%\cp-p7-05-04\live-{overview-2,calls-2}.json`（改动前存 `live-overview.json` / `live-calls.json` 作对照） |
+| 未验证（如实登记） | ① **未跑真实浏览器三语渲染**（+25 键由 `dictionaries.test.ts` 与 `tsc` 的 `TranslationKey` 兜底，页面渲染本身未验证）；② **未在真实库触发新的 AI 调用**，故真实库中没有失败行 / 中断行 / 写对单位键的图片行，那三类只在临时库单测验证；③ **`POST /api/ai/models/probe` 仍未接入账本**：它真的发一次供应商请求（`probe.ts` 第 **72–95** 行）却没有行、也没有闸门 —— 本卡**如实登记为显式缺口**（补写需先定义其身份与轨迹，属新卡）；④ `provider-reported` / `interrupted` 仍无生产者；⑤ 打包版 Electron 未验证（各卡共通基线） |
+| Git | 未执行 `git add` / `commit` / `push` / `reset` / `clean` / `stash`（仅只读 `git status --short` / `git diff --stat` / `git diff --check` 取证）；**如实登记**：`git diff --stat` 里这些文件**同时含有此前各卡的未提交改动**（如 `budget/route.ts`、`budget-panel.tsx`，本卡未碰），故**不用聚合 diff 数字**声称本卡行数增量；主线计划文档**未被 git 跟踪**，本 **§18** 所在文件是**已跟踪**文件 |
+| 下一步 | `CI-P7-05` 卡体**只剩 `-01`**（图片 / 视频 / 语音 / Embedding 接入同一计量并**录价**）——本卡的覆盖表已把它的后果摆在界面上（真实安装 `pricedKinds []`、text 5 行全 `no-price-for-dimension`）；`-03` 自身剩余面（「run → 清单」）仍待做；本卡新增候选：**把模型能力探测接入账本** |
+
+## 19. 能力探测（`POST /api/ai/models/probe`）预算闸门与账本接入状态：done（2026-10-11；**编号待作者指定**）
+
+> **卡片来源**：主线 **§附录 P** 与本文件 **§18** 的「下一步」里登记的**同一张候选卡**（「把模型能力探测接入账本」）。主线 §1 / §13 里**没有**它的编号行，本次也**不代填**。逐条证据见主线 **§附录 Q**。
+> **一句话**：探测是这个产品里**唯一**绕过预算与账本的供应商调用路径（用户自己的 Key、真实付费）；本卡把闸门放在**发出请求之前**、账本行放在**请求之后**，两处都复用既有的 `beginAiBudgetCall` / `recordAiUsageCall`。
+> **登记**：主线 §1 **未新增行**、§13 **一字未动**；主线 **§附录 P · P.8 的「下一步编号」同一行内加字**指向 §附录 Q（行号不变）。
+
+| 项 | 内容 |
+| --- | --- |
+| 交付物（本轮改动实测） | **1 个新文件**：`src/app/api/ai/models/probe/route.test.ts`（**293** 行 / **7** 用例）；**3 个变更文件**：`src/features/ai-runtime/probe.ts`（**262** 行：端口 `ModelProbeMetering` / `ModelProbeTarget` / `ModelProbeMeteringSession` + `modelProbeMaxOutputTokens = 32` + `attempts` 轨迹 + `finally` 里的记账与还预留）、`src/app/api/ai/models/probe/route.ts`（**84** 行：`meteredProbe()` 里的 `beginAiBudgetCall` 落点 + `budgetReservationId`）、`src/lib/ai-metering.ts`（204 → **208** 行：把探测路由登记为该维度的生产者）；主线 **§附录 Q** + 本 **§19** |
+| 关键口径（本轮钉住） | ① **闸门在线上之前**：估算用这次探测**自己的**请求（真实输入文本 + 线上同一个上限 **32** + 用户选中的 provider / model + 要验的 capability），不是解析器可能改选的模型；② **被拒绝 = 什么都没发生**：402 + `AI_BUDGET_EXCEEDED`，无请求、无 `PROBE_TEST` 标记、无探测记录、无账本行；③ **一行一请求**：账本按 runtime 自己的 `ModelAttempt[]` 轨迹写，被拒的密钥也是行；④ **说不出来就留空**：没报用量 → `unknown` + NULL；没有价格 → `reported` + `unpriced` + NULL 且**不占额度**；⑤ **`identity` 有意留空**：探测不属于任何运行 / 任务，不编造业务 id；⑥ **依赖方向不变**：端口只**定义**在冻结面内，`src/lib` 的实现只在**调用方（路由）**侧 import，不产生 runtime ↔ lib 环；⑦ 不需要计量能力的探测（如 `image_generation`）在闸门**之前**返回 `unsupported`，不占额度也不写行 |
+| 落点计数（实测） | `beginAiBudgetCall(` 的**调用点** = **15 处 / 13 个文件**（不含 `import`、注释与函数定义）；**本卡只新增 1 处**（`route.ts:38`），其余 14 处一行未碰。另有 `src/lib/ai-budget-guard.ts:623` 是闸门内部自身调用、`src/test/ai-budget-probe.ts:42` 是测试探针。§附录 G 记的「14 文件 / 15 处 `beginAiBudget*`」用的是**前缀**口径，两者不做加减 |
+| 验证结果（本轮实跑） | 定向 `npx vitest run src/app/api/ai/models/probe/route.test.ts` → **exit 0 / 1 文件 7 用例**；全量 `npx vitest run` → **exit 0 / 170 文件 1483 用例全通过**（§18 上一轮 169 / 1476，差 **+1 文件 / +7 用例**）；`npx tsc --noEmit` → **exit 0**；`npx eslint`（4 文件）→ **exit 0 / 0 problems**；`git diff --check` → **exit 0**（仅三份 locale 的 LF/CRLF 既有 warning） |
+| 用例覆盖 | ①发请求 → 定价 → 还预留（`costAmount = 5`、线上 `max_tokens: 32`、预留 id 在行上且在途为空）；②闸门 402 且完全不写；③被拒请求自成一行的失败行；④供应商不报用量 → `unknown` + NULL（**不写 0**）；⑤无价格 → `unpriced` + NULL + 不留预留；⑥`unknownCostPolicy: block` 时 402 且无行；⑦不可探测能力 → 200 `unsupported`、无请求无行、记录仍落库 |
+| 未验证（如实登记） | ① **未发真实供应商请求**（临时库 + 被替换的传输；真实库没有本卡写入的行，也未新增列 / 表 / 迁移）；② **探测不归属触发它的用户动作**（`identity` 留空是有意的取舍，「谁触发了这次付费探测」账本目前答不出来）；③ **vision 探测的图片字节不计入输入 token**（1×1 PNG 是字节不是文本，估算偏保守；行仍以供应商回报用量为准）；④ 打包版 Electron 未验证（各卡共通） |
+| Git | 未执行 `git add` / `commit` / `push` / `reset` / `clean` / `stash`（仅只读 `git status` / `git diff --numstat HEAD` / `git diff --check` 取证）；**如实登记**：`probe.ts` / `route.ts` 相对 HEAD 的 `+152/−7`、`+63/−2` **含此前各卡未提交改动**，不作为本卡增量；`ai-metering.ts` 与 `route.test.ts` 是**未跟踪**文件；主线计划文档**未被 git 跟踪**，本文件是**已跟踪**文件 |
+| 下一步 | ① **编号已裁定并正式确认（2026-10-11，见 §21 / §22）**：支线 **`CI-EMB-01`（正式编号；不占任何 `CI-P*` 卡号）**；登记方式 = 主线 §1 **同行追加**（第 72 行）+ 卡体 = 主线 **§附录 T**，**零位移**（**不是**原预案的「§1 一行 / +1 位移」）；确认时**未改名**，三处引用**同行更新**；② `CI-P7-05` 卡体仍只剩 **`-01`**（图片 / 视频 / 语音 / Embedding 接入同一计量并**录价**）；③ 本轮新登记 **§20**：**Embedding 能力端到端接入**（其阻塞项「设计稿 §15 Q1 向量存储」**已于 2026-10-11 裁定为方案 (a)**，执行清单登记于主线 **§附录 S**）；**实现与验证结果见 §22** |
+
+## 20. Embedding 能力端到端接入（**支线 `CI-EMB-01`，编号已正式确认（2026-10-11 作者裁定）**）状态：**已实现（阶段 0–4 落地；阶段 5 定向 + 全量验证通过；真实 Provider 未验证）；Q1 已裁定**（2026-10-11）
+
+> **卡片来源**：本记录与主线 **§附录 R** 共同登记。**两侧清单都没有它的编号**：`CI-P7-05` 家族管的是**计量与录价**（`-01` 仍未交付），新清单 `P8-06` 的第一条同样是计量；`CI-P3-03` / `P3-03-05` 的 RAG 预留是**有意未做**（见 §附录 B-10 §4）。因此它需要**新编号**，而**编号由作者指定**——本记录与主线 §附录 R 都**不**代填（尤其**不**占 `CI-P7-05-05`）。 **2026-10-11 作者裁定**：编号归属 = **独立支线 `CI-EMB-*`**（**建议编号 `CI-EMB-01`，待作者确认**；**不归入任何 `CI-P*` 阶段**）；登记方式 = 主线 §1 第 **72** 行**同行追加** + 卡体 = 主线 **§附录 T**（**零位移**）；**不分配** `CI-P7-05-05` / `CI-P3-04`。裁定与登记结果见 **§21**。
+> **一句话**：`embedding` 是本安装里**唯一「有价格与计量设计、没有任何调用路径」**的维度（`src/lib/ai-metering.ts:77` 声明 `no-runtime-path`）；而知识库现在的取用规则是「启用 + 定位 + 权重 + 最近更新」（`src/lib/knowledge-base.ts:147–158`），**没有语义检索**。
+> **阻塞项已解除（2026-10-11）**：设计稿 `docs/model-layer-spec.md` **§15 Q1「向量存储放哪」**——**作者已裁定：方案 (a)**（`ai_embeddings` 表 + JSON 列存向量 + 内存暴力检索），**否决** (b) `sqlite-vec` 类扩展（本仓库用 `@libsql/client`，**构建与分发风险**）与 (c) 独立本地索引文件（自研，工作量最大）。**裁定正文** = 该设计稿文末 **§15-Q1 决策记录**（`:1002` 起）；三方案比较材料与「建议的比较维度」**保留**在主线 **§附录 R.3**；**执行拆分（阶段 0–7）** = 主线 **§附录 S**。
+> **登记**：§3 **不新增行**（两支清单都没有它的编号）；**§1 同行追加**（主线第 **72** 行，**零位移**）+ 卡体 = 主线 **§附录 T**；§13 **不动**（仅第 **473** 行同行追加一句边界说明）。**2026-10-11 已按作者裁定登记完成**：支线 **`CI-EMB-01`（建议编号，待作者确认；不占任何 `CI-P*` 卡号）**，本节标题已同步；原「补 §1 一行（+1 位移）」的预案**未采用**。
+
+| 项 | 内容 |
+| --- | --- |
+| 已具备（实测） | 计量维度 `embedding` 已在 `aiUsageMeteredKinds`；`aiUsageKindUnits.embedding = []` → **按输入 token 计价**；`computeUsageCost()` 已有 embedding 定价用例（`ai-usage-ledger.test.ts:335`）；`embedding` 已是合法模型能力值（`validation.ts:712`）；维度缺口已被 §附录 P 的覆盖表**点名**（不是漏记） |
+| 缺失（实测） | `src/features/ai-runtime` 下 **0 处** `/embeddings` 或 embedding 适配代码；`knowledge_base` 表**没有向量列**（`schema.ts:195–209`）；知识库**没有检索 / 搜索端点**（只有 `route` / `ai-parse` / `import-products` / `upload` / `[id]`）；探测对 embedding 返回 `unsupported`（设计如此） |
+| 建议顺序（登记，不实施） | ① Q1 决策记录 —— **已完成（2026-10-11，方案 (a)）**，且执行拆分已细化为**主线 §附录 S 的阶段 0–7**（S.1–S.8；收尾 S.9 顺序与范围控制 / S.10 最终验收）→ ② 打通调用链（复用 Provider / 密钥 / 闸门 / 账本 / 价格目录，批量向量化；完成标准：账本出现 `metered_kind: embedding` 行，无价格时如实 `unpriced` + NULL）→ ③ 接入知识库语义检索并**保留**现有规则路径做对照（完成标准：两者可对比、结论有数据）→ ④ 闭环验证（导入 / 向量化 / 召回 / 计量 / 删除 / 重索引 + 换模型的维度变化不混算） |
+| 边界 | **必须经过**冻结面 AI Runtime，不新建旁路；不改 C2 发布语义；不做完整 RAG 系统、不做 Marketplace、不做跨维度混算；**不占用** `CI-P7-05-01` 的录价职责（在那之前 embedding 行会如实 `unpriced`） |
+| Git | 本轮及 Q1 裁定登记轮**只改文档**：未改业务代码、未新增表 / 列 / 迁移、未新开任何 AI 调用、未写任何实现代码；未执行 `git add` / `commit` / `push` / `reset` / `clean` / `stash`（Q1 裁定登记轮改动 = 设计稿文末 **§15-Q1** + 主线 **§附录 S** + 本 **§20 状态更新** 与 **§7 第 22 条**） |
+
+## 21. Embedding 支线卡编号裁定与登记记录（2026-10-11；纯文档，**零位移**）
+
+### 21.1 作者裁定原文口径（2026-10-11）
+
+1. 编号归属：**独立支线 `CI-EMB-*`**，**不归入任何 `CI-P*` 阶段**。
+2. **§1 同行追加**，不新增独立行；状态写「**建议编号，待作者确认**」，**不**把建议编号写成已正式分配编号。
+3. 卡体**追加到主线文件末尾独立附录**（= 主线 **§附录 T**），既有行号**零位移**。
+4. **不分配** `CI-P7-05-05`、**不分配** `CI-P3-04`；**不改**其他卡号；**不批量修复**已发现的既有引用漂移。
+5. 实现范围：Embedding Runtime 调用、模型能力声明、SQLite JSON 向量持久化、TypeScript 内存相似度检索、知识库召回集成、相关测试。
+6. 预算门禁 / 用量账本 / 成本计算 / 计量覆盖率**复用 `CI-P7-05-01` 已有机制**，不重复建设；Embedding **必须真实接入**这些机制。
+7. 先完成文档登记并报告变更位置、行号影响与差异，**再**启动阶段 0；阶段 0 只做现状核对与接口确认。
+8. 保持未提交的其他代码与文档不受影响；不执行 `git add` / `commit` / `push` / `reset` / `clean` / `stash`。
+
+### 21.2 登记结果与文档变更位置（实测，**零位移**）
+
+| 文档 | 变更 | 位移 |
+| --- | --- | --- |
+| 主线 `docs/coolpilot-capability-integration-plan.md` | ① §1 第 **72** 行**同行追加**登记段（支线卡 `CI-EMB-01`，建议编号待作者确认，不占任何 `CI-P*` 卡号，卡体见 §附录 T）；② §13 第 **473** 行**同行追加**一句边界说明（`P7-05-01` 仍只管**计量与录价**；Embedding 的**调用路径 / 存储 / 召回**归本支线卡，两卡不重叠）；③ 文件末尾新增 **`## 附录 T：CI-EMB-01 Embedding 端到端接入登记`**（T.1–T.9） | **0** —— 2980 → 2980 + 附录 T 行数；`§1` 第 35–60 行与 `§13` 第 436 / 447 / 458 / 465 / **471–476** 的既有引用**全部保持有效** |
+| 本文件 | §19 下一步 **①**、§20 标题 /「卡片来源」/「登记」共 **4 处同行替换** + 本节新增 | **0** —— §8 起仍为上一轮已登记的 **+2** 位移，本次**未再位移** |
+
+### 21.3 编号事实（复核，未新造任何号）
+
+- 支线族 `CI-EMB-*`：主线与本文件实测 `CI-EMB` 命中 **0**（新前缀，无冲突）。
+- **建议编号 = `CI-EMB-01`**（支线族第一个）；**状态 = 建议编号，待作者确认** → **在作者确认前，不得把它当作已正式分配的编号引用**。若作者改名，只需同行替换三处：主线 §1 第 **72** 行、主线 **§附录 T** 标题、本文件 **§20** 标题（+ 本节说明）。
+- **明确不占用**：`CI-P7-05-05`（`CI-P7-05` 家族只剩 `-01`；依据 = 主线第 **2796** / **2863** 行、本文件 §7 第 **21** 条与 **§20**）、`CI-P3-04`、任何 `CI-P*` 与 Marketplace `P7-*` 号。
+- **支线登记依据（既有明文先例，本轮未改）**：主线 §1 第 **76** 行（`CI-SC-01`）、第 **78** 行（`CI-ARTICLE-NAV-01`）= 作者授权支线**不占任何 `CI-P*` 卡号**；第 **74** 行 = **计量与定价不新造卡号，归 `CI-P7-05-01`**；第 **72** 行 = §1 只登记 `CI-` 任务卡且**唯一进度来源**。
+
+### 21.4 实现边界（正文见主线 §附录 T，本节只摘要）
+
+- **归本卡**：Runtime 调用路径、模型能力声明、SQLite JSON 向量持久化、内存余弦检索、知识库召回集成、测试。
+- **归 `CI-P7-05-01`（复用、不重造）**：预算门禁 `beginAiBudgetCall`（`src/lib/ai-budget-guard.ts:432`）、账本 `recordAiUsageCall` / `recordAiUsageFailure`（`src/lib/ai-usage-ledger-recorder.ts:214` / `:262`）、成本计算（`aiUsageKindUnits.embedding = []` 已按输入 token 就绪）、计量覆盖率（`src/lib/ai-metering.ts`）；完成后 `embedding` 必须从 `no-runtime-path` 变为**有真实生产者与调用行**，未录价时如实 `unpriced` + 金额 NULL。
+- **数据关联（现状实测）**：只可能以 `knowledge_base.id` 为键 —— `src/db/schema.ts:195–209` **无切片表**（召回时才 `content.slice(0,300)`，`src/lib/knowledge-base.ts:157`）；业务隔离沿用 `position_id`；失效触发器 = `content` / `updated_at` 变化、`enabled` 切换、删除、`position_id` 变化、换模型或维度变化（不得混算）。
+- **召回语义**：`knowledgeMode` 只有 `["position","off"]`（`src/lib/ai-writing.ts:172`），本卡**不改**其含义；查询向量化本身是**一次计费调用**，须过闸门 + 记账，且 Embedding 故障须有明确回退（不得让增强变单点故障）。
+- **建表机制**：新表按既有路径 = `src/db/client.ts#ensureDatabase()` 的 `CREATE TABLE IF NOT EXISTS`（`knowledge_base` 在 `:242`）+ `src/db/schema.ts` 定义；`drizzle.config.ts` 指向的 `./src/db/migrations` **不存在**（仓库无迁移文件），列变更走同文件内 pragma 式手工迁移（`migrateAiModelPriceCatalog()` `:939`）。
+- **不扩边界**：不新建 AI 调用旁路、不改 C2 发布语义、不做完整 RAG / Marketplace、不做跨维度混算、不重构无关模块。
+
+### 21.5 引用影响（实测）
+
+- 本次**零位移** → 主线内 `§1 第 N` / `§13 第 N` 类引用（主线自身 **21** 行：59 / 60 / 229 / 1636 / 1678–1680 / 1687 / 1751 / 1753 / 1769 / 2298 / 2299 / 2355 / 2361 / 2417 / 2423 / 2498 / 2504 / 2597 / 2707；本文件 **15** 行：90 / 95 / 97 / 99 / 100 / 102 / 111 / 130 / 137 / 178 / 215 / 217 / 296 / 309 / 310；`docs/development/ci-p7-03-design-draft.md` **2** 行：5 / 55；`docs/development/CoolPilot-开发清单-10个开源项目整合版.md` **2** 行：991 / 1017）**全部继续有效**。
+- **反事实（若改用「§1 新增独立行」）**：主线第 **71** 行之后全部 +1 → 上述 `§13` 类引用（428 起全部）与主线自身那 21 行引用将**同时失效**；这正是本轮采用「同行追加 + 文末附录」的理由。
+- **本轮未批量修复的既有漂移（报告不修）**：本文件第 **100** / **130** / **137** 行把「菜单改名与首个真实费用界面同卡交付」记为 **`§13` 第 405 行**，但实测主线第 405 行属 **§10 顺序说明末段**（`§13` 自第 **428** 行起）—— 疑似前缀笔误或位移残留。**本轮不修**，交作者裁定。
+
+### 21.6 未做的事（如实登记）
+
+未改业务代码、未新增表 / 列 / 迁移、未发任何 AI 调用、未写任何实现代码；未执行 `git add` / `commit` / `push` / `reset` / `clean` / `stash`（如需取证只用只读 `git status` / `git diff`）；未改任何既有卡号、顺序与状态；未改写 §7 第 21 / 22 条与 §20 的历史表述（§20 仅标题与三行做同行更新）。
+
+### 21.7 下一步
+
+**阶段 0（只读现状核对与接口确认）不在本轮执行**（作者裁定：先登记并报告，再启动）。启动条件**已满足**：① 登记完成（主线 §1 第 72 行 + §附录 T + 本 §19 / §20 / §21）；② 三处接口对象已定位（Runtime / 存储 / 召回，见 §21.4）；③ 全程只读 —— 不触碰用户运行中的 dev server，不对真实库写入。
+
+## 22. `CI-EMB-01` 实现与验证记录（2026-10-11；**零位移**，追加于文件末尾）
+
+> **定位**：§21 记的是**编号裁定与登记**，§22 记的是**实现与验证**。既有各节一行未改（仅 §20 标题 / §20 下一步 / §21 标题相关三处**同行更新**，见下）。**未**新增其他卡的条目、**未**修漂移。
+
+### 22.1 编号状态（正式确认）
+
+- `CI-EMB-01` **正式编号**（2026-10-11 作者确认）。确认前复核：本文件与主线计划内 `CI-EMB` **仅出现在本卡登记段**（本文件 8 处、主线 5 处，全为本卡自身引用），**0 冲突**；未分配 `CI-P7-05-05` / `CI-P3-04`，未改任何其他卡号。
+- 编号**未改名**，故三处引用均**同行替换**：主线 §1 第 **72** 行、主线 **§附录 T** 标题、本文件 **§20** 标题（+ 本节新增）。既有行号 **零位移**。
+
+### 22.2 落地文件（本卡新增 / 修改）
+
+| 层 | 文件 | 内容 |
+| --- | --- | --- |
+| Runtime | `src/features/ai-runtime/contracts.ts`、`adapters.ts`、`runtime.ts`、`index.ts` | `EmbeddingRequest` / `EmbeddingResponse`、`AdapterEmbedOptions` / `AdapterEmbedResult`、`ProtocolAdapter.embed?`、OpenAI-compatible `/embeddings` 实现（向量数 / 数值 / 一致性校验）、`aiRuntime.embed()`、导出 |
+| 错误码 | `src/lib/app-errors.ts` | 新增 `MODEL_EMBEDDING_INVALID`（请求空批次 400 / 响应不可用 502） |
+| 纯契约 | `src/lib/knowledge-embedding/embedding.ts`、`source.ts` | 常量与版本、失败码、请求 schema、规范化、确定性分块、输入文本、chunk id、四态判定、余弦；`source.ts` 单独承载 `node:crypto` 哈希（避免客户端组件经 `lib/knowledge-base` 传染 `node:crypto`） |
+| 存储 | `src/db/schema.ts`、`client.ts`、`repositories/knowledge-embeddings.ts`、`repositories/knowledge-base.ts` | 新表 `knowledge_embeddings` + 三个索引（含 `(knowledge_id, chunk_index, provider_id, model_id)` 唯一索引）；按模型作用域的 replace 写入；知识记录删除级联清理 |
+| 召回 | `src/lib/knowledge-base.ts`、`src/lib/knowledge-embedding/recall.ts` | 语义排序（业务过滤 → 兼容性 → stale → 余弦 → 记录级聚合 → 组合排序）、查询文本构造、独立闸门 + 台账 + 具名降级；`position` / `off` 语义未变 |
+| 批量任务 | `src/lib/knowledge-embedding/embedding-task.ts`、`src/worker/runner.ts` | `knowledge_embedding` playbook：规划 → 分批 → 每批闸门 + 台账 → 记录级整写；注册进 `aiSpendingPlaybooks`（并因此进入 `budgetPausablePlaybooks`）；`BUDGET_EXCEEDED` → `StepBudgetRefusal`（暂停而非失败） |
+| 入口 | `src/app/api/knowledge-base/embeddings/route.ts`、`src/components/smart-config/knowledge-base/knowledge-base-workspace.tsx`、`src/lib/validation.ts` | `GET`（只读摘要 + 任务列表）/ `POST`（建任务并启动）；知识库工作台「生成向量 / 重建全部向量」按钮 + 索引状态行；请求 schema |
+| 文案 | `src/locales/{en,zh-cn,zh-hk}.json` | `awKnowledgeModeSemantic`、`playbookKnowledgeEmbedding`、`kbBuildIndex` / `kbRebuildIndex` / `kbIndexHint` / `kbRebuildIndexHint` / `kbIndexStarted` / `kbIndexFailed` / `kbIndexSummary` / `kbIndexUnavailable` |
+| 计量 | `src/lib/ai-metering.ts` | `embedding` 的 `gap` 由 `no-runtime-path` → `""`，`producers` = `recall.ts` + `embedding-task.ts`（原先断言该 gap 的两处测试**同轮更新**：`src/lib/ai-metering.test.ts:173`、`src/app/api/ai-cost-center/route.test.ts:222`） |
+| 测试基建 | `src/test/route-harness.ts` | `prepareEmbeddingModel()`、`embeddingRoute()`（按请求体逐条作答）、`embeddingCalls()`；`StubRoute.respond` 收到该次调用（URL + init）；`resetRuntime()` 一并清 `embedding` 默认值 |
+
+### 22.3 验证结果（实跑，逐条）
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm exec vitest run src/features/ai-runtime/runtime.test.ts` | **exit 0 / 23 用例**（本卡新增 8 条：真实调用 + usage、无 usage 不写 0、`dimensions` 不一致拒绝、短/非数值向量拒绝、空批次 400、无凭证 400、能力缺失 409、协议无 `embed` 409） |
+| `npm exec vitest run src/lib/knowledge-embedding src/db/repositories/knowledge-embeddings.test.ts src/lib/knowledge-base.test.ts` | **exit 0**（13 + 8 + 12 用例） |
+| `npm exec vitest run src/lib/knowledge-embedding/recall.test.ts` | **exit 0 / 6 用例**（查询文本来源、独立台账行、无模型降级、stale 降级、**预算拒绝不外降级**、空查询不碰闸门） |
+| `npm exec vitest run src/lib/knowledge-embedding/embedding-task.test.ts` | **exit 0 / 6 用例**（分批 + 台账 `runId`、已最新则 0 调用、编辑后尾块清理、rebuild 幂等、预算拒绝保留已建索引、摘要只读） |
+| `npm exec vitest run src/app/api/knowledge-base/embeddings/route.test.ts` | **exit 0 / 4 用例**（201 + `lookup`、同 key 复用 200、GET 只读 0 调用、无模型如实报 `missing`、非法 scope 400） |
+| `npm exec vitest run src/lib/article-generation.test.ts src/lib/ai-metering.test.ts src/app/api/ai-cost-center/route.test.ts src/app/api/content/generate/route.test.ts` | **exit 0**（14 + 计量与成本中心回归） |
+| **全量** `npm exec vitest run` | **exit 0 / 175 文件 / 1537 用例全通过** |
+| `npm exec tsc -- --noEmit` | **exit 0** |
+| `npm run lint` | **exit 0**（本卡文件 0 error / 0 warning） |
+
+### 22.4 未验证（如实登记）
+
+① **未调用真实 Embedding Provider**（临时库 + 替换传输；真实库无本卡写入行，**未**新增/修改真实数据库结构之外的内容 —— 表由 `ensureDatabase()` 的 `CREATE TABLE IF NOT EXISTS` 建立，无需用户删库）；② Gemini 协议 `embed` **未实现**（与 `transcribe` 同一先例），按 `MODEL_CAPABILITY_UNAVAILABLE` 拒绝；③ 分块上限为**字符**（`800`）而非 token；④ 数千切片规模未做性能基准；⑤ 真实 Provider 的用量/价格完整性未验证（本卡只保证「不报用量 / 无价格」如实落为 NULL）。
+
+### 22.5 Git 边界
+
+本轮**未**执行任何 Git 写操作；开工基线 `git status --porcelain` = **158** 条，收工时新增文件均为本卡文件与既有未提交改动并列，未触碰、未回滚他人改动（交付报告第 7 节列明归属）。
+
+
+> **本节的定位**：§7 第 **21 / 22** 条与 **§20** 是**历史记录**，本条**不改写**它们（沿用本文档既定约定：新记录并列说明）。**§7 不新增条目** —— 若再插入一行会使 §8 起的行号再次位移，故本轮登记落在本节（文件末尾，**零位移**）。
+
+
+## 23. `CI-P1-04-07`（`CI-P1-04` 的**子项**，非独立卡）状态：done（2026-10-12）
+
+> **定位**：这是 `CI-P1-04` 的**子项补登**，**不占**一级卡号。主线 §1 的 `CI-P1-04` 行**一字未改**（仍为 `done`）；交付内容追加在主线 **§附录 B-4 §8**（B-4 的 §1–§7 原文保留），接口形状追加在 `docs/coolpilot-integration-contracts.md` **§1.1 第 5 条 + 新增 §4**。本节只记**编号事实、落地文件、验证归属与行号影响**；§3 表格第 **78** 行**同行更新**（未新增行，故本文件自 §4 起各行号**零位移**）。
+
+### 23.1 编号状态
+
+- `CI-P1-04-07` 由作者 **2026-10-12 指定**；指令口径 = **不新建一级卡、不重开 CI-P1-04、不改 `CI-P1-04-01`…`CI-P1-04-06` 的编号与验收记录**。
+- **冲突复核（本卡开工前实测）**：`docs/` 下全部 `.md` 检索 `P1-04-07` → **0 命中**（既有子项只到 `P1-04-06`）；`src/` 内 7 处命中全部是**本卡自己写下的代码注释**，不是别处的编号。同轮检索 `videos/renders` 在 `docs/*.md` 内 → **0 命中**（新路由此前未登记）。→ **无编号冲突，未新造任何号**。
+
+### 23.2 落地文件（本子项新增 / 修改）
+
+| 层 | 文件（行数实测） | 内容 |
+| --- | --- | --- |
+| 读模型（**Node-free**） | `src/lib/videos/video-render-artifacts.ts`（新增 **248** 行） | 槽位↔日志阶段映射、`videoRenderArtifactFiles()`、`videoRenderArtifacts()`、`videoRenderTemplateCatalog()`、`videoRenderEncoded()`、`isRenderArtifactFileName()`、`renderArtifactContentType()`、`videoRenderToolPath` |
+| 读取路由 | `src/app/api/videos/renders/route.ts`（新增 **61** 行）、`src/app/api/videos/renders/[id]/route.ts`（新增 **88** 行） | 清单 + 历史；侧车只从**本任务日志**的白名单内取（契约 §4） |
+| 界面 | `src/components/creation/video-render-panel.tsx`（新增 **505** 行）；宿主 `src/app/[locale]/(console)/creation/videos/page.tsx`（**第 11 行**挂载，唯一宿主） | 发起渲染（经确认对话框）＋ 模板/素材选择 ＋ 渲染历史与产物下载/播放 |
+| 文案 | `src/locales/{en,zh-cn,zh-hk}.json` | 各 **+32** 个 `vr*` 键（三语键数一致） |
+| 测试 | `video-render-artifacts.test.ts`（**14** 例）、`renders/route.test.ts`（**6** 例）、`renders/[id]/route.test.ts`（**8** 例） | 含"写入口路径"钉死用例：`videoRenderToolPath === "/api/tools/" + 注册表工具名` |
+
+**未改**：AI Runtime、C2 发布语义、`video-render-tool.ts` / `video-renderer.ts` / `video-render-task.ts`、`runs` / `run_events` 与任何状态词、`/api/videos`（白名单与 `Range` / `206` 未变）、工具返回值的 `url: ""`（CI-P1-04-04 语义未变）。
+
+### 23.3 验证结果（**交付时 2026-10-12 实跑**；本轮为文档收尾，**未重跑**）
+
+| 命令 | 结果 |
+| --- | --- |
+| `node_modules\.bin\tsc.cmd --noEmit` | **exit 0** |
+| 定向 `vitest run`（`src/lib/videos` + `src/app/api/videos`） | **9 文件 / 65 用例通过**；本子项 3 个用例文件按文件实测 **14 + 6 + 8 = 28 例** |
+| 全量 `vitest run` | **178 文件 / 1565 用例全通过** |
+| `eslint`（本子项 8 个文件） | **exit 0**（仓库级 `eslint .` 仍有 3 条既有 error，来自未跟踪的 `tmp-probe-db.cjs` / `tmp-probe-zod-json-schema.cjs`，**非本卡**） |
+| 真实 `next dev`（真实工作区，只读探测） | 读路由 **200**、侧车 `.srt` → **200 `application/x-subrip; charset=utf-8`**、`.json` → **200 `application/json; charset=utf-8`**、`/zh-cn/creation/videos` → **200** |
+
+### 23.4 已知限制 3 的关闭
+
+- 主线 B-4 §6 **已知限制 3（`.srt` / `.json` 不可寻址）已于 2026-10-12 由本子项关闭**，关闭依据与代码级证据写在该处与契约 §4.3 / §4.4；打开方式为**新增按用途路由**，**未**扩 `/api/videos` 白名单。
+- 同节 **已知限制 1 / 2 / 4**（worker 路径 `resultUrl`、产物 `source`、无认领锁）**未变**。
+- 另有一处**本节不改**的过期文档（如实登记）：`docs/e2e-baseline-inventory.md:280`（「`videos/` 里的 `.srt` / `.json` … 已知限制（无服务路由）」）、`docs/e2e-stage2-execution-record.md:158` / `:204`、`docs/e2e-stage2-acceptance-conclusion.md:37` 仍把"`.srt` / `.json` 不能从 `/api/videos` 取（404）"记为**现状或已知限制** —— 那些记录针对的是 `/api/videos`，**今天仍然成立**；但其中"**没有侧车读取入口**"这一条已被本子项改变（新入口是**另一个**路由）。它们属**其他卡的记录**，按既定约定**只报告、不代改**。
+
+### 23.5 行号影响（登记事实，不代改其它文档）
+
+| 引用对象 | 本卡前实测 | 本卡后实测 |
+| --- | --- | --- |
+| 主线计划总行数 | 3058 | **3113**（B-4 内净增 **55** 行） |
+| 主线 `## 附录 B-5` 标题行 | 947 | **1002** |
+| 主线 B-10 的「全量单测 … 152 文件 / 1247 用例」行 | 1392 | **1447** |
+
+- 三处**既有**引用写作「主线 **§附录 B-10 第 1385 行**」（`docs/coolpilot-capability-integration-plan.md:2131`、本文件 §396、`docs/development/menu-information-architecture.md:405`）在本卡开工前**已**与实测 1392 相差 7 行（早于本轮即已漂移）；本卡使其进一步下移到 1447。**本卡不代改这三处**，只在此登记。
+
+### 23.6 未做的事（如实登记）
+
+- 本轮**只改文档**：未改任何业务代码 / 测试代码 / 配置 / 数据库结构，**未重跑测试**（§23.3 是交付时的实跑口径，并已逐条标明），**未**重启或停止 dev server。
+- **未验证**：打包版 Electron 行为；运行中任务的进度轮询（面板不轮询）；编码能力（`encoded` 恒为 `false`，取决于 P1-04-06 决策）。
+- **Git 边界**：本轮**未**执行 `git add` / `commit` / `push` / `stash` / `reset` / `clean`；工作区既有未提交改动未被触碰、未被回滚。
+
+## 24. `CI-LEAD-01` 营销线索与成交（2026-10-12）：授权修正 + 立项登记 + 交付记录
+
+> 本轮作者下达两件事：① **授权一处最小文档修正**（§24.1）；② **立项并开发**「营销线索与成交」（§24.2–§24.6）。两件都在同一轮完成，交付主体是**代码与测试**。
+
+### 24.1 授权修正：`CI-P2-07` 状态 `todo` → `done`
+
+- **授权来源**：作者 2026-10-12 明确授权「将 §3 中 CI-P2-07 的 `todo` 修正为 `done`，与主线计划保持一致」，并限定边界：只改这一处状态字段及必要的最小上下文、**不调整历史行号**、**不顺手修复**其它差异、不改业务代码 / 测试 / 数据库 / 其它任务状态、不执行 Git 写操作。
+- **改动位置与内容**：§3 第 **86** 行**同一行内**，状态由 `**todo**（2026-10-10 作者授权立项，见 §4.5）` 改为 `**done**（2026-10-12 按作者授权修正：本表原记 `todo` 为 2026-10-10 立项时的旧值，与主线 §1 第 50 行的 `done` 不一致；交付事实见 §4.5、主线 §15。**本次只改该状态字段**，未动历史行号与其它差异）`。**未新增 / 未删除行**，本文件此前的行号**零位移**（§4.5 与其后章节的行号不受影响）。
+- **修改后一致性核对**：与 ① 主线 §1 第 **50** 行（`CI-P2-07 = done`）、② 本文件 §4.5 交付记录、③ 主线 §15 交付记录，三处**一致**。
+- **本次未改**：§3 其它行、§4.5 正文、任何历史行号引用、本文件其它章节、`docs/` 内其它文档的既有差异。
+
+### 24.2 立项前的编号核验（2026-10-12，`docs/**` + `src/**` 全量检索）
+
+| 候选 | 命中 | 结论 |
+| --- | --- | --- |
+| `CI-LEAD` | **0** | **采用 `CI-LEAD-01`**（独立支线族首个） |
+| `CI-P2-08` | **0** | 可用，但**未采用** |
+| `CI-P2-06A`（作者建议） | **0** | **未采用**：`CI-P2-06` 已被清单 §四 第 279 行「创作者资料与内容分群」保留为那张卡的槽位；`P2-06A` 会被读成「该卡的子项」，而线索/成交与该卡不是同一件事 |
+| `CI-P3-04` | 已有（被 `CI-EMB-01` 明确**不占用**） | 不使用 |
+| `CI-P2-06` | 3 处（均为「该号已被清单占用」的说明） | 不使用 |
+
+**为什么走独立支线**：本文件与主线对本类「不来自清单、作者直接授权」的卡已有先例 —— `CI-SC-01`、`CI-AI-IMG-CONFIG-*`、`CI-ARTICLE-NAV-01`、`CI-EMB-01` 全部使用独立前缀。`CI-P2-*` 是清单 §四「内容生产工作流」的槽位，而本卡记录**业务结果**（发布 → 咨询 → 成交），不是内容生产步骤；占用同族号会误导后续编号。**作者若偏好 `CI-P2-08`，改名成本 = 6 个文件的一次文本替换**（主线 §附录 U、主线 §1 第 71 行、本文件 §3 第 87 行与本节、`src/db/schema.ts` 表注释、`src/lib/app-errors.ts` 两条注释）。
+
+### 24.3 交付登记（改动内容 / 调用链路）
+
+| 层 | 文件 | 说明 |
+| --- | --- | --- |
+| 数据模型 | `src/db/schema.ts`、`src/db/client.ts` | 唯一新表 `marketing_leads` + 3 索引；**未改任何既有表 / 列** |
+| 纯逻辑 | `src/lib/leads.ts`（新增 287 行）、`src/lib/types.ts` | 词表 / 金额最小单位 / 成交裁决 / 关联裁决 / 汇总 / 错误码映射 |
+| 错误词表 | `src/lib/app-errors.ts` | `LEAD_DEAL_RECORDED`、`LEAD_DEAL_CURRENCY_MISSING` |
+| 校验 | `src/lib/validation.ts` | `marketingLeadCreateSchema` / `marketingLeadUpdateSchema` |
+| 仓储 | `src/db/repositories/leads.ts`（新增 139 行） | 四个动词 + 写入前 `resolveMarketingLeadDeal` 守卫 |
+| 路由 | `src/app/api/leads/route.ts`、`src/app/api/leads/[id]/route.ts`（新增） | `GET`/`POST`、`GET`/`PATCH`/`DELETE` |
+| 界面 | `src/components/marketing-leads-workspace.tsx`（新增 600 行）、`src/app/[locale]/(console)/publishing/leads/page.tsx` | 列表 / 统计 / 内容维度 / 新建·编辑·删除 |
+| 导航 | `src/lib/console-nav.ts` + `src/lib/console-nav.test.ts` | 发布与渠道组新增叶子 `leads`（紧随「发布记录」），不变式测试**有意更新 2 行** |
+| 三语 | `src/locales/{en,zh-cn,zh-hk}.json` | 各 **+80** 键，三键集相同（`i18n-coverage` 把守） |
+
+**调用链路**：页面 → `GET /api/leads` → `listMarketingLeads()`（唯一新表读）→ 既有 `listContentItemRefs()` / `listPublishRecords()` 解析线索命名的 id → `summarizeMarketingLeads()` 一次返回。写入 → 对话框（本地把金额文本转最小单位）→ `POST /api/leads` 或 `PATCH /api/leads/[id]` →（只有命名记录时才）`getPublishRecord()` → `resolveMarketingLeadContentItem()` → 仓储写入（`resolveMarketingLeadDeal()` 通过后才落库），拒绝时 `400 LEAD_*`。**未经过 AI Runtime、未写 `runs` / `publish_records` / `content_items`。**
+
+### 24.4 验证结果（**本轮 2026-10-12 实跑**）
+
+| 命令 | 结果 |
+| --- | --- |
+| `node_modules\.bin\tsc.cmd --noEmit` | **exit 0**（输出 0 字节） |
+| 定向 `vitest run`（`src/lib/leads.test.ts` + `src/app/api/leads`） | **3 文件 / 35 用例通过**（`leads.test.ts` 15、`leads/route.test.ts` 10、`leads/[id]/route.test.ts` 10） |
+| 全量 `vitest run` | **181 文件 / 1600 用例全通过**（本文件 §23.3 记上一张卡 178 / 1565 → **+3 文件 / +35 用例**，恰为本卡三个用例文件） |
+| `eslint src` | **exit 0 / 0 error / 1 warning**（唯一 warning 为**既有** `src/components/agent-chat/chat-conversation.tsx:146`，非本卡） |
+| `eslint .`（仓库级） | **本轮未跑**（如实标注）；仓库根既有 3 条未跟踪脚本 error 与前几张卡记录一致，**非本卡** |
+
+**关键用例**：未记录金额 ≠ 0（`wonWithoutAmount` 单列且不入合计）；金额整数化（`"1200.5"` → `120050`，三位小数 / 分隔符 / 负号一律 invalid）；币种不混算；成交不得被静默删除（`PATCH` 改状态 → `400 LEAD_DEAL_RECORDED` **且复查库中金额/币种/时间/备注仍在**）；清除必须显式 `dealCleared`；金额必须带单位；关联由命名的发布记录裁决（含 `null` 解除关联）；不存在的记录不写并复查行数未变；空库返回全 0；菜单不变式全过。
+
+### 24.5 未做的事（如实登记）
+
+- **未做（可延后）**：① **批量导入** —— 作者功能表里的「支持现有数据结构的导入方式」只做到「手动录入 + API 接受现有字段形状」，**CSV / 表格导入未实现**（仓库内无任何导入 UI 先例，如需请另立卡）；② **真实 dev server HTTP 冒烟**与**打包版 Electron 验证** —— 本轮未起任何服务、未停/未重启作者的 dev server（路由用例是**真实路由处理器 + 真实 SQLite 临时库**，但**不是** HTTP 层）；③ **按内容直接关联的界面选择器** —— API 接受 `contentItemId`，界面只提供发布记录下拉（`/api/content` 的 `pageSize` 上限为 20，没有可用的内容全量列表端点）。
+- **阻塞**：无。
+- **界面状态未做 DOM 测试（如实登记）**：加载 / 成功 / 失败 / 空态与「成交但未记录金额」提示均由组件实现，但**无 DOM 级用例** —— 本仓 vitest 无 DOM 环境（无 jsdom / happy-dom / @testing-library），与 `CI-P2-07` 的既定做法一致；可测的界面分支已抽到 `src/lib/leads.ts` 纯函数（15 条用例覆盖）。
+- **口径提醒（不是实现）**：`dealAmountMinorScale = 100` 对所有币种一律两位小数（JPY / KRW 会被显示成 `.00`）；已写进代码注释与本节，属**已知限制**。
+- **未改**：`docs/coolpilot-integration-contracts.md`（本卡不新增媒体产物 / 长任务类型 / 工具注册，不触发三份契约）；AI Runtime、C2 发布语义、指标采集、视频生产、既有任务状态与编号**一律未动**。
+
+### 24.6 行号影响（登记事实，不代改其它文档）
+
+| 引用对象 | 本卡前实测 | 本卡后实测 |
+| --- | --- | --- |
+| 本文件总行数 | 695 | **773** |
+| §3 的 `CI-P2-07` 行（**同行内**状态修正） | 86 | **86**（零位移） |
+| §3 新增的 `CI-LEAD-01` 行 | — | **87** |
+| `## 4.5` 标题行 | 219 | **220** |
+| `## 5.` 标题行 | 254 | **255** |
+| `## 24.` 标题行 | — | **697** |
+
+- §3 **新增一行**使 **87 行之后**的既有引用整体下移 **1** 行（§4.3 / §4.4 / §4.5 / §5 与文末既有章节）；§24.1 的状态修正是**同行内替换**，不产生位移。
+- 本卡**不代改**上一张卡 §23.5 登记的既有漂移（三处「主线 §附录 B-10 第 **1385** 行」），也**不代改**主线 §附录 U §U.7 登记的主线内部漂移；两处都只在本节登记事实。
+
+
+
+
 

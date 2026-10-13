@@ -1,7 +1,8 @@
-# CoolPilot 集成契约（CI-P0-03 / CI-P0-04 / CI-P0-05）
+# CoolPilot 集成契约（CI-P0-03 / CI-P0-04 / CI-P0-05 / CI-P1-04-07）
 
 > 本文件是 `docs/coolpilot-capability-integration-plan.md` 的**接口约定**附件，对应 P0 的三项契约任务。
 > 契约只描述**现有代码里已经存在的事实**加**本轮最小必要扩展**；凡标 `【新】` 的都是本计划要新增的最小接口，其余都是对现有实现的引用。
+> **2026-10-12 追加**：**§4** 是 `CI-P1-04-07`（`CI-P1-04` 的子项，不占一级卡号）补登的**产物读取路由**契约，**不属于** P0 的三项契约；它只登记代码里**已经实现**的形状（路径、参数、安全边界、响应），**不新增**任何实现要求。
 
 ## 1. CI-P0-03 · 统一媒体产物契约
 
@@ -32,6 +33,7 @@
 2. `/api/videos?file=<basename>`：服务 `videos/` 下的视频（`video-library.ts` 定扩展名与 MIME）。
 3. `/api/products/image`、`/api/settings/brand/logo` 对应的上传目录没有统一的“按文件名取回”入口（它们只在各自业务界面内被引用）。
 4. `/api/media?file=<basename>`：服务 `media/` 下的音视频（`media-library.ts` 定扩展名与 MIME），支持 `Range` → 206 —— **CI-P3-02 新增**，是转写任务的输入来源；`GET` 列目录但不建目录（同 P5-B0-2.5），`?file=` 的取值同样经 `path.basename` 强校验。导入走 `POST /api/media/upload`（写进 `media/`，命名前缀 `media-`）；`GET /api/media` 只读，不接 `POST`。
+5. `/api/videos/renders/<taskId>?file=<basename>`：服务**该渲染任务自己的日志里列出**的产物 —— `.srt` / `.json` 侧车（该任务的交付视频本路由也认，但它的**公布地址**仍是第 2 条，见 §4.5）。文件名必须是**纯文件名**（无 `/`、`\`、`..`、无控制字符与 `"`）且落在该任务的白名单内，否则 **404**；本路由**不分段**（无 `Range` / `206`）。配套只读清单 `GET /api/videos/renders`（模板清单 + 渲染历史）。 —— **CI-P1-04-07 新增（2026-10-12）**；契约正文见 **§4**；`/api/videos` 的白名单与 `Range` / `206` 行为**未改**。
 
 **引用字段（数据库里已有的 2 处，且有镜像关系）**
 
@@ -87,7 +89,7 @@ export function listMediaAssets(): Promise<MediaAssetRef[]>;
 1. **输入形态**：裸文件名、绝对/相对路径、`/api/agent/artifacts?file=`、`/api/videos?file=`、`http(s)://` —— 六种历史形态都必须能解析，且解析结果对同一文件幂等。
 2. **不新建表、不改列**：不新增 `assets` 表，不改 `content_items`；`image_path` 与 `metadata.images[0]` 的镜像语义保持不变。
 3. **不改变任何已有 URL 形状**；`resolveArtifactImageSrc()` 的行为与输出继续原样保留（历史正文里存的就是它）。
-4. **访问入口复用现有路由**：`/api/agent/artifacts` 与 `/api/videos`；统一查询入口【新】只做“列出 + 解析”，返回结构里直接给 `url`，不新增第三个二进制服务路由。
+4. **访问入口复用现有路由**：`/api/agent/artifacts` 与 `/api/videos`；统一查询入口【新】只做“列出 + 解析”，返回结构里直接给 `url`，不新增第三个二进制服务路由。（**2026-10-12 补注**：本句约束的是 P0-03 那个「统一查询入口」**本身**，不是「此后不许再有按用途的二进制路由」——其后 `CI-P3-02` 新增 `/api/media?file=`、`CI-P1-04-07` 新增 `/api/videos/renders/<taskId>?file=`，都是**另立的、按用途的**路由，登记见 §1.1 第 4 / 5 条与 §4。）
 5. **安全边界不变**：任何落到磁盘的路径都必须经过 basename 归一 + 扩展名白名单；不允许出现 `..`、盘符、绝对路径逃逸。
 6. **只读不初始化**：`listMediaAssets()` 用 `artifactsRoot()`/`videosRoot()` 等**非 ensure** 访问器，缺失目录返回空数组。
 7. **远程引用显式化**：远程 URL 返回 `{ external: true, remoteUrl, url }`，绝不返回空串或静默丢弃。
@@ -285,3 +287,51 @@ export type ToolCallResult<T> = { ok: true; data: T } | { ok: false; error: Tool
 - 脱敏用例：入参含 `apiKey`/`cookie` 时，记录里出现 `[redacted]`，且日志中不含原值。
 - `GET /api/tools` 返回的 schema 与实际 `inputSchema` 一致（用一个故意非法的入参验证会被拒）。
 - Agent 侧零回归：`tool-registry.test.ts`、`local-tools.test.ts` 全绿，`AgentToolDefinition` 签名未变。
+
+## 4. CI-P1-04-07 · 渲染产物读取路由（2026-10-12 补登，`CI-P1-04` 子项）
+
+> **定位**：本节登记的是**代码里已经实现**的一条按用途路由，**不是** P0 契约，也**不新增**实现要求。它关掉了 CI-P1-04 的**已知限制 3**：渲染包写出的 `.srt` / `.json` 侧车是真实文件，但在本卡之前没有任何按文件名取回的入口（`/api/videos` 按设计只服务视频扩展名，非视频扩展名一律 404）。
+> 实现：`src/lib/videos/video-render-artifacts.ts`（纯读模型，**Node-free**）、`src/app/api/videos/renders/route.ts`、`src/app/api/videos/renders/[id]/route.ts`；界面消费者是 `src/components/creation/video-render-panel.tsx`（挂在 `/creation/videos` 上）。交付记录见 `docs/coolpilot-capability-integration-plan.md` §附录 B-4 §8。
+
+### 4.1 路径与用途
+
+| 方法与路径 | 用途 |
+| --- | --- |
+| `GET /api/videos/renders?limit=` | 读模型：**模板清单** + 本工作区的**渲染历史**（每项含 CI-P1-02 任务视图、该任务日志列出的产物与真实地址、`encoded`） |
+| `GET /api/videos/renders/<taskId>` | 一个渲染包：`{ task, artifacts, encoded }`（**不发字节**） |
+| `GET /api/videos/renders/<taskId>?file=<basename>` | 该包**某一个产物**的字节 |
+
+- 成功响应一律是 P0-05 的 `{ ok: true, data }` 信封（`data` 形状随上表）。
+- `limit`：默认 **20**、上限 **100**；非有限数或 `<= 0` 回落默认值。列表只扫**最近 200 条 run**（与统一任务视图同口径），在其中取 `playbook_id = "video_render"` 的任务、新→旧、最多 `limit` 条；窗口里没有渲染任务时**如实回空列表**（不是把"扫不到"报成"工作区里没有文件"）。
+- `?file=` 为空（或省略）视为**未给**：回包描述而不是字节。
+
+### 4.2 参数含义
+
+- `<taskId>` 是 **CI-P1-02 的 `runs.id`**（不加前缀、不做复合 id）。它不是"包 id"：包没有独立标识，描述的永远是产生它的那一次渲染任务。
+- `file` 是**该任务日志里列出的产物文件名**（纯文件名，不含路径）。取值来自 `videoRenderArtifactFiles()`：只认渲染器记录产品的三个阶段（`video` / `subtitles` / `package`）的 `data.fileName`；**材料阶段（`materials`）不算产物**，因此塞进该阶段的名字永远不会成为产物。
+
+### 4.3 安全边界（以代码为准）
+
+1. **白名单是任务日志，不是目录**：`?file=` 必须**同时**（a）在该任务三个槽位的文件名之内、（b）通过 `isRenderArtifactFileName()`（非空、与 `trim()` 全等、不含 `/`、`\`、`..`、不含控制字符与 `"`，扩展名属于 `.mp4` / `.mov` / `.webm` / `.m4v` / `.srt` / `.json`）。任一不满足 → **404**。**不许跨任务取件**：另一个渲染任务写出的文件，即使真实存在，也不会被这个任务的 URL 服务。
+2. **路径**：读取根固定为 `videosRoot()`（`web-data/videos`），拼接前已归一为**纯文件名** → 无目录穿越、无绝对路径逃逸、无盘符；**只读不初始化**（`GET` 不创建该目录）。
+3. **任务身份**：`<taskId>` 不存在，或它对应的 run **不是** `video_render` → 一律 **404**（本路由只描述渲染任务，不当通用 run 读取器）。
+4. **磁盘一致性**：文件在日志里有名、磁盘上不存在 → **404**（日志是记录，不是文件存在的证明）。
+
+### 4.4 响应（含 `.srt` / `.json`）
+
+- **产物字节**：**200**，`Content-Type` 由扩展名决定 —— `.srt` → `application/x-subrip; charset=utf-8`；`.json` → `application/json; charset=utf-8`；视频扩展名沿用视频库的 MIME（`.mp4` → `video/mp4` 等）；另有 `Content-Length`、`Content-Disposition: attachment; filename="<name>"`、`Cache-Control: private, no-store`（同一 id 重渲染会改变字节，不做共享缓存）。
+- **不发字节**（省略 `?file=`，或 `?file=` 为空）：**200** + `{ ok: true, data: { task, artifacts, encoded } }`。
+- **404**：正文是纯文本 `Not found` —— 本路由**没有** 4xx / 5xx 的 JSON 错误信封，也**没有**其他状态码。
+- **无 `Range` / `206`**：本路由不分段（一次完整响应）。
+
+### 4.5 边界（本卡**未**改变的东西）
+
+- **交付视频仍走 `/api/videos?file=`**：`artifacts[]` 里 `slot: "video"` 的 `url` 是 `videoUrl()`（即 §1.1 第 2 条那个地址），**保留其白名单与 `Range` / `206` 契约**（含 `Accept-Ranges: bytes` 与越界 `416`）。本路由虽然也认该文件名，但**不是**它的公布地址。
+- **`url: ""` 仍是工具返回值的冻结语义**：`POST /api/tools/video_render` 与 `videoRenderArtifactsSchema` 的产物形状**未改**（CI-P1-01 的"该根 / 扩展名暂无服务路由"哨兵值继续原样返回）。新增路由**只**提供**读取面**地址，**不代表**工具返回值已经改成真实地址。
+- **未新增表 / 列 / 迁移**；未改 `runs` / `run_events` 与任何状态词；未改 `/api/videos`、`/api/agent/artifacts`、`/api/media`。
+
+### 4.6 未验证（如实登记）
+
+- 打包版 Electron 行为**未验证**（本卡只做 dev server 实测）。
+- 本路由**没有** `Range` 支持（设计如此：侧车是几十 KB 的文本，交付视频走 §1.1 第 2 条）；因此"用本路由取视频"的行为**未测试**，也不属于契约。
+- 拒绝分支（未知名、跨任务名、路径穿越、非渲染任务、磁盘缺文件）由路由测试覆盖（8 例）；**真实浏览器**里只验证了正常取件路径。

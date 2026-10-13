@@ -12,19 +12,27 @@ import {
 } from "@/components/ui/console-surface";
 import { SelectField } from "@/components/ui/form-controls";
 import { ApiClientError, apiErrorTranslationKey, apiPost, swrFetcher } from "@/lib/api-client";
+import { usageKindLabelKeys, usageUnitLabelKeys } from "@/lib/ai-usage-labels";
 import { useI18n } from "@/lib/i18n";
 import type { TranslationKey } from "@/lib/locale-resources";
 import {
   aiPriceCurrencies,
   aiPriceSources,
+  aiUsageKindIsTokenMetered,
   aiUsageMeteredKinds,
   type AiModelPrice,
   type AiModelPriceView,
-  type AiPriceCurrency,
   type AiPriceSource,
   type AiUsageMeteredKind,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import {
+  changeModelPriceKind,
+  defaultModelPriceForm,
+  modelPriceFormPayload,
+  modelPriceUnitsFor,
+  type ModelPriceForm,
+} from "./model-price-form";
 
 /**
  * 价格目录 (CI-P7-01-05): what a request costs, and since when.
@@ -37,79 +45,19 @@ import { cn } from "@/lib/utils";
  * - it never presents a computed figure as a charge. Everything entered here produces "our
  *   arithmetic on your usage" (`computed`), which the notice above the form says out loud.
  *
- * The dimensions the catalog can hold but this screen cannot yet fill are listed as they are -
- * unpriced - rather than given a placeholder price that real usage would then be multiplied by.
+ * The dimensions and units - and every rule about which of them can be entered together - come from
+ * `./model-price-form`, which is also what builds the request body: a row states one dimension, and a
+ * text rate can no more be typed onto a per-image row than a per-image price can be typed onto a text
+ * one. The catalog refuses either shape, so the form does not offer it.
  */
 
 type PricesResponse = { prices: AiModelPriceView[]; meteredKinds: AiUsageMeteredKind[] };
-
-type PriceForm = {
-  providerId: string;
-  modelId: string;
-  currency: AiPriceCurrency;
-  inputPerMillion: string;
-  outputPerMillion: string;
-  cachedInputPerMillion: string;
-  priceVersion: string;
-  source: AiPriceSource;
-  effectiveFrom: string;
-  declaredFree: boolean;
-  notes: string;
-};
-
-const meteredKindLabelKeys: Record<AiUsageMeteredKind, TranslationKey> = {
-  text: "modelPriceKindText",
-  image: "modelPriceKindImage",
-  video: "modelPriceKindVideo",
-  speech: "modelPriceKindSpeech",
-  embedding: "modelPriceKindEmbedding",
-  agent: "modelPriceKindAgent",
-};
 
 const sourceLabelKeys: Record<AiPriceSource, TranslationKey> = {
   manual: "modelPriceSourceManual",
   "provider-doc": "modelPriceSourceProviderDoc",
   imported: "modelPriceSourceImported",
 };
-
-function pad(value: number) {
-  return String(value).padStart(2, "0");
-}
-
-/** `datetime-local` speaks local time as `YYYY-MM-DDTHH:mm`, which is what a person recognises. */
-function localInputValue(ms: number) {
-  const date = new Date(ms);
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
-}
-
-/**
- * An empty box means "not stated" and becomes `undefined`, never 0: a rate nobody typed is refused
- * by the catalog instead of being stored as a free model.
- */
-function rateFromInput(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : Number.NaN;
-}
-
-function defaultForm(providerId = ""): PriceForm {
-  return {
-    providerId,
-    modelId: "*",
-    currency: "CNY",
-    inputPerMillion: "",
-    outputPerMillion: "",
-    cachedInputPerMillion: "",
-    priceVersion: `manual-${new Date().toISOString().slice(0, 10)}`,
-    source: "manual",
-    effectiveFrom: localInputValue(Date.now()),
-    declaredFree: false,
-    notes: "",
-  };
-}
 
 /** The first field-level complaint a zod refusal carries, when it carries one. */
 function firstIssue(details: unknown) {
@@ -122,7 +70,7 @@ function firstIssue(details: unknown) {
 
 export default function ModelPricePanel() {
   const { t, locale } = useI18n();
-  const [form, setForm] = useState<PriceForm>(() => defaultForm());
+  const [form, setForm] = useState<ModelPriceForm>(() => defaultModelPriceForm());
   const [providerFilter, setProviderFilter] = useState("");
   const [kindFilter, setKindFilter] = useState<AiUsageMeteredKind | "">("");
   const [saving, setSaving] = useState(false);
@@ -155,7 +103,14 @@ export default function ModelPricePanel() {
   /** Dimensions with no price at all - the honest "we cannot state this" list. */
   const unpricedKinds = meteredKinds.filter((kind) => !prices.some((price) => price.meteredKind === kind));
 
-  function update<Key extends keyof PriceForm>(key: Key, value: PriceForm[Key]) {
+  /**
+   * Which half of the form applies. The dimension is the form's first decision, and it decides both
+   * which rates exist (`modelPriceFormPayload` reads it the same way) and, one screen over, which rate
+   * a real call would be costed with.
+   */
+  const formTokenMetered = aiUsageKindIsTokenMetered(form.meteredKind);
+
+  function update<Key extends keyof ModelPriceForm>(key: Key, value: ModelPriceForm[Key]) {
     setForm((previous) => ({ ...previous, [key]: value }));
   }
 
@@ -163,26 +118,11 @@ export default function ModelPricePanel() {
     setSaving(true);
     setNotice(null);
     try {
-      await apiPost("/api/models/prices", {
-        providerId: form.providerId.trim(),
-        modelId: form.modelId.trim() || "*",
-        meteredKind: "text",
-        currency: form.currency,
-        inputPerMillion: rateFromInput(form.inputPerMillion),
-        outputPerMillion: rateFromInput(form.outputPerMillion),
-        // An empty cached box is a real answer: this provider does not price it separately.
-        cachedInputPerMillion: form.cachedInputPerMillion.trim()
-          ? rateFromInput(form.cachedInputPerMillion)
-          : null,
-        unitLabel: "",
-        declaredFree: form.declaredFree,
-        priceVersion: form.priceVersion.trim(),
-        source: form.source,
-        effectiveFrom: form.effectiveFrom ? new Date(form.effectiveFrom).getTime() : undefined,
-        notes: form.notes.trim(),
-      });
+      // The body is built from the dimension, so a token row can never carry a unit price and a
+      // per-image row can never carry a token rate - the two shapes the catalog refuses.
+      await apiPost("/api/models/prices", modelPriceFormPayload(form));
       // The provider stays put: adding a second model for the same vendor is the common case.
-      setForm((previous) => ({ ...defaultForm(previous.providerId), currency: previous.currency }));
+      setForm((previous) => ({ ...defaultModelPriceForm(previous.providerId), currency: previous.currency }));
       setNotice({ tone: "success", message: t("modelPriceSaved") });
       await mutate();
     } catch (error) {
@@ -196,10 +136,16 @@ export default function ModelPricePanel() {
     }
   }
 
-  /** A row's price as a sentence: token rates for token kinds, a per-unit rate for the others. */
+  /**
+   * A row's price as a sentence: token rates for token kinds, and for the others the rate with the
+   * unit it is quoted in - a bare number with no unit would not say what it is the price *of*.
+   */
   function rateText(price: AiModelPrice) {
     if (price.unitPrice !== undefined) {
-      return `${numberFormat.format(price.unitPrice)} / ${price.unitLabel || "?"}`;
+      return t("modelPricePerUnitRate", {
+        rate: numberFormat.format(price.unitPrice),
+        unit: price.unitLabel ? t(usageUnitLabelKeys[price.unitLabel]) : "?",
+      });
     }
     return t("modelPriceRatesPerMillion", {
       input: numberFormat.format(price.inputPerMillion),
@@ -225,6 +171,16 @@ export default function ModelPricePanel() {
 
         <h3 className="mt-6 text-sm font-semibold text-zinc-900">{t("modelPriceFormTitle")}</h3>
         <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {/* The dimension is asked first because it decides which rate boxes follow: a token rate on
+              a per-image row (or the reverse) is a shape the catalog refuses, so the form does not
+              offer one. It defaults to text, which is what this screen used to record. */}
+          <SelectField
+            label={t("modelPriceColumnMeter")}
+            value={form.meteredKind}
+            onChange={(value) => setForm((previous) => changeModelPriceKind(previous, value))}
+            options={meteredKinds.map((kind) => ({ value: kind, label: t(usageKindLabelKeys[kind]) }))}
+          />
+
           <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
             <span>{t("modelPriceProvider")}</span>
             <input
@@ -254,38 +210,66 @@ export default function ModelPricePanel() {
             options={aiPriceCurrencies.map((currency) => ({ value: currency, label: currency }))}
           />
 
-          <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-            <span>{t("modelPriceInputRate")}</span>
-            <input
-              className={consoleInputClass}
-              inputMode="decimal"
-              value={form.inputPerMillion}
-              onChange={(event) => update("inputPerMillion", event.target.value)}
-              placeholder="0"
-            />
-          </label>
+          {formTokenMetered ? (
+            <>
+              <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                <span>{t("modelPriceInputRate")}</span>
+                <input
+                  className={consoleInputClass}
+                  inputMode="decimal"
+                  value={form.inputPerMillion}
+                  onChange={(event) => update("inputPerMillion", event.target.value)}
+                  placeholder="0"
+                />
+              </label>
 
-          <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-            <span>{t("modelPriceOutputRate")}</span>
-            <input
-              className={consoleInputClass}
-              inputMode="decimal"
-              value={form.outputPerMillion}
-              onChange={(event) => update("outputPerMillion", event.target.value)}
-              placeholder="0"
-            />
-          </label>
+              <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                <span>{t("modelPriceOutputRate")}</span>
+                <input
+                  className={consoleInputClass}
+                  inputMode="decimal"
+                  value={form.outputPerMillion}
+                  onChange={(event) => update("outputPerMillion", event.target.value)}
+                  placeholder="0"
+                />
+              </label>
 
-          <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
-            <span>{t("modelPriceCachedRate")}</span>
-            <input
-              className={consoleInputClass}
-              inputMode="decimal"
-              value={form.cachedInputPerMillion}
-              onChange={(event) => update("cachedInputPerMillion", event.target.value)}
-            />
-            <span className="text-xs font-normal text-zinc-500">{t("modelPriceCachedHint")}</span>
-          </label>
+              <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                <span>{t("modelPriceCachedRate")}</span>
+                <input
+                  className={consoleInputClass}
+                  inputMode="decimal"
+                  value={form.cachedInputPerMillion}
+                  onChange={(event) => update("cachedInputPerMillion", event.target.value)}
+                />
+                <span className="text-xs font-normal text-zinc-500">{t("modelPriceCachedHint")}</span>
+              </label>
+            </>
+          ) : (
+            <>
+              <SelectField
+                label={t("modelPriceUnitLabel")}
+                value={form.unitLabel}
+                onChange={(value) => update("unitLabel", value)}
+                options={modelPriceUnitsFor(form.meteredKind).map((unit) => ({
+                  value: unit,
+                  label: t(usageUnitLabelKeys[unit]),
+                }))}
+              />
+
+              <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
+                <span>{t("modelPriceUnitPrice")}</span>
+                <input
+                  className={consoleInputClass}
+                  inputMode="decimal"
+                  value={form.unitPrice}
+                  onChange={(event) => update("unitPrice", event.target.value)}
+                  placeholder="0"
+                />
+                <span className="text-xs font-normal text-zinc-500">{t("modelPriceUnitPriceHint")}</span>
+              </label>
+            </>
+          )}
 
           <label className="grid gap-1.5 text-sm font-medium text-zinc-700">
             <span>{t("modelPriceVersion")}</span>
@@ -368,7 +352,7 @@ export default function ModelPricePanel() {
             onChange={(value) => setKindFilter(value)}
             options={[
               { value: "", label: "*" },
-              ...meteredKinds.map((kind) => ({ value: kind, label: t(meteredKindLabelKeys[kind]) })),
+              ...meteredKinds.map((kind) => ({ value: kind, label: t(usageKindLabelKeys[kind]) })),
             ]}
           />
         </div>
@@ -400,7 +384,7 @@ export default function ModelPricePanel() {
                       <td className="py-2 pr-4 text-zinc-700">{price.modelId}</td>
                       <td className="py-2 pr-4">
                         <span className="rounded-full border border-sky-100 bg-sky-50 px-2 py-0.5 text-zinc-600">
-                          {t(meteredKindLabelKeys[price.meteredKind])}
+                          {t(usageKindLabelKeys[price.meteredKind])}
                         </span>
                       </td>
                       <td className="py-2 pr-4 text-zinc-700">
@@ -454,7 +438,7 @@ export default function ModelPricePanel() {
                 key={kind}
                 className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs text-zinc-600"
               >
-                {t(meteredKindLabelKeys[kind])}
+                {t(usageKindLabelKeys[kind])}
               </span>
             ))}
           </div>

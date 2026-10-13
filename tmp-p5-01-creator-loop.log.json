@@ -1,0 +1,451 @@
+{
+  "card": "CI-P5-01",
+  "mark": "E2E05-创作闭环-1791615612613",
+  "base": "http://127.0.0.1:3000",
+  "locale": "zh-cn",
+  "startedAt": "2026-10-10T07:00:12.613Z",
+  "checks": [
+    {
+      "name": "P5-01-01 创建选题 201 + 读回字段一致",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"id\":\"oF9EuYzNiEQsMa04VEmT-\",\"title\":\"E2E05-创作闭环-1791615612613-选题\",\"description\":\"E2E05 受控测试选题：桌面收纳与换季整理。\",\"keywords\":[\"收纳\",\"整理\"],\"source\":\"manual\",\"sourceUrl\":\"\",\"status\":\"active\",\"contentItemId\":null,\"researchMaterialId\":\"\",\"createdAt\":1791615613103,\"updatedAt\":1791615613103}}"
+    },
+    {
+      "name": "P5-01-02 创建品牌资料 201 + 读回字段一致",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"id\":\"u8B1-NQHWvHB8podAcupX\",\"name\":\"E2E05-创作闭环-1791615612613-品牌\",\"description\":\"E2E05 受控测试品牌资料：主打可复用的塑料收纳箱。\",\"targetAudience\":\"一线城市租房青年\",\"tone\":\"克制、给步骤、不夸张\",\"keywords\":[\"可堆叠\",\"透明箱体\"],\"bannedWords\":[\"最便宜\"],\"createdAt\":1791615613117,\"updatedAt\":1791615613117}}"
+    },
+    {
+      "name": "P5-01-03 创建研究素材 201 + kind=text/status=ready",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"id\":\"k6urVhrbx10k9VdXyTrWg\",\"title\":\"E2E05-创作闭环-1791615612613-素材\",\"kind\":\"text\",\"content\":\"受控测试素材正文：先清空台面，再按使用频率分三区；常用物品放在腰线高度，重物下沉，视觉噪音上收。\",\"sourceUrl\":\"\",\"status\":\"ready\",\"statusMessage\":\"\",\"imageUrl\":\"\",\"fileName\":\"\",\"tags\":[\"E2E05\",\"收纳\"],\"fetchedAt\":null,\"transcript\":null,\"extraction\":null,\"extractionHistory\":[],\"createdAt\":1791615613127,\"updatedAt\":1791615613127}}"
+    },
+    {
+      "name": "P5-01-01/02/03 建档后逐条读回（GET 单条 200）",
+      "ok": true,
+      "detail": "{\"topic\":200,\"brand\":200,\"material\":200}"
+    },
+    {
+      "name": "P5-01-03 UI：?researchMaterialId= 打开生成对话框",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3000/zh-cn/creation/articles?researchMaterialId=k6urVhrbx10k9VdXyTrWg errors=none"
+    },
+    {
+      "name": "P5-01-03 UI：素材已被预选（id 与建档一致）",
+      "ok": true,
+      "detail": "k6urVhrbx10k9VdXyTrWg"
+    },
+    {
+      "name": "P5-01-01 UI：选中选题后主题被预填",
+      "ok": true,
+      "detail": "E2E05-创作闭环-1791615612613-选题"
+    },
+    {
+      "name": "P5-01-02 UI：品牌资料可选并选中",
+      "ok": true,
+      "detail": "u8B1-NQHWvHB8podAcupX"
+    },
+    {
+      "name": "P5-01-04 UI：真实生成后进入编辑器（文章ID 标记出现）",
+      "ok": true,
+      "detail": "generated=true failureNotice=false errors=none"
+    },
+    {
+      "name": "P5-01-04 生成文章标题非空",
+      "ok": true,
+      "detail": "桌面前先清空，换季不乱塞"
+    },
+    {
+      "name": "P5-01-04 编辑器正文非空",
+      "ok": true,
+      "detail": "chars=950"
+    },
+    {
+      "name": "P5-01-04 生成结果已落库（内容库首屏可见）",
+      "ok": true,
+      "detail": "{\"items\":[{\"id\":\"Kag89y-46ZpOazNEZIgjR\",\"title\":\"桌面前先清空，换季不乱塞\",\"body\":\"搬家那天下着雨，纸箱泡软了，胶带一撕就烂。我把东西全堆在桌上，想着晚点再收，结果那堆东西在桌上待了三个月。\\n\\n租房的人大概都懂这种感觉：房间不大，收纳空间是固定的，但东西一直在长。换季的时候最明显，夏天的短袖还在外面挂着，秋天的外套已经堆上椅子。桌面就更别提了，充电线、水杯、快递盒、没拆的账单，一层盖一层。\\n\\n后来我试了个笨办法，但确实有用：先别买收纳工具，先把桌面全部清空。\\n\\n是真的清空，一样都不留。然后把清出来的东西摊在地上，按使用频率分成三区。每天都要用的，放回腰线高度，坐着伸手就能够到；一周用一两次的，往上层走；一个月都碰不到的，直接收进柜子或者箱子里。重的东西往下放，视觉上乱的东西往高处收，台面只留当天的必需品。\\n\\n这个顺序…(5819 chars)"
+    },
+    {
+      "name": "P5-01-06 保存：GET /api/content/<id> 200",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "P5-01-04 生成文章正文非空",
+      "ok": true,
+      "detail": "bodyChars=960"
+    },
+    {
+      "name": "P5-01-04 生成记录 provider/model",
+      "ok": true,
+      "detail": "openai/deepseek-flash"
+    },
+    {
+      "name": "P5-01-02 品牌关联（metadata.brandId/brandVersion）",
+      "ok": true,
+      "detail": "{\"brandId\":\"u8B1-NQHWvHB8podAcupX\",\"brandVersion\":1791615613117,\"expectVersion\":1791615613117}"
+    },
+    {
+      "name": "P5-01-03 研究素材关联（metadata.researchMaterialId/Version）",
+      "ok": true,
+      "detail": "{\"id\":\"k6urVhrbx10k9VdXyTrWg\",\"version\":1791615613127,\"expectVersion\":1791615613127}"
+    },
+    {
+      "name": "P5-01-01 选题关联（metadata.topicId）",
+      "ok": true,
+      "detail": "oF9EuYzNiEQsMa04VEmT-"
+    },
+    {
+      "name": "P5-01-01 选题回写产出文章（topic.contentItemId）",
+      "ok": true,
+      "detail": "Kag89y-46ZpOazNEZIgjR"
+    },
+    {
+      "name": "P5-01-05 上传图片 201 且回答存储形态 URL",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"fileName\":\"upload-1791615620629-6_LSKU1k.png\",\"url\":\"/api/agent/artifacts?file=upload-1791615620629-6_LSKU1k.png\"}}"
+    },
+    {
+      "name": "P5-01-05 PATCH images → imagePath 镜像一致",
+      "ok": true,
+      "detail": "{\"imagePath\":\"upload-1791615620629-6_LSKU1k.png\",\"images\":[\"upload-1791615620629-6_LSKU1k.png\"]}"
+    },
+    {
+      "name": "P5-01-08 PATCH images:[] 清空图片列表与封面（存储列 image_path 为 ''）",
+      "ok": true,
+      "detail": "{\"images\":[],\"dbImagePath\":\"\",\"note\":\"API 以「键缺失」表达空封面（src/db/repository.ts:121 `row.imagePath || undefined`），存储列仍为 ''\"}"
+    },
+    {
+      "name": "P5-01-05 封面可恢复",
+      "ok": true,
+      "detail": "upload-1791615620629-6_LSKU1k.png"
+    },
+    {
+      "name": "P5-01-06 深链 ?edit=<id> 重新打开编辑器",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3000/zh-cn/creation/articles?edit=Kag89y-46ZpOazNEZIgjR"
+    },
+    {
+      "name": "P5-01-06 重开后标题与落库一致",
+      "ok": true,
+      "detail": "桌面前先清空，换季不乱塞"
+    },
+    {
+      "name": "P5-01-06 重开后正文与落库一致（前缀比对）",
+      "ok": true,
+      "detail": "probe=\"搬家那天下着雨，纸箱泡软\""
+    },
+    {
+      "name": "P5-01-05 重开编辑器后封面真被画出（naturalWidth>0）",
+      "ok": true,
+      "detail": "/api/agent/artifacts?file=upload-1791615620629-6_LSKU1k.png"
+    },
+    {
+      "name": "P5-01-07 UI 存草稿得到「已储存」回执",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3000/zh-cn/creation/articles?edit=Kag89y-46ZpOazNEZIgjR"
+    },
+    {
+      "name": "P5-01-07 再次保存后标题已更新",
+      "ok": true,
+      "detail": "桌面前先清空，换季不乱塞-已编辑"
+    },
+    {
+      "name": "P5-01-07 再次保存后正文仍在（未被清空）",
+      "ok": true,
+      "detail": "bodyChars=1017"
+    },
+    {
+      "name": "P5-01-08 再次保存后图片引用/封面仍一致",
+      "ok": true,
+      "detail": "{\"imagePath\":\"upload-1791615620629-6_LSKU1k.png\",\"images\":[\"upload-1791615620629-6_LSKU1k.png\"]}"
+    },
+    {
+      "name": "P5-01-08 再次保存后关联数据未变（品牌/选题/素材）",
+      "ok": true,
+      "detail": "{\"brandId\":\"u8B1-NQHWvHB8podAcupX\",\"topicId\":\"oF9EuYzNiEQsMa04VEmT-\",\"researchMaterialId\":\"k6urVhrbx10k9VdXyTrWg\"}"
+    },
+    {
+      "name": "P5-01-06 内容库列表出现该文章（真实页面渲染）",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3000/zh-cn/content/library errors=none"
+    },
+    {
+      "name": "P5-01-05 内容库卡片封面真被画出",
+      "ok": true,
+      "detail": "/api/agent/artifacts?file=upload-1791615620629-6_LSKU1k.png"
+    },
+    {
+      "name": "后续衔接 UI：编辑器「去发布」打开发布对话框（未点击发布）",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3000/zh-cn/creation/articles?edit=Kag89y-46ZpOazNEZIgjR"
+    },
+    {
+      "name": "后续衔接 未执行真实发布：publish_records 计数未变",
+      "ok": true,
+      "detail": "3 → 3"
+    },
+    {
+      "name": "后续衔接 API：平台版本派生（POST /api/content/[id]/platform-versions）",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"contentItemId\":\"Kag89y-46ZpOazNEZIgjR\",\"base\":{\"title\":\"桌面前先清空，换季不乱塞-已编辑\",\"body\":\"<p>搬家那天下着雨，纸箱泡软了，胶带一撕就烂。我把东西全堆在桌上，想着晚点再收，结果那堆东西在桌上待了三个月。</p><p>租房的人大概都懂这种感觉：房间不大，收纳空间是固定的，但东西一直在长。换季的时候最明显，夏天的短袖还在外面挂着，秋天的外套已经堆上椅子。桌面就更别提了，充电线、水杯、快递盒、没拆的账单，一层盖一层。</p><p>后来我试了个笨办法，但确实有用：先别买收纳工具，先把桌面全部清空。</p><p>是真的清空，一样都不留。然后把清出来的东西摊在地上，按使用频率分成三区。每天都要用的，放回腰线高度，坐着伸手就能够到；一周用一两次的，往上层走；一个月都碰不到的，直接收进柜子或者…(8160 chars)"
+    },
+    {
+      "name": "后续衔接 API：生命周期读模型含该内容（GET /api/content/lifecycle）",
+      "ok": true,
+      "detail": "{\"contentItemId\":\"Kag89y-46ZpOazNEZIgjR\",\"contentFound\":true,\"title\":\"桌面前先清空，换季不乱塞-已编辑\",\"contentType\":\"article\",\"contentStatus\":\"draft\",\"stage\":\"draft\",\"createdAt\":1791615620368,\"updatedAt\":1791615623648,\"plan\":null,\"planCount\":0,\"enabledPlanCount\":0,\"executions\":{\"runs\":0,\"failedRuns\":0,\"lastStatus\":\"\",\"lastAt\":null},\"publish\":{\"records\":0,\"byStatus\":{\"queued\":0,\"running\":0,\"published\":0,\"drafted…(493 chars)"
+    },
+    {
+      "name": "失败场景：未知内容 GET/DELETE → 404",
+      "ok": true,
+      "detail": "404/404"
+    },
+    {
+      "name": "失败场景：图片生成诚实失败（无可用模型，非模拟成功）",
+      "ok": true,
+      "detail": "409 MODEL_CAPABILITY_UNAVAILABLE No usable model provides: image_generation"
+    },
+    {
+      "name": "失败场景：未知 researchMaterialId → 404 NOT_FOUND（不静默降级）",
+      "ok": true,
+      "detail": "{\"ok\":false,\"error\":\"Not found\",\"code\":\"NOT_FOUND\",\"message\":\"Not found\",\"details\":\"the selected research material no longer exists\"}"
+    },
+    {
+      "name": "本次运行期间新建的内容已全部清除（残留扫描为空）",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "未发生计划外的模型调用（无意外生成）",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "清理后 content_items 回落基线",
+      "ok": true,
+      "detail": "19 → 19"
+    },
+    {
+      "name": "清理后 topics/brands/research 回落基线",
+      "ok": true,
+      "detail": "{\"topics\":[0,0],\"brands\":[0,0],\"research\":[0,0]}"
+    },
+    {
+      "name": "清理后 publish_records / runs / schedules 未变",
+      "ok": true,
+      "detail": "{\"publish\":[3,3],\"runs\":[8,8],\"schedules\":[0,0]}"
+    },
+    {
+      "name": "清理后 artifacts 文件数回落基线",
+      "ok": true,
+      "detail": "37 → 37"
+    },
+    {
+      "name": "写入面只有账本/用量计数增长（其余表零漂移）",
+      "ok": true,
+      "detail": "{\"content_items\":0,\"topics\":0,\"brands\":0,\"research_materials\":0,\"schedules\":0,\"publish_records\":0,\"runs\":0,\"usage_records\":1,\"ai_usage_ledger\":1,\"artifactsFiles\":0}"
+    }
+  ],
+  "steps": [
+    {
+      "step": "0-before-counts",
+      "at": "2026-10-10T07:00:12.619Z",
+      "before": {
+        "content_items": 19,
+        "topics": 0,
+        "brands": 0,
+        "research_materials": 0,
+        "schedules": 0,
+        "publish_records": 3,
+        "runs": 8,
+        "usage_records": 20,
+        "ai_usage_ledger": 4,
+        "artifactsFiles": 37
+      },
+      "runStartedAtMs": 1791615612616,
+      "runStartedAt": "2026-10-10T07:00:12.616Z"
+    },
+    {
+      "step": "0-runtime",
+      "at": "2026-10-10T07:00:13.093Z",
+      "chat": {
+        "capability": "chat",
+        "total": 265,
+        "callable": 2
+      },
+      "defaults": {}
+    },
+    {
+      "step": "1-fixtures",
+      "at": "2026-10-10T07:00:13.130Z",
+      "topic": {
+        "status": 201,
+        "id": "oF9EuYzNiEQsMa04VEmT-",
+        "title": "E2E05-创作闭环-1791615612613-选题"
+      },
+      "brand": {
+        "status": 201,
+        "id": "u8B1-NQHWvHB8podAcupX",
+        "name": "E2E05-创作闭环-1791615612613-品牌",
+        "updatedAt": 1791615613117
+      },
+      "material": {
+        "status": 201,
+        "id": "k6urVhrbx10k9VdXyTrWg",
+        "kind": "text",
+        "materialStatus": "ready"
+      }
+    },
+    {
+      "step": "2-ui-form",
+      "at": "2026-10-10T07:00:14.389Z",
+      "dialogOpened": true,
+      "preselectedMaterial": "k6urVhrbx10k9VdXyTrWg",
+      "prefilledTopic": "E2E05-创作闭环-1791615612613-选题",
+      "brandValue": "u8B1-NQHWvHB8podAcupX"
+    },
+    {
+      "step": "click",
+      "at": "2026-10-10T07:00:14.745Z",
+      "name": "生成文章",
+      "strategy": "native"
+    },
+    {
+      "step": "2-ui-generated",
+      "at": "2026-10-10T07:00:20.531Z",
+      "editorTitle": "桌面前先清空，换季不乱塞",
+      "bodyChars": 950,
+      "generationMs": 6142
+    },
+    {
+      "step": "2-persisted",
+      "at": "2026-10-10T07:00:20.606Z",
+      "itemId": "Kag89y-46ZpOazNEZIgjR",
+      "title": "桌面前先清空，换季不乱塞",
+      "status": "ready",
+      "provider": "openai",
+      "model": "deepseek-flash",
+      "meta": "{\"type\":\"article\",\"prompt\":\"\",\"topic\":\"E2E05-创作闭环-1791615612613-选题\",\"generationType\":\"topic\",\"agentId\":\"general\",\"agentName\":\"通用写作\",\"topicId\":\"oF9EuYzNiEQsMa04VEmT-\",\"researchMaterialId\":\"k6urVhrbx10k9VdXyTrWg\",\"researchMaterialVersion\":1791615613127,\"images\":[],\"positioningId\":\"zIh9UGx5dZmxxzTOU0tH-\",\"brandId\":\"u8B1-NQHWvHB8podAcupX\",\"brandVersion\":1791615613117,\"provider\":\"openai\",\"model\":\"deepseek-flash\"}"
+    },
+    {
+      "step": "click",
+      "at": "2026-10-10T07:00:21.678Z",
+      "name": "存草稿",
+      "strategy": "native"
+    },
+    {
+      "step": "4-reopen-edit-save",
+      "at": "2026-10-10T07:00:22.025Z",
+      "reopenedTitle": "桌面前先清空，换季不乱塞",
+      "editedTitle": "桌面前先清空，换季不乱塞-已编辑",
+      "status": "draft",
+      "updatedAt": 1791615621738
+    },
+    {
+      "step": "click",
+      "at": "2026-10-10T07:00:23.582Z",
+      "name": "去发布",
+      "strategy": "native"
+    },
+    {
+      "step": "6-seams",
+      "at": "2026-10-10T07:00:23.669Z",
+      "publishDialog": true,
+      "platformVersionStatus": 200,
+      "lifecycleRow": "{\"contentItemId\":\"Kag89y-46ZpOazNEZIgjR\",\"contentFound\":true,\"title\":\"桌面前先清空，换季不乱塞-已编辑\",\"contentType\":\"article\",\"contentStatus\":\"draft\",\"stage\":\"draft\",\"createdAt\":1791615620368,\"updatedAt\":1791615623648,\"plan\":null,\"planCount\":0,\"enabledPlanCount\":0,\"executions\":{\"runs\":0,\"failedRuns\":0,\"lastStatus\":\"\",\"lastAt\":null},\"publish\":{\"records\":0,\"byStatus\":{\"queued\":0,\"running\":0,\"published\":0,\"drafted…(493 chars)"
+    },
+    {
+      "step": "7-negatives",
+      "at": "2026-10-10T07:00:23.978Z",
+      "missingMaterial": {
+        "status": 404,
+        "code": "NOT_FOUND"
+      },
+      "imageGen": {
+        "status": 409,
+        "code": "MODEL_CAPABILITY_UNAVAILABLE",
+        "upstream": null
+      }
+    },
+    {
+      "step": "8-cleanup",
+      "at": "2026-10-10T07:00:24.152Z",
+      "cleanupSteps": [
+        {
+          "table": "content_items",
+          "id": "Kag89y-46ZpOazNEZIgjR",
+          "status": 200,
+          "matchedBy": "recorded-id"
+        },
+        {
+          "table": "topics",
+          "id": "oF9EuYzNiEQsMa04VEmT-",
+          "status": 200
+        },
+        {
+          "table": "brands",
+          "id": "u8B1-NQHWvHB8podAcupX",
+          "status": 200
+        },
+        {
+          "table": "research_materials",
+          "id": "k6urVhrbx10k9VdXyTrWg",
+          "status": 200
+        },
+        {
+          "table": "artifacts",
+          "files": [
+            "upload-1791615620629-6_LSKU1k.png"
+          ],
+          "status": 200,
+          "deleted": [
+            "upload-1791615620629-6_LSKU1k.png"
+          ]
+        }
+      ]
+    },
+    {
+      "step": "9-after-counts",
+      "at": "2026-10-10T07:00:24.233Z",
+      "after": {
+        "content_items": 19,
+        "topics": 0,
+        "brands": 0,
+        "research_materials": 0,
+        "schedules": 0,
+        "publish_records": 3,
+        "runs": 8,
+        "usage_records": 21,
+        "ai_usage_ledger": 5,
+        "artifactsFiles": 37
+      },
+      "delta": {
+        "content_items": 0,
+        "topics": 0,
+        "brands": 0,
+        "research_materials": 0,
+        "schedules": 0,
+        "publish_records": 0,
+        "runs": 0,
+        "usage_records": 1,
+        "ai_usage_ledger": 1,
+        "artifactsFiles": 0
+      }
+    },
+    {
+      "step": "9-residual-scan",
+      "at": "2026-10-10T07:00:24.234Z",
+      "residualRows": []
+    }
+  ],
+  "itemId": "Kag89y-46ZpOazNEZIgjR",
+  "createdIds": [
+    "Kag89y-46ZpOazNEZIgjR"
+  ],
+  "notes": [
+    "未知 topicId 不 404：route.ts 把 topic 定义为「主题提示」（getTopic 返回 null 即沿用调用方主题行，见 §附录 B-10 之前的 P2-03 契约），实测 201 且消耗一次模型调用；与 researchMaterialId 的 404 契约不同，属既有设计而非本轮缺陷。",
+    "PATCH images:[] 后 API 响应省略 imagePath 键（src/db/repository.ts:121 `row.imagePath || undefined`），存储列仍为 ''；语义上封面已清空，属类型契约的宽松表达（ContentItem.imagePath 声明为 string）。"
+  ],
+  "finishedAt": "2026-10-10T07:00:24.234Z",
+  "pageErrors": []
+}

@@ -11,7 +11,7 @@ import {
   computeUsageCost,
   normalizeUsageTokens,
   pricingBasisFromRow,
-  usageCompleteness,
+  usageCompletenessFor,
 } from "./ai-usage-ledger";
 
 /**
@@ -49,6 +49,14 @@ export interface AiUsageCallContext {
   taskId?: string;
   runId?: string;
   nodeId?: string;
+  /**
+   * The Marketplace extension this call ran as (CI-P7-05-03), empty/absent when it ran as none.
+   *
+   * The call site does not decide *what that id looks like*: `marketplaceExtensionIdOf()` does, from
+   * the published listing or catalogue agent the call site really knows about - so an entry cannot
+   * invent an attribution by passing a purpose or a model name through this field.
+   */
+  extensionId?: string;
   outputAssetId?: string;
   contentItemId?: string;
   meteredKind?: AiUsageMeteredKind;
@@ -136,9 +144,18 @@ async function writeAttemptRow(input: {
   // this table exists to prevent.
   const outcome: AiUsageOutcome = attempt.error ? "failed" : attempt.outcome;
   const usage = attempt.usage ?? undefined;
-  const completeness = usageCompleteness(outcome, usage);
-  const tokens = normalizeUsageTokens(usage);
   const meteredKind = input.context.meteredKind ?? "text";
+  // CI-P7-05-01: the dimension this row is billed on decides what "the real usage" means. A text row
+  // is complete when a usage object arrived; a row the catalog prices per image or per second is
+  // complete when the amount that price multiplies was written as a number. Asking the token question
+  // for an image row would leave every image cost blank however well it was measured.
+  const completeness = usageCompletenessFor({
+    kind: meteredKind,
+    outcome,
+    usage,
+    quantity: input.context.quantity,
+  });
+  const tokens = normalizeUsageTokens(usage);
   // A row that may not state a cost is not worth a catalog read: the lookup would only be spent on
   // an answer `computeUsageCost` is required to ignore.
   const pricing =
@@ -170,6 +187,7 @@ async function writeAttemptRow(input: {
     parentUsageId: input.parentUsageId,
     outputAssetId: input.context.outputAssetId,
     contentItemId: input.context.contentItemId,
+    extensionId: input.context.extensionId,
     meteredKind,
     tokens,
     completeness,

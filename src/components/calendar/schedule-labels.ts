@@ -30,6 +30,8 @@ export const playbookLabelKeys: Record<PlaybookId, TranslationKey> = {
   media_transcription: "playbookMediaTranscription",
   // CI-P3-03: and for a distillation of a research material.
   research_extraction: "playbookResearchExtraction",
+  // CI-EMB-01: and for the knowledge index, whose runs are visible in the same list.
+  knowledge_embedding: "playbookKnowledgeEmbedding",
 };
 
 export const scheduleTimeTypeLabelKeys: Record<ScheduleTime["type"], TranslationKey> = {

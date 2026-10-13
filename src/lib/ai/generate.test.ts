@@ -282,4 +282,63 @@ describe("image facade on aiRuntime", () => {
     expect(calls.some((call) => call.url.includes(":generateContent"))).toBe(false);
     expect(calls).toHaveLength(prepared);
   });
+
+  it("leaves the image cost blank - never 0 - while the catalog names no image price (CI-P7-05-01)", async () => {
+    stubFetch([
+      { match: (url) => url.endsWith("/models"), respond: openAIImageCatalog },
+      {
+        match: (url) => url.includes("/images/generations"),
+        respond: () => jsonResponse({ data: [{ b64_json: Buffer.from("fake-png-bytes").toString("base64") }] }),
+      },
+    ]);
+    await configureImageEndpoint();
+    await prepareModel("openai-image", "gpt-image-1", "sk-stub-openai-image");
+
+    await imageFacade.generateImageFile({ prompt: "a cat on a keyboard", contentItemId: "content-unpriced" });
+
+    // The amount this row is billed on *was* measured - one image - and no rate exists for it yet, so
+    // the money is `unpriced` and blank. A 0 here would read as "this call was free".
+    const [row] = await ledgerRepository.listAiUsageLedgerEntries({ contentItemId: "content-unpriced" });
+    expect(row).toMatchObject({ meteredKind: "image", completeness: "reported", costSource: "unpriced" });
+    expect(row.costAmount).toBeNull();
+    expect(JSON.parse(row.quantityJson)).toEqual({ image: 1 });
+  });
+
+  it("states what the image cost once the catalog names an image price (CI-P7-05-01)", async () => {
+    stubFetch([
+      { match: (url) => url.endsWith("/models"), respond: openAIImageCatalog },
+      {
+        match: (url) => url.includes("/images/generations"),
+        respond: () => jsonResponse({ data: [{ b64_json: Buffer.from("fake-png-bytes").toString("base64") }] }),
+      },
+    ]);
+    await configureImageEndpoint();
+    await prepareModel("openai-image", "gpt-image-1", "sk-stub-openai-image");
+    // The rate a person typed for this image model, in the currency they are billed in. This is the
+    // only price row this file writes, and it is the last case that runs, so nothing inherits it.
+    await ledgerRepository.createAiModelPrice({
+      providerId: "openai-image",
+      modelId: "gpt-image-1",
+      meteredKind: "image",
+      currency: "USD",
+      unitPrice: 0.04,
+      unitLabel: "image",
+      priceVersion: "2026-10",
+    });
+
+    await imageFacade.generateImageFile({ prompt: "a cat on a keyboard", contentItemId: "content-priced" });
+
+    // The row this card is about: one generated image, costed by the catalog, with the unit and the
+    // rate frozen onto it so a later edit to the catalog cannot restate what it cost.
+    const [row] = await ledgerRepository.listAiUsageLedgerEntries({ contentItemId: "content-priced" });
+    expect(row).toMatchObject({
+      meteredKind: "image",
+      completeness: "reported",
+      costSource: "computed",
+      costCurrency: "USD",
+    });
+    expect(row.costAmount).toBeCloseTo(0.04, 6);
+    expect(JSON.parse(row.quantityJson)).toEqual({ image: 1 });
+    expect(row.pricing).toMatchObject({ meteredKind: "image", unitPrice: 0.04, unitLabel: "image" });
+  });
 });

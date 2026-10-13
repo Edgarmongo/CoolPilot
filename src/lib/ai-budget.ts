@@ -45,6 +45,79 @@ export const aiBudgetUnknownCostPolicies = ["allow", "block"] as const;
 export type AiBudgetUnknownCostPolicy = (typeof aiBudgetUnknownCostPolicies)[number];
 
 /**
+ * CI-P7-03-C1: how much of the limit the gate keeps back for the rest of the work.
+ *
+ * The three tiers differ **only** in where they stop. No tier routes a model, re-tries, rotates a key,
+ * falls back to another provider, shortens a reply, or changes what a rewrite or an image call does -
+ * a tier that quietly sent the same request to a cheaper model would be the "switch a model name"
+ * mistake the card forbids, not an execution strategy.
+ *
+ *  - `cost-saving` keeps a line *below* the limit: a call whose pessimistic (upper bound) cost would
+ *    take more than {@link aiBudgetCostSavingCallShare} of the limit is refused, and a *pausable* step
+ *    stops once {@link aiBudgetCostSavingRemainingShare} of the limit is all that is left - so the
+ *    remainder can pay for smaller work instead of being spent in one gulp.
+ *  - `balanced` is the shipped CI-P7-03 behaviour and the default: no line below the limit, and a step
+ *    stops only when nothing is left at all.
+ *  - `quality-first` keeps the hard per-call line and nothing else: it adds no call line, and it
+ *    declines the step's own "nothing left" stop, so a pausable workflow starts its next step and is
+ *    stopped by the first call that genuinely crosses the limit. Starting a step cannot overspend -
+ *    every call inside still passes the same gate and the same atomic hold - so what is given up is
+ *    the pre-emptive stop, never the ceiling.
+ *
+ * Every tier is a statement about *stops*, and each stop a tier adds is reported under its own reason
+ * code rather than as `over-limit`: a decision log that called a strategy's line an exhausted budget
+ * would be describing a different event than the one that happened.
+ */
+export const aiBudgetStrategies = ["cost-saving", "balanced", "quality-first"] as const;
+
+export type AiBudgetStrategy = (typeof aiBudgetStrategies)[number];
+
+/** 80% of the limit: the share `cost-saving` refuses to spend in one call. */
+export const aiBudgetCostSavingCallShare = 0.8;
+
+/** 20% of the limit: the headroom `cost-saving` keeps for the rest of a pausable workflow. */
+export const aiBudgetCostSavingRemainingShare = 0.2;
+
+/**
+ * What a tier does at each boundary, in one table, so the arithmetic, the API and the page cannot
+ * describe the same tier three different ways.
+ *
+ * The two boundaries are the only places a tier acts: `evaluateAiBudget` (one call about to be sent)
+ * and `evaluateAiBudgetHeadroom` (a step about to start, whose request does not exist yet). A tier with
+ * `null` shares adds no line there, which is why the table also has to say whether the *shipped* line
+ * survives: `stepStopsAtZero` is `false` only for the tier that declines it.
+ */
+export interface AiBudgetStrategyLines {
+  /**
+   * Under `policy: block`, a call whose projected **upper bound** would take more than this share of
+   * the limit is refused. `null` = no line below the limit.
+   */
+  callShare: number | null;
+  /**
+   * Under `policy: block`, a *pausable* step stops once this share of the limit is all that is left.
+   * `null` = no line below the limit.
+   */
+  stepShare: number | null;
+  /**
+   * Whether the step keeps the shipped stop at zero headroom (`remaining <= 0`). `false` = the tier
+   * declines it, so a step starts even when the period has nothing left and the calls inside decide.
+   */
+  stepStopsAtZero: boolean;
+}
+
+export const aiBudgetStrategyLines: Record<AiBudgetStrategy, AiBudgetStrategyLines> = {
+  // The same line read from both sides - what is left in a period is what has not been spent - so the
+  // call line and the step line are one decision about how much of a month one piece of work may use.
+  "cost-saving": {
+    callShare: aiBudgetCostSavingCallShare,
+    stepShare: aiBudgetCostSavingRemainingShare,
+    stepStopsAtZero: true,
+  },
+  balanced: { callShare: null, stepShare: null, stepStopsAtZero: true },
+  "quality-first": { callShare: null, stepShare: null, stepStopsAtZero: false },
+};
+
+/**
  * The semantics of the gate this card ships, in one constant, so no surface has to paraphrase it.
  *
  * What it **does** promise: a call whose estimate and the period's own spending already cross the
@@ -79,14 +152,25 @@ export interface AiBudgetSettings {
   monthlyLimit: number | null;
   currency: AiPriceCurrency;
   unknownCostPolicy: AiBudgetUnknownCostPolicy;
+  /**
+   * CI-P7-03-C1. Only `policy: block` with a stated limit lets a tier act, and even then only on the
+   * stop conditions - see {@link aiBudgetStrategyLines} for what each one does.
+   */
+  strategy: AiBudgetStrategy;
 }
 
-/** Off by default: an install that never opened the budget tab is not silently capped. */
+/**
+ * Off by default: an install that never opened the budget tab is not silently capped. The tier defaults
+ * to `balanced`, which is the behaviour that shipped before the tiers existed - so a settings row
+ * written by an older build (or by a client that does not know the field) reads back as the semantics it
+ * was actually running under, not as a stricter or looser gate nobody chose.
+ */
 export const defaultAiBudgetSettings: AiBudgetSettings = {
   policy: "off",
   monthlyLimit: null,
   currency: "CNY",
   unknownCostPolicy: "allow",
+  strategy: "balanced",
 };
 
 /** A natural month, in the machine's own calendar — the window a budget period is measured over. */
@@ -389,6 +473,26 @@ export const aiBudgetDecisionReasons = [
    * and a reader of the decision log deserves to see that rather than a plain "over-limit".
    */
   "hold-lost-to-concurrent-call",
+  /**
+   * CI-P7-03-C1, `cost-saving`: the call's projected **upper bound** would take more than
+   * {@link aiBudgetCostSavingCallShare} of the limit, so it was refused while there was still room
+   * left. Its own reason, never `over-limit`: no bound crossed the limit, and a row claiming one had
+   * would be describing a different event than the one the gate acted on.
+   */
+  "cost-saving-call-line",
+  /**
+   * CI-P7-03-C1, `cost-saving`: a pausable step was stopped because
+   * {@link aiBudgetCostSavingRemainingShare} of the limit is all that is left. Also its own reason -
+   * the period is not over, the tier is keeping the remainder for smaller work.
+   */
+  "cost-saving-remaining-line",
+  /**
+   * CI-P7-03-C1, `quality-first`: the step was allowed to start even though the period has nothing
+   * left, because this tier declines the step's pre-emptive stop. Recorded so the log says *why* a
+   * step started at zero headroom - the calls inside are still judged one by one, and the first one
+   * that genuinely crosses the limit is refused under its own reason.
+   */
+  "step-line-declined-by-strategy",
 ] as const;
 
 export type AiBudgetDecisionReason = (typeof aiBudgetDecisionReasons)[number];
@@ -398,12 +502,18 @@ export type AiBudgetDecisionReason = (typeof aiBudgetDecisionReasons)[number];
  *
  * `certainty` is the part that keeps a partial estimate honest: `definite` means even the estimate's
  * lower bound crosses the limit, `possible` means only the upper bound does (so a reply that stays
- * short would have been fine), and `not-applicable` means no comparison could be made at all.
+ * short would have been fine), and `not-applicable` means no comparison with the limit could be made
+ * at all. CI-P7-03-C1 adds a fourth answer rather than reusing one of those three: `strategy-line` says
+ * the refusal came from the selected tier's own line *below* the limit - no bound crossed the limit, so
+ * calling it `definite` would overstate it and calling it `not-applicable` would hide that a comparison
+ * was made and said no.
  */
 export interface AiBudgetDecision {
   status: "off" | "allowed" | "blocked";
   policy: AiBudgetPolicy;
   unknownCostPolicy: AiBudgetUnknownCostPolicy;
+  /** The tier in force when this verdict was reached (CI-P7-03-C1). */
+  strategy: AiBudgetStrategy;
   enforcement: typeof aiBudgetEnforcement;
   period: AiBudgetPeriod;
   currency: string;
@@ -418,7 +528,7 @@ export interface AiBudgetDecision {
   estimate: AiCostEstimate;
   /** False when the estimate states no amount - which is why nothing was added to the totals. */
   estimateCounted: boolean;
-  certainty: "definite" | "possible" | "not-applicable";
+  certainty: "definite" | "possible" | "not-applicable" | "strategy-line";
   reasons: AiBudgetDecisionReason[];
 }
 
@@ -461,6 +571,9 @@ export interface AiBudgetEvaluationInput {
  *     asked for that) or passes with `unknown-cost-not-counted` and `estimateCounted: false`.
  *  4. A stated estimate is compared on its **upper** bound (`possible`) and on its **lower** bound
  *     (`definite`), so a reply that stays short is not treated as if it were a long one.
+ *  5. CI-P7-03-C1: only then does the tier get a say, and only if `block` was chosen and the call did not
+ *     already cross the limit. A tier adds a stop *below* the limit or adds none; it never loosens the
+ *     comparison above and never re-writes one of its reasons (see {@link aiBudgetStrategyLines}).
  */
 export function evaluateAiBudget(input: AiBudgetEvaluationInput): AiBudgetDecision {
   const { settings, estimate } = input;
@@ -472,6 +585,7 @@ export function evaluateAiBudget(input: AiBudgetEvaluationInput): AiBudgetDecisi
   const base = {
     policy: settings.policy,
     unknownCostPolicy: settings.unknownCostPolicy,
+    strategy: settings.strategy,
     enforcement: aiBudgetEnforcement,
     period: input.period,
     currency: settings.currency,
@@ -563,6 +677,29 @@ export function evaluateAiBudget(input: AiBudgetEvaluationInput): AiBudgetDecisi
     };
   }
 
+  // CI-P7-03-C1. A tier may keep a line *below* the limit: under `block`, `cost-saving` refuses a call
+  // whose pessimistic (upper bound) cost would take more than 80% of the month, so the remainder can pay
+  // for smaller work instead of being spent in one gulp. The line is only reachable with a stated limit
+  // and only under `block` - `off` reported its verdict long before here, and `warn` has already been
+  // given the whole-limit comparison above, so neither is quietly re-scoped by a tier.
+  //
+  // The reason code names the tier that drew the line, which is why the branch checks the share rather
+  // than the tier name: a tier with no share cannot reach it, so the code can never describe a stop that
+  // this tier did not make.
+  const strategyLines = aiBudgetStrategyLines[settings.strategy];
+  if (settings.policy === "block" && strategyLines.callShare !== null && projectedMax > limit * strategyLines.callShare) {
+    return {
+      ...base,
+      status: "blocked",
+      remaining,
+      projectedMin,
+      projectedMax,
+      estimateCounted: true,
+      certainty: "strategy-line",
+      reasons: ["cost-saving-call-line", ...reasons],
+    };
+  }
+
   // 80% of the limit: close enough that the next call of this size is worth being told about.
   const nearLimit = projectedMax > limit * 0.8;
   return {
@@ -588,6 +725,15 @@ export function evaluateAiBudget(input: AiBudgetEvaluationInput): AiBudgetDecisi
  * "step-headroom"` and `estimateCounted` is false, because no call was measured and nothing here may
  * point at a figure that was never computed. And a *warn* policy only reports: only `block` stops a step,
  * which is the same split `evaluateAiBudget` makes for one call.
+ *
+ * CI-P7-03-C1 gives the caller's tier two ways to move this stop, and both are narrower than they look.
+ * `cost-saving` adds a line *above* the limit's edge - it stops a pausable workflow while a fifth of the
+ * month is still there, so the remainder is spent on smaller work rather than in one last gulp.
+ * `quality-first` does the opposite and *declines* the stop at zero headroom: the step begins while
+ * nothing is left, and the calls inside it are judged one by one by `evaluateAiBudget`, so the first call
+ * that genuinely crosses the limit is refused and the run pauses there instead of here. Starting a step
+ * was never what spent the money - the pre-emptive stop is what a tier is allowed to give up, and only
+ * this one does.
  */
 export function evaluateAiBudgetHeadroom(input: {
   settings: AiBudgetSettings;
@@ -605,6 +751,7 @@ export function evaluateAiBudgetHeadroom(input: {
   const base = {
     policy: input.settings.policy,
     unknownCostPolicy: input.settings.unknownCostPolicy,
+    strategy: input.settings.strategy,
     enforcement: aiBudgetEnforcement,
     period: input.period,
     currency: input.settings.currency,
@@ -627,9 +774,29 @@ export function evaluateAiBudgetHeadroom(input: {
 
   if (input.settings.policy === "off") return verdict("off", ["budget-off"]);
   if (limit === null) return verdict("allowed", ["no-limit"]);
+  const blocking = input.settings.policy === "block";
+  const strategyLines = aiBudgetStrategyLines[input.settings.strategy];
   if (remaining !== null && remaining <= 0) {
-    const blocking = input.settings.policy === "block";
+    // CI-P7-03-C1. The tier that declines the step's pre-emptive stop lets the step start even with nothing
+    // left. The money is not spent here: the calls inside are still judged one by one by `evaluateAiBudget`,
+    // and the first one that genuinely crosses the limit is refused and pauses the run there - so what this
+    // gives up is the early stop, never the ceiling.
+    //
+    // The decline sits *inside* this branch on purpose. It is a statement about the stop that would have
+    // happened here, so a period with headroom left must not produce it: a verdict claiming a decline on a
+    // healthy month would name an event nobody observed. `warn` never stopped a step and is untouched;
+    // `cost-saving` and `balanced` keep the stop.
+    if (blocking && !strategyLines.stepStopsAtZero) {
+      return verdict("allowed", ["step-line-declined-by-strategy"]);
+    }
     return verdict(blocking ? "blocked" : "allowed", [blocking ? "over-limit" : "over-limit-warning"]);
+  }
+  // CI-P7-03-C1: the tier's own headroom line, drawn above the limit's edge, so that what is left is kept
+  // for smaller work instead of being spent on one last step. Kept *after* the stop at zero on purpose: an
+  // exhausted period is exhausted whatever tier is set, and reporting it as a strategy line would name the
+  // wrong event.
+  if (blocking && strategyLines.stepShare !== null && remaining !== null && remaining <= limit * strategyLines.stepShare) {
+    return verdict("blocked", ["cost-saving-remaining-line"]);
   }
   // The same 80% line the per-call decision uses, read from the other side: a fifth of the limit left.
   if (remaining !== null && remaining <= limit * 0.2) return verdict("allowed", ["near-limit"]);

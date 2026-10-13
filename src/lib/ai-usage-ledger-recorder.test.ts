@@ -72,6 +72,24 @@ describe("ai usage ledger writer", () => {
     expect(await listAiUsageLedgerEntries({ contentItemId: "content-1" })).toHaveLength(2);
   });
 
+  it("stores the Marketplace extension a call ran as, and leaves it blank when it ran as none", async () => {
+    const attributed = await recordAiUsageCall({
+      purpose: "article",
+      extensionId: "position-p-cp70503",
+      attempts: [attempt({ usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 } })],
+    });
+    expect(attributed.rows[0].extensionId).toBe("position-p-cp70503");
+
+    const unattributed = await recordAiUsageCall({ purpose: "chat-title", attempts: [attempt()] });
+    // The empty id is the statement "this call ran as no listing", not a missing write.
+    expect(unattributed.rows[0].extensionId).toBe("");
+
+    // Read back through the repository's own mapper, so the column and the mapper are both pinned.
+    const rows = await listAiUsageLedgerEntries({ limit: 50 });
+    expect(rows.find((row) => row.id === attributed.rows[0].id)?.extensionId).toBe("position-p-cp70503");
+    expect(rows.find((row) => row.id === unattributed.rows[0].id)?.extensionId).toBe("");
+  });
+
   it("prices nothing it did not measure, and invents no zero", async () => {
     const written = await recordAiUsageCall({
       purpose: "article",
@@ -93,6 +111,9 @@ describe("ai usage ledger writer", () => {
     const written = await recordAiUsageCall({
       purpose: "image",
       meteredKind: "image",
+      // CI-P7-05-01: the unit key is the catalog's own (`image`; `aiUsageUnitLabels`). This case writes
+      // the plural an earlier producer used, which is *not* a measurement of `image` - so the row stays
+      // `unknown` rather than charging a rate against a number nobody recorded under that unit.
       quantity: { images: 1 },
       attempts: [attempt({ usage: undefined })],
     });
@@ -104,6 +125,25 @@ describe("ai usage ledger writer", () => {
     // What an image call *can* say about itself is stored: the modality and how many it produced.
     expect(written.rows[0].meteredKind).toBe("image");
     expect(JSON.parse(written.rows[0].quantityJson)).toEqual({ images: 1 });
+  });
+
+  it("calls an image row measured on its own dimension, not on tokens nobody charges for", async () => {
+    const written = await recordAiUsageCall({
+      purpose: "image",
+      meteredKind: "image",
+      quantity: { image: 1 },
+      attempts: [attempt({ providerId: "openai-image", modelId: "gpt-image-1", usage: undefined })],
+    });
+
+    // The image was produced, so the amount this row is billed on was measured - an image model
+    // reports no tokens, and waiting for a token object would have left the figure blank forever.
+    expect(written.rows[0].completeness).toBe("reported");
+    expect(written.rows[0].tokens.totalTokens).toBe(0);
+    // No price on file for this model yet: `unpriced` is "we cannot state it", not a free call - and
+    // never a 0 a total would swallow.
+    expect(written.rows[0].costSource).toBe("unpriced");
+    expect(written.rows[0].costAmount).toBeNull();
+    expect(written.rows[0].costCurrency).toBe("");
   });
 
   it("charges a self-correcting re-ask as its own row", async () => {
@@ -197,6 +237,96 @@ describe("ai usage ledger writer, price catalog", () => {
     );
     expect(stored?.pricing?.priceVersion).toBe("2026-01");
     expect(stored?.costAmount).toBeCloseTo(6, 6);
+  });
+
+  it("costs an image by the per-image price in force, and freezes the unit onto the row", async () => {
+    await createAiModelPrice({
+      providerId: "openai-image",
+      modelId: "gpt-image-1",
+      meteredKind: "image",
+      currency: "USD",
+      unitPrice: 0.04,
+      unitLabel: "image",
+      priceVersion: "2026-10",
+    });
+
+    const written = await recordAiUsageCall({
+      purpose: "image",
+      meteredKind: "image",
+      quantity: { image: 2 },
+      attempts: [attempt({ providerId: "openai-image", modelId: "gpt-image-1", usage: undefined })],
+    });
+
+    // Two images at 0.04, in the currency the price was quoted in - the figure CI-P7-05-01 was about.
+    expect(written.rows[0].completeness).toBe("reported");
+    expect(written.rows[0].costSource).toBe("computed");
+    expect(written.rows[0].costAmount).toBeCloseTo(0.08, 6);
+    expect(written.rows[0].costCurrency).toBe("USD");
+    // The rate and the unit it applies to travel with the row, so "why was this 0.08" is answerable
+    // from the ledger alone after the catalog changes.
+    expect(written.rows[0].pricing).toMatchObject({
+      meteredKind: "image",
+      unitPrice: 0.04,
+      unitLabel: "image",
+      priceVersion: "2026-10",
+    });
+  });
+
+  it("costs speech by the seconds the engine reported", async () => {
+    await createAiModelPrice({
+      providerId: "qwen",
+      modelId: "qwen3-asr-flash",
+      meteredKind: "speech",
+      currency: "CNY",
+      unitPrice: 1,
+      unitLabel: "second",
+      priceVersion: "2026-10",
+    });
+
+    const written = await recordAiUsageCall({
+      purpose: "transcription",
+      meteredKind: "speech",
+      quantity: { second: 12.5 },
+      attempts: [attempt({ modelId: "qwen3-asr-flash", usage: undefined })],
+    });
+
+    expect(written.rows[0].completeness).toBe("reported");
+    expect(written.rows[0].costSource).toBe("computed");
+    expect(written.rows[0].costAmount).toBeCloseTo(12.5, 6);
+    expect(written.rows[0].costCurrency).toBe("CNY");
+  });
+
+  it("keeps a failed image call blank even with the price and the count in hand", async () => {
+    await createAiModelPrice({
+      providerId: "openai-image",
+      modelId: "gpt-image-2",
+      meteredKind: "image",
+      currency: "USD",
+      unitPrice: 0.04,
+      unitLabel: "image",
+      priceVersion: "2026-10",
+    });
+
+    const written = await recordAiUsageCall({
+      purpose: "image",
+      meteredKind: "image",
+      quantity: { image: 1 },
+      attempts: [
+        attempt({
+          providerId: "openai-image",
+          modelId: "gpt-image-2",
+          outcome: "failed",
+          error: "HTTP 500",
+          usage: undefined,
+        }),
+      ],
+    });
+
+    // A request that failed may still have been billed, and for how many images is exactly what this
+    // row cannot say - so the money stays a blank instead of a charge the ledger invented.
+    expect(written.rows[0].completeness).toBe("unknown");
+    expect(written.rows[0].costSource).toBe("unknown");
+    expect(written.rows[0].costAmount).toBeNull();
   });
 
   it("reports a write it could not complete instead of claiming the call is in the ledger", async () => {

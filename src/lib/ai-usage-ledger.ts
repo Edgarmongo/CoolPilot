@@ -9,6 +9,7 @@ import {
   type AiUsageCallRetryChange,
   type AiUsageCompleteness,
   type AiUsageCostSource,
+  type AiUsageExtensionCost,
   type AiUsageLedgerCostSourceCount,
   type AiUsageLedgerCurrencyTotal,
   type AiUsageLedgerDayPoint,
@@ -19,9 +20,11 @@ import {
   type AiUsageMeteredKind,
   type AiUsageOutcome,
   type AiUsagePricingBasis,
+  type AiUsageRunCost,
+  type AiUsageRunNodeCost,
   type AiUsageTokens,
 } from "@/lib/types";
-import { aiUsageCostSources, aiUsageKindIsTokenMetered } from "@/lib/types";
+import { aiUsageCostSources, aiUsageKindIsTokenMetered, aiUsageKindUnits } from "@/lib/types";
 
 /**
  * The AI usage ledger's arithmetic, with no database and no runtime attached (CI-P7-01).
@@ -62,11 +65,17 @@ export function normalizeUsageTokens(
 }
 
 /**
- * What share of the real usage this row saw.
+ * What share of the real usage this row saw, judged on tokens - the dimension a text call is billed on.
  *
  * `undefined` usage is the provider saying nothing at all, and is stored as `unknown` rather than
  * as zeros: "we were not told" and "it used nothing" are different facts, and only one of them is
  * safe to add up.
+ *
+ * A call the catalog bills per image, per second or per character is measured on another dimension,
+ * so this function is the wrong question for it: the token report it reads is not what the vendor
+ * charges for, and `reported` here would claim a measurement of the wrong number. The recorder
+ * therefore asks `usageCompletenessFor()`, which is this rule for tokens and the row's own billed
+ * dimension for everything else.
  */
 export function usageCompleteness(
   outcome: AiUsageOutcome,
@@ -75,6 +84,59 @@ export function usageCompleteness(
   if (outcome === "interrupted") return "partial";
   if (outcome !== "success") return "unknown";
   return usage ? "reported" : "unknown";
+}
+
+/**
+ * The amount one measured dimension of a call used, in the unit a price is quoted in (CI-P7-05-01).
+ *
+ * Only a real number counts, and only under a unit the kind is actually billed in (`aiUsageKindUnits`):
+ * a quantity object is written by the call site, so it may hold keys from an earlier shape (`images`
+ * where the catalog says `image`) or the unit with something that is not a number in it. Neither is a
+ * measurement - a missing key, a string `"1"` or a nested object must answer `null` rather than coerce
+ * into a figure nobody measured, which is the same rule `0` and `null` keep apart everywhere else here.
+ */
+export function measuredUnitQuantity(
+  kind: AiUsageMeteredKind,
+  quantity: Record<string, unknown> | undefined | null,
+): number | null {
+  if (aiUsageKindIsTokenMetered(kind) || !quantity) return null;
+  for (const unit of aiUsageKindUnits[kind]) {
+    const value = quantity[unit];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
+}
+
+/**
+ * What share of the real usage this row saw, judged on the dimension the row itself is billed on.
+ *
+ * `usageCompleteness()` answers for tokens; this answers for the call in front of it, so that a row
+ * whose amount really was measured may say so instead of carrying `unknown` with a price on file and
+ * a quantity in hand - the gap CI-P7-05-01 closes. A text (or embedding) row is unchanged: for a
+ * token-metered kind the provider's usage object is the measurement, and that is exactly
+ * `usageCompleteness()`.
+ *
+ * The two non-success answers stay what they are on every dimension: an interrupted call may have
+ * been billed for work this row cannot see, and a failed attempt measured nothing. A successful call
+ * whose billed amount was not written as a number is `unknown` too - the honest answer, which is what
+ * keeps the money blank rather than charging a rate against a guess.
+ */
+export function usageCompletenessFor(input: {
+  kind: AiUsageMeteredKind;
+  outcome: AiUsageOutcome;
+  /**
+   * The provider's token report, optional because it is only ever read for a token-metered kind: a call
+   * billed per image or per second has no token figure to answer for, and a caller that had to write
+   * `usage: undefined` for one would be stating a report it never received. Omitting it costs nothing
+   * on the token path - an absent report is `unknown` there, the same answer as `undefined`.
+   */
+  usage?: Partial<AiUsageTokens> | null;
+  quantity?: Record<string, unknown> | null;
+}): AiUsageCompleteness {
+  if (aiUsageKindIsTokenMetered(input.kind)) return usageCompleteness(input.outcome, input.usage);
+  if (input.outcome === "interrupted") return "partial";
+  if (input.outcome !== "success") return "unknown";
+  return measuredUnitQuantity(input.kind, input.quantity) === null ? "unknown" : "reported";
 }
 
 /**
@@ -431,6 +493,9 @@ export function selectLedgerAttempts(
     if (filters.model && groupKey(entry) !== filters.model) return false;
     if (filters.contentItemId && entry.contentItemId !== filters.contentItemId) return false;
     if (filters.taskId && entry.taskId !== filters.taskId && entry.runId !== filters.taskId) return false;
+    // CI-P7-05-03. An extension is filtered exactly as recorded: no "unattributed" pseudo-value,
+    // because `''` already means "no filter" here and the breakdown is where that bucket is read.
+    if (filters.extensionId && entry.extensionId !== filters.extensionId) return false;
     // "Not the first request of its call": the index is one signal and a recorded predecessor the
     // other, and a row is a retry when either says so.
     if (filters.retryOnly && entry.attemptIndex <= 0 && !entry.parentUsageId) return false;
@@ -653,4 +718,271 @@ export function summarizeLedgerByContent(
       };
     })
     .sort((left, right) => right.attempts - left.attempts || left.contentItemId.localeCompare(right.contentItemId));
+}
+
+// ---------------------------------------------------------------------------
+// 节点级调用与失败重试成本 (CI-P7-05-02)
+//
+// The readers below answer the question a per-request list cannot: what did one *execution* cost,
+// what did its nodes cost, and how much of that money went to requests that had to be sent again or
+// that never succeeded. Three rules they hold to, all of them the ledger's own:
+//
+//  - a request that failed may still have been billed, so its tokens and its amount are counted
+//    where the row stated them - never assumed away because the outcome was not `success`;
+//  - "was this a retry" is read from the chain the writer recorded (`attemptIndex` / `parentUsageId`),
+//    which is a position fact. A repeat whose predecessor is outside the read rows is counted as
+//    unresolved rather than labelled a transient retry;
+//  - a repeating request and an unsuccessful request are two readings of the same rows, so their
+//    amounts are never added into a third figure that would bill one request twice.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a request repeated an earlier one of its call.
+ *
+ * Read from the recorded chain, not from the outcome: `attemptIndex > 0` says the writer saw an
+ * earlier attempt, and a `parentUsageId` says which one it followed. Agreeing or disagreeing, either
+ * makes the row a repeat; *why* it was repeated is a different question this does not answer.
+ */
+function ledgerEntryRepeatsCall(entry: AiUsageLedgerEntry) {
+  return entry.attemptIndex > 0 || entry.parentUsageId !== "";
+}
+
+/** What one set of rows adds up to, before any money is grouped per currency. */
+interface LedgerRowRoll {
+  attempts: number;
+  failures: number;
+  interrupted: number;
+  repeats: number;
+  unresolvedRepeats: number;
+  totalTokens: number;
+  unpricedAttempts: number;
+  unmeasuredAttempts: number;
+}
+
+function rollLedgerRows(rows: AiUsageLedgerEntry[], byId: Map<string, AiUsageLedgerEntry>): LedgerRowRoll {
+  const roll: LedgerRowRoll = {
+    attempts: 0,
+    failures: 0,
+    interrupted: 0,
+    repeats: 0,
+    unresolvedRepeats: 0,
+    totalTokens: 0,
+    unpricedAttempts: 0,
+    unmeasuredAttempts: 0,
+  };
+
+  for (const entry of rows) {
+    roll.attempts += 1;
+    // The ledger's own three outcomes, kept as three: an interruption is not a failure, and a run
+    // reported as failed when it was merely cut short would send its owner looking for a bug that
+    // is not there.
+    if (entry.outcome === "interrupted") roll.interrupted += 1;
+    else if (entry.outcome !== "success") roll.failures += 1;
+    if (ledgerEntryRepeatsCall(entry)) {
+      roll.repeats += 1;
+      // Recorded as a repeat, but the request it repeated is not among the rows read: the row is
+      // still a repeat, while what it repeated cannot be stated from here.
+      if (!entry.parentUsageId || !byId.has(entry.parentUsageId)) roll.unresolvedRepeats += 1;
+    }
+    roll.totalTokens += entry.tokens.totalTokens;
+    if (entry.costAmount === null) {
+      if (entry.costSource === "unpriced") roll.unpricedAttempts += 1;
+      else roll.unmeasuredAttempts += 1;
+    }
+  }
+
+  return roll;
+}
+
+/** The rows of one node, with the same shape a run has - a node's figure is read exactly like a run's. */
+function summarizeRunNodes(
+  rows: AiUsageLedgerEntry[],
+  byId: Map<string, AiUsageLedgerEntry>,
+): AiUsageRunNodeCost[] {
+  const byNode = new Map<string, AiUsageLedgerEntry[]>();
+  for (const entry of rows) {
+    const nodeRows = byNode.get(entry.nodeId) ?? [];
+    nodeRows.push(entry);
+    byNode.set(entry.nodeId, nodeRows);
+  }
+
+  return Array.from(byNode.entries())
+    .map(([nodeId, nodeRows]) => {
+      const roll = rollLedgerRows(nodeRows, byId);
+      return {
+        nodeId,
+        attempts: roll.attempts,
+        failures: roll.failures,
+        interrupted: roll.interrupted,
+        retries: roll.repeats,
+        unresolvedRetries: roll.unresolvedRepeats,
+        totalTokens: roll.totalTokens,
+        costByCurrency: summarizeLedgerCurrencies(nodeRows),
+        unpricedAttempts: roll.unpricedAttempts,
+        unmeasuredAttempts: roll.unmeasuredAttempts,
+        costIsComplete: roll.attempts > 0 && roll.unpricedAttempts === 0 && roll.unmeasuredAttempts === 0,
+      } satisfies AiUsageRunNodeCost;
+    })
+    // Busiest node first; the bucket that recorded nothing goes last, because it is a statement
+    // about missing attribution rather than a node that did work.
+    .sort(
+      (left, right) =>
+        Number(left.nodeId === "") - Number(right.nodeId === "") ||
+        right.attempts - left.attempts ||
+        left.nodeId.localeCompare(right.nodeId),
+    );
+}
+
+/**
+ * 按运行与节点的成本 (CI-P7-05-02): one group per run, each with its nodes inside it.
+ *
+ * The run's figures are folded from its own rows, so the total on screen is the sum of the rows a
+ * reader can open underneath it - and the node figures partition those same rows, so the two can be
+ * checked against each other instead of trusted. `''` collects the rows that recorded no run: "we
+ * could not attribute this" is a fact the page has to be able to show, and a list that quietly
+ * dropped those rows would make the attributed amounts look like the whole bill.
+ *
+ * An empty `entries` means an empty answer, not a zero-cost run: this function never invents a group.
+ */
+export function summarizeLedgerByRun(entries: AiUsageLedgerEntry[]): AiUsageRunCost[] {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const byRun = new Map<string, AiUsageLedgerEntry[]>();
+  for (const entry of entries) {
+    const runRows = byRun.get(entry.runId) ?? [];
+    runRows.push(entry);
+    byRun.set(entry.runId, runRows);
+  }
+
+  return Array.from(byRun.entries())
+    .map(([runId, rows]) => {
+      const roll = rollLedgerRows(rows, byId);
+      const retried = rows.filter(ledgerEntryRepeatsCall);
+      const unsuccessful = rows.filter((entry) => entry.outcome !== "success");
+      const retryRoll = rollLedgerRows(retried, byId);
+      const failureRoll = rollLedgerRows(unsuccessful, byId);
+      return {
+        runId,
+        attempts: roll.attempts,
+        failures: roll.failures,
+        interrupted: roll.interrupted,
+        retries: roll.repeats,
+        unresolvedRetries: roll.unresolvedRepeats,
+        totalTokens: roll.totalTokens,
+        costByCurrency: summarizeLedgerCurrencies(rows),
+        unpricedAttempts: roll.unpricedAttempts,
+        unmeasuredAttempts: roll.unmeasuredAttempts,
+        costIsComplete: roll.attempts > 0 && roll.unpricedAttempts === 0 && roll.unmeasuredAttempts === 0,
+        retryCostByCurrency: summarizeLedgerCurrencies(retried),
+        retryUnpricedAttempts: retryRoll.unpricedAttempts,
+        retryUnmeasuredAttempts: retryRoll.unmeasuredAttempts,
+        retryCostIsComplete:
+          retryRoll.attempts > 0 && retryRoll.unpricedAttempts === 0 && retryRoll.unmeasuredAttempts === 0,
+        failureCostByCurrency: summarizeLedgerCurrencies(unsuccessful),
+        failureUnpricedAttempts: failureRoll.unpricedAttempts,
+        failureUnmeasuredAttempts: failureRoll.unmeasuredAttempts,
+        failureCostIsComplete:
+          failureRoll.attempts > 0 && failureRoll.unpricedAttempts === 0 && failureRoll.unmeasuredAttempts === 0,
+        lastAt: rows.reduce((latest, entry) => Math.max(latest, entry.createdAt), 0),
+        purposes: Array.from(new Set(rows.map((entry) => entry.purpose))).sort(),
+        nodes: summarizeRunNodes(rows, byId),
+      } satisfies AiUsageRunCost;
+    })
+    // Newest activity first; the bucket that recorded no run goes last, for the same reason the
+    // node bucket does.
+    .sort(
+      (left, right) =>
+        Number(left.runId === "") - Number(right.runId === "") ||
+        right.lastAt - left.lastAt ||
+        left.runId.localeCompare(right.runId),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 按 Marketplace 扩展归属的成本 (CI-P7-05-03)
+//
+// The reader below answers the card's question - which Marketplace extension spent this money, and
+// on which task - over the same rows the two breakdowns above read. It adds no rule of its own: the
+// group total is the sum over its rows, `retry` and `failure` stay two readings of those rows rather
+// than a third figure, and a row that stated no amount turns the reading into a lower bound through
+// its own `unpricedAttempts` / `unmeasuredAttempts`. What it *does* add is the honesty of the
+// attribution itself: `extensionId` is copied as recorded (`''` included), and the provenance lists
+// are the ids the rows carry, so nothing here invents a listing a call did not run as.
+// ---------------------------------------------------------------------------
+
+/** The distinct non-empty values of one identity field, sorted - the ids a reader can count on. */
+function sortedLedgerIds(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean))).sort();
+}
+
+/**
+ * 按 Marketplace 扩展归属的成本 (CI-P7-05-03): one group per extension the window's rows ran as.
+ *
+ * Each group also says which executions spent its money (`taskIds` - the task a row belonged to, else
+ * the run it was sent from - and `runIds` / `nodeIds` / `contentItemIds`), so the attribution can be
+ * followed down to a request instead of being taken on faith.
+ *
+ * `''` collects the rows that named no extension: a chat answer, a transcription, an image, a call
+ * whose entry selected no published listing. That bucket is the answer to "how much of this window is
+ * *not* attributable to a marketplace extension", and dropping it would make the attributed amounts
+ * look like the whole bill.
+ *
+ * An empty `entries` means an empty answer, not a zero-cost extension: this function never invents a
+ * group.
+ */
+export function summarizeLedgerByExtension(entries: AiUsageLedgerEntry[]): AiUsageExtensionCost[] {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const byExtension = new Map<string, AiUsageLedgerEntry[]>();
+  for (const entry of entries) {
+    const rows = byExtension.get(entry.extensionId) ?? [];
+    rows.push(entry);
+    byExtension.set(entry.extensionId, rows);
+  }
+
+  return Array.from(byExtension.entries())
+    .map(([extensionId, rows]) => {
+      const roll = rollLedgerRows(rows, byId);
+      const retried = rows.filter(ledgerEntryRepeatsCall);
+      const unsuccessful = rows.filter((entry) => entry.outcome !== "success");
+      const retryRoll = rollLedgerRows(retried, byId);
+      const failureRoll = rollLedgerRows(unsuccessful, byId);
+      return {
+        extensionId,
+        attempts: roll.attempts,
+        failures: roll.failures,
+        interrupted: roll.interrupted,
+        retries: roll.repeats,
+        unresolvedRetries: roll.unresolvedRepeats,
+        totalTokens: roll.totalTokens,
+        costByCurrency: summarizeLedgerCurrencies(rows),
+        unpricedAttempts: roll.unpricedAttempts,
+        unmeasuredAttempts: roll.unmeasuredAttempts,
+        costIsComplete: roll.attempts > 0 && roll.unpricedAttempts === 0 && roll.unmeasuredAttempts === 0,
+        retryCostByCurrency: summarizeLedgerCurrencies(retried),
+        retryUnpricedAttempts: retryRoll.unpricedAttempts,
+        retryUnmeasuredAttempts: retryRoll.unmeasuredAttempts,
+        retryCostIsComplete:
+          retryRoll.attempts > 0 && retryRoll.unpricedAttempts === 0 && retryRoll.unmeasuredAttempts === 0,
+        failureCostByCurrency: summarizeLedgerCurrencies(unsuccessful),
+        failureUnpricedAttempts: failureRoll.unpricedAttempts,
+        failureUnmeasuredAttempts: failureRoll.unmeasuredAttempts,
+        failureCostIsComplete:
+          failureRoll.attempts > 0 && failureRoll.unpricedAttempts === 0 && failureRoll.unmeasuredAttempts === 0,
+        lastAt: rows.reduce((latest, entry) => Math.max(latest, entry.createdAt), 0),
+        purposes: sortedLedgerIds(rows.map((entry) => entry.purpose)),
+        // The task a request belonged to is the task it named, else the run it was sent from - the
+        // same identity the 调用明细 trace resolves, read here as a list instead of one id at a time.
+        taskIds: sortedLedgerIds(rows.map((entry) => entry.taskId || entry.runId)),
+        runIds: sortedLedgerIds(rows.map((entry) => entry.runId)),
+        nodeIds: sortedLedgerIds(rows.map((entry) => entry.nodeId)),
+        contentItemIds: sortedLedgerIds(rows.map((entry) => entry.contentItemId)),
+      } satisfies AiUsageExtensionCost;
+    })
+    // Newest activity first; the bucket that named no extension goes last, because it is a statement
+    // about missing attribution rather than an extension that did work.
+    .sort(
+      (left, right) =>
+        Number(left.extensionId === "") - Number(right.extensionId === "") ||
+        right.lastAt - left.lastAt ||
+        left.extensionId.localeCompare(right.extensionId),
+    );
 }

@@ -23,6 +23,7 @@ import {
 import { fetchArticleText, generateTopicPost, rewriteArticle, searchGoogleNews } from "@/lib/scraper";
 import { postNextThreadsContent, type ThreadsPostMode } from "@/lib/threads";
 import { executeResearchExtractionTask } from "@/lib/research-extraction/extraction-task";
+import { executeKnowledgeEmbeddingTask } from "@/lib/knowledge-embedding/embedding-task";
 import { executeTranscriptionTask } from "@/lib/transcription/transcription-task";
 import { executeVideoRenderTask } from "@/lib/videos/video-render-task";
 import type { AutomationContext, RunRecord } from "@/lib/types";
@@ -162,6 +163,10 @@ const aiSpendingPlaybooks = new Set([
   "ai_prompt_proxy",
   "topic_search_writer",
   "research_extraction",
+  // CI-EMB-01: the knowledge index exists only to make embedding calls, so its step gate is here. Its own
+  // executor gates and meters every batch as well - this one only asks whether the period has room at all
+  // before the run starts, which is what lets a refusal pause it instead of failing it.
+  "knowledge_embedding",
 ]);
 
 /**
@@ -431,6 +436,31 @@ async function runResearchExtraction(run: RunRecord) {
   return `Distillation skipped: ${outcome.reason}`;
 }
 
+/**
+ * CI-EMB-01: the knowledge-index playbook.
+ *
+ * The API entry creates an index task and runs it in-process (a whole knowledge base takes minutes, so the
+ * request must not hold it), and this case is what happens to a `knowledge_embedding` row queued elsewhere -
+ * `POST /api/runs`, a schedule - and claimed by a worker: the *same* executor runs, so there is no second
+ * indexing implementation to drift from the first.
+ *
+ * A budget refusal is split out exactly as the distillation's is (CI-P7-03-B): the task maps the gate's refusal
+ * onto its own `BUDGET_EXCEEDED`, and this case turns that into a `StepBudgetRefusal` so the run is *paused*
+ * rather than failed - the records already indexed stay indexed, and a resume asks the budget again and skips
+ * them.
+ */
+async function runKnowledgeEmbedding(run: RunRecord) {
+  const outcome = await executeKnowledgeEmbeddingTask(run.id);
+  if (outcome.kind === "succeeded") {
+    return `Indexed ${outcome.indexed} knowledge records (${outcome.chunks} chunks) with ${outcome.providerId}/${outcome.modelId}`;
+  }
+  if (outcome.kind === "failed") {
+    if (outcome.failure.code === "BUDGET_EXCEEDED") throw new StepBudgetRefusal(outcome.failure.message);
+    throw new Error(outcome.failure.message);
+  }
+  return `Knowledge indexing skipped: ${outcome.reason}`;
+}
+
 export async function processRun(run: RunRecord) {
   const ctx = await makeContext(run);
   // CI-P7-03-B. Where this run has got to, in the terms a pause record needs. The head-gated playbooks
@@ -480,6 +510,9 @@ export async function processRun(run: RunRecord) {
         break;
       case "research_extraction":
         message = await runResearchExtraction(run);
+        break;
+      case "knowledge_embedding":
+        message = await runKnowledgeEmbedding(run);
         break;
       default:
         throw new Error(`Unsupported playbook: ${run.playbookId}`);

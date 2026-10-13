@@ -1,8 +1,9 @@
-import { getPublishRecord, listPublishRecords } from "@/db/repository";
+import { getContentItem, getPublishRecord, listPublishRecords } from "@/db/repository";
 import { aiRuntime } from "@/features/ai-runtime";
 import { metricInsightSchema } from "@/lib/ai/schemas";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
 import { beginAiBudgetCall, type AiBudgetCallHandle } from "@/lib/ai-budget-guard";
+import { marketplaceExtensionIdOfContentItem } from "@/lib/content-item-listing";
 import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { computeBaseline, interactionCount } from "@/lib/metrics";
 import { metricInsightRequestSchema } from "@/lib/validation";
@@ -48,9 +49,17 @@ export async function POST(request: Request) {
 
   // CI-P7-01-04. The published piece under review is the business identity: its content item is
   // what the attribution is about, and both are known before the request.
+  //
+  // CI-P7-05-03 (remaining surface): the insight is read as the article the feedback came from, so the
+  // listing it ran as is the one the article's own stored provenance names - the same answer 改写 and
+  // 翻译 get, decided once in `content-item-listing.ts`. This request carries no picker, and a record
+  // whose article names no published listing stays unattributed instead of borrowing a platform name.
   const usageCall: AiUsageCallContext = {
     purpose: "insight",
     contentItemId: record.contentItemId,
+    extensionId: await marketplaceExtensionIdOfContentItem(
+      record.contentItemId ? await getContentItem(record.contentItemId) : null,
+    ),
   };
 
   // CI-P7-03. The gate stands between the prompt and the request and measures the same text the request

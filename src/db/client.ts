@@ -274,6 +274,28 @@ async function initializeDatabase() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS knowledge_embeddings (
+      id TEXT PRIMARY KEY,
+      knowledge_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      chunking_version TEXT NOT NULL DEFAULT '',
+      text TEXT NOT NULL DEFAULT '',
+      chunk_hash TEXT NOT NULL DEFAULT '',
+      source_hash TEXT NOT NULL DEFAULT '',
+      provider_id TEXT NOT NULL DEFAULT '',
+      model_id TEXT NOT NULL DEFAULT '',
+      dimensions INTEGER NOT NULL DEFAULT 0,
+      vector_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    // Recall reads one record's chunks; the task reads every row of a record the same way.
+    `CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_knowledge ON knowledge_embeddings(knowledge_id, chunk_index)`,
+    // "Which records have vectors for this model" is the question the state column and the task both ask.
+    `CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_model ON knowledge_embeddings(model_id, dimensions)`,
+    // The stable id is per record, chunk *and model* (D4): a rebuild with another model keeps the previous
+    // model's rows beside the new ones instead of overwriting them.
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_embeddings_stable_id ON knowledge_embeddings(knowledge_id, chunk_index, provider_id, model_id)`,
     `CREATE TABLE IF NOT EXISTS dify_connections (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT '',
@@ -372,6 +394,29 @@ async function initializeDatabase() {
     `CREATE INDEX IF NOT EXISTS idx_metric_snapshots_record_captured ON metric_snapshots(publish_record_id, captured_at)`,
     `CREATE INDEX IF NOT EXISTS idx_metric_snapshots_captured ON metric_snapshots(captured_at)`,
     `CREATE INDEX IF NOT EXISTS idx_account_metric_snapshots_account_captured ON account_metric_snapshots(account_id, captured_at)`,
+
+    // CI-LEAD-01: 营销线索与成交. The deal columns stay NULL until a deal is really recorded - an
+    // amount nobody entered is "not recorded", never 0 - and `deal_currency` is `''` exactly while
+    // `deal_amount_minor` is NULL, so a stored number always carries its unit.
+    `CREATE TABLE IF NOT EXISTS marketing_leads (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      contact TEXT NOT NULL DEFAULT '',
+      source_platform TEXT NOT NULL DEFAULT '',
+      content_item_id TEXT,
+      publish_record_id TEXT,
+      status TEXT NOT NULL DEFAULT 'new',
+      note TEXT NOT NULL DEFAULT '',
+      deal_amount_minor INTEGER,
+      deal_currency TEXT NOT NULL DEFAULT '',
+      deal_closed_at INTEGER,
+      deal_note TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_marketing_leads_created ON marketing_leads(created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_marketing_leads_status_created ON marketing_leads(status, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_marketing_leads_content ON marketing_leads(content_item_id)`,
 
     // Model runtime (Model Gateway). `provider_id` is the vendor slug, `endpoint_id`
     // identifies one callable base URL of that vendor, `credential_ref` points at the
@@ -704,6 +749,19 @@ async function initializeDatabase() {
   await sqlite
     .execute(
       `CREATE INDEX IF NOT EXISTS idx_ai_usage_ledger_budget_reservation ON ai_usage_ledger(budget_reservation_id)`,
+    )
+    .catch(() => undefined);
+
+  // CI-P7-05-03: the Marketplace extension a call ran as. Additive and defaulted to `''`, so every
+  // row written before this column existed keeps meaning exactly what it did - "this call is not a
+  // Marketplace extension call", which is true of all of them.
+  await sqlite
+    .execute(`ALTER TABLE ai_usage_ledger ADD COLUMN extension_id TEXT NOT NULL DEFAULT ''`)
+    .catch(() => undefined);
+  // Only after the ALTER above, for the same reason as the index before it.
+  await sqlite
+    .execute(
+      `CREATE INDEX IF NOT EXISTS idx_ai_usage_ledger_extension_created ON ai_usage_ledger(extension_id, created_at)`,
     )
     .catch(() => undefined);
 

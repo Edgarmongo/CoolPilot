@@ -1,0 +1,52 @@
+{
+  "case": "E2E-02-cleanup",
+  "startedAt": "2026-10-09T03:35:26.739Z",
+  "fileName": "upload-1791516886199-qFDVPhOu.png",
+  "contentId": "Gv_3SvFAs7WOnTh9FRe4i",
+  "fixturePath": "C:\\Users\\ADMINI~1.SC-\\AppData\\Local\\Temp\\coolpilot-e2e02-6dQBUW\\e2e05-fixture.png",
+  "steps": [
+    {
+      "step": "1-clear-contract",
+      "at": "2026-10-09T03:35:26.789Z",
+      "dbRowBefore": {
+        "image_path": "",
+        "metadata_json": "{\"type\":\"article\",\"images\":[]}",
+        "status": "ready"
+      },
+      "dbImagePathIsEmptyString": true,
+      "clearStatus": 200,
+      "responseHasImagePathKey": false,
+      "responseImagePathValue": null,
+      "responseMetadataImages": []
+    },
+    {
+      "step": "2-delete-content",
+      "at": "2026-10-09T03:35:26.811Z",
+      "deleteStatus": 200,
+      "getAfterDeleteStatus": 404
+    },
+    {
+      "step": "3-cleanup-artifact",
+      "at": "2026-10-09T03:35:26.811Z",
+      "target": "upload-1791516886199-qFDVPhOu.png",
+      "removed": true,
+      "artifactsAfterCleanup": 37
+    },
+    {
+      "step": "4-cleanup-fixture",
+      "at": "2026-10-09T03:35:26.813Z",
+      "fixtureDir": "C:\\Users\\ADMINI~1.SC-\\AppData\\Local\\Temp\\coolpilot-e2e02-6dQBUW",
+      "existsAfter": false
+    },
+    {
+      "step": "5-final",
+      "at": "2026-10-09T03:35:26.814Z",
+      "artifactsBeforeCleanup": 38,
+      "artifactsAfterCleanup": 37,
+      "contentCount": 17,
+      "leftoverE2E05Content": 0,
+      "leftoverE2E05Files": 0
+    }
+  ],
+  "finishedAt": "2026-10-09T03:35:26.814Z"
+}

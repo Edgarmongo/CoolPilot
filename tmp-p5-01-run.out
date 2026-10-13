@@ -1,0 +1,50 @@
+CI-P5-01 PASSED — 48/48 checks
+  ok   P5-01-01 创建选题 201 + 读回字段一致
+  ok   P5-01-02 创建品牌资料 201 + 读回字段一致
+  ok   P5-01-03 创建研究素材 201 + kind=text/status=ready
+  ok   P5-01-01/02/03 建档后逐条读回（GET 单条 200）
+  ok   P5-01-03 UI：?researchMaterialId= 打开生成对话框
+  ok   P5-01-03 UI：素材已被预选（id 与建档一致）
+  ok   P5-01-01 UI：选中选题后主题被预填
+  ok   P5-01-02 UI：品牌资料可选并选中
+  ok   P5-01-04 UI：真实生成后进入编辑器（文章ID 标记出现）
+  ok   P5-01-04 生成文章标题非空
+  ok   P5-01-04 编辑器正文非空
+  ok   P5-01-04 生成结果已落库（内容库首屏可见）
+  ok   P5-01-06 保存：GET /api/content/<id> 200
+  ok   P5-01-04 生成文章正文非空
+  ok   P5-01-04 生成记录 provider/model
+  ok   P5-01-02 品牌关联（metadata.brandId/brandVersion）
+  ok   P5-01-03 研究素材关联（metadata.researchMaterialId/Version）
+  ok   P5-01-01 选题关联（metadata.topicId）
+  ok   P5-01-01 选题回写产出文章（topic.contentItemId）
+  ok   P5-01-05 上传图片 201 且回答存储形态 URL
+  ok   P5-01-05 PATCH images → imagePath 镜像一致
+  ok   P5-01-08 PATCH images:[] 清空图片列表与封面（存储列 image_path 为 ''）
+  ok   P5-01-05 封面可恢复
+  ok   P5-01-06 深链 ?edit=<id> 重新打开编辑器
+  ok   P5-01-06 重开后标题与落库一致
+  ok   P5-01-06 重开后正文与落库一致（前缀比对）
+  ok   P5-01-05 重开编辑器后封面真被画出（naturalWidth>0）
+  ok   P5-01-07 UI 存草稿得到「已储存」回执
+  ok   P5-01-07 再次保存后标题已更新
+  ok   P5-01-07 再次保存后正文仍在（未被清空）
+  ok   P5-01-08 再次保存后图片引用/封面仍一致
+  ok   P5-01-08 再次保存后关联数据未变（品牌/选题/素材）
+  ok   P5-01-06 内容库列表出现该文章（真实页面渲染）
+  ok   P5-01-05 内容库卡片封面真被画出
+  ok   后续衔接 UI：编辑器「去发布」打开发布对话框（未点击发布）
+  ok   后续衔接 未执行真实发布：publish_records 计数未变
+  ok   后续衔接 API：平台版本派生（POST /api/content/[id]/platform-versions）
+  ok   后续衔接 API：生命周期读模型含该内容（GET /api/content/lifecycle）
+  ok   失败场景：未知内容 GET/DELETE → 404
+  ok   失败场景：图片生成诚实失败（无可用模型，非模拟成功）
+  ok   失败场景：未知 researchMaterialId → 404 NOT_FOUND（不静默降级）
+  ok   本次运行期间新建的内容已全部清除（残留扫描为空）
+  ok   未发生计划外的模型调用（无意外生成）
+  ok   清理后 content_items 回落基线
+  ok   清理后 topics/brands/research 回落基线
+  ok   清理后 publish_records / runs / schedules 未变
+  ok   清理后 artifacts 文件数回落基线
+  ok   写入面只有账本/用量计数增长（其余表零漂移）
+log: tmp-p5-01-creator-loop.log.json  itemId=Kag89y-46ZpOazNEZIgjR

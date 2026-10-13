@@ -1,7 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AppError } from "@/lib/app-errors";
-import { requirementForIntent, resolveRoute, transcribe as runtimeTranscribe } from "@/features/ai-runtime";
+import { tryAiBudgetCall, type AiBudgetCallRequest, type AiBudgetIdentity } from "@/lib/ai-budget-guard";
+import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
+import { resolveModelPrice } from "@/db/repositories/ai-usage-ledger";
+import {
+  requirementForIntent,
+  resolveRoute,
+  transcribe as runtimeTranscribe,
+  type TranscriptionResponse,
+} from "@/features/ai-runtime";
 import {
   MAX_MEDIA_BYTES,
   isTranscriptionSourceName,
@@ -13,6 +21,7 @@ import { extractRecognizerWave, probeMedia, removeTempFile, resolveFfmpeg } from
 import { localSpeechAvailability, recognizeWithSystemSpeech } from "./local-speech";
 import {
   TranscriptionFailure,
+  isTranscriptionFailure,
   type TranscriptionProviderId,
   type TranscriptionSegmentRecord,
   type TranscriptionSourceRoot,
@@ -115,6 +124,14 @@ export type TranscriptionProviderRequest = {
   /** Empty means "you decide, and tell me what you used". */
   language: string;
   log: (entry: TranscriptionLogEntry) => Promise<void> | void;
+  /**
+   * The business row this run belongs to (CI-P7-03-D1): the run and task a cloud call's ledger rows and
+   * budget hold are recorded under.
+   *
+   * Optional, and absent means absent - a call site that declares nothing holds nothing. The local
+   * engine ignores it entirely: it uploads nothing, spends nothing and has nothing to attribute.
+   */
+  identity?: AiBudgetIdentity;
 };
 
 export type TranscriptionProviderResult = {
@@ -151,6 +168,111 @@ function explainRoute(reason: string, missing: readonly string[]) {
 }
 
 /**
+ * The media's own length, in seconds (CI-P7-03-D1): the one fact about a cloud transcription that can be
+ * measured *before* it is sent, and therefore the only honest basis for pricing it beforehand.
+ *
+ * `null` when the decoder is not installed or the container states no duration - never a length guessed
+ * from the file's size. This is an estimate input, not a validation: an unreadable file is still refused
+ * by the engine below with its own code, and the measurement deciding "no quantity" is not the same
+ * statement as "this file cannot be transcribed".
+ */
+async function sourceSecondsForEstimate(filePath: string): Promise<number | null> {
+  try {
+    const ffmpeg = await resolveFfmpeg();
+    if (!ffmpeg.available) return null;
+    const probe = await probeMedia(filePath, ffmpeg.ffprobePath);
+    return probe.durationMs === null ? null : probe.durationMs / 1000;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How much speech this call may tell the gate it will use, in the unit its own price is quoted in.
+ *
+ * A speech price is written either per second of audio or per character, and only the first can be
+ * measured before the words exist. So the catalog is asked first - the same read, by the same route and
+ * dimension, that the gate itself will price with a moment later - and a number is stated only when it is
+ * a number *of that unit*. Seconds multiplied by a per-character rate would be a figure nobody could
+ * back, and an estimate that invents one is worse than no estimate: the number would decide a spend
+ * decision while being wrong by orders of magnitude.
+ *
+ * With no measurable quantity the call states none, the estimate is `unknown`, and the user's own
+ * `unknownCostPolicy` decides - which is the honest answer for a price this build cannot apply.
+ */
+async function pricedSpeechSeconds(seconds: number | null): Promise<number | null> {
+  if (seconds === null || seconds <= 0) return null;
+  try {
+    const candidate = (await resolveRoute(requirementForIntent("transcription"))).candidate;
+    if (!candidate) return null;
+    const price = await resolveModelPrice(
+      candidate.provider.providerId,
+      candidate.model.modelId,
+      Date.now(),
+      "speech",
+    );
+    return price?.unitLabel === "second" ? seconds : null;
+  } catch {
+    // A catalog that cannot be read *here* must not become a refusal invented by this file: the gate
+    // below reads the same catalog and throws what it actually means.
+    return null;
+  }
+}
+
+/**
+ * The seconds this call used, in the ledger's own key for them (`second`, the unit a speech price is
+ * quoted in) - `undefined` when neither the engine nor the container stated a length, because "not
+ * measured" is an absent quantity and never a 0.
+ *
+ * The engine's own figure wins when it reported one: that is what the transcript records, and it is
+ * what a provider rounding to the second actually billed. No character count is ever claimed - this
+ * build measures the audio, not the vendor's characters - so a per-character price row keeps its cost
+ * unstated instead of stating one on a unit nobody measured.
+ */
+function meteredSpeechSeconds(input: { reportedMs: number | null; measuredSeconds: number | null }) {
+  const seconds = input.reportedMs !== null ? input.reportedMs / 1000 : input.measuredSeconds;
+  return seconds === null || seconds <= 0 ? undefined : { second: seconds };
+}
+
+/** The runtime's own words, in this module's vocabulary - the mapping CI-P3-02 pinned, unchanged. */
+function gatewayFailure(error: unknown): TranscriptionFailure {
+  const code = error instanceof AppError ? error.code : "";
+  const message = error instanceof Error ? error.message : String(error);
+  // "Nothing can serve this" is a configuration answer, not a transcription failure: keeping the two
+  // apart is what lets the console point at the model settings instead of saying "failed".
+  if (
+    code === "MODEL_CREDENTIAL_MISSING" ||
+    code === "MODEL_CAPABILITY_UNAVAILABLE" ||
+    code === "MODEL_NOT_CONFIGURED"
+  ) {
+    return new TranscriptionFailure("PROVIDER_UNAVAILABLE", `the model gateway refused the request: ${message}`);
+  }
+  const killed = (error as { name?: string }).name === "TimeoutError";
+  return new TranscriptionFailure(
+    killed ? "TRANSCRIPTION_TIMEOUT" : "TRANSCRIPTION_FAILED",
+    killed ? "the speech-to-text request exceeded its own timeout" : message,
+  );
+}
+
+/** The one request this engine sends: the file's own bytes, and the gateway's trail back. */
+async function sendToGateway(input: {
+  source: TranscriptionSource;
+  language: string;
+  log: (entry: TranscriptionLogEntry) => Promise<void> | void;
+}): Promise<TranscriptionResponse> {
+  const bytes = await fs.readFile(input.source.filePath);
+  await input.log({
+    stage: "engine",
+    message: `Sending "${input.source.fileName}" (${bytes.length} bytes) to the configured speech-to-text model`,
+    data: { sourceRoot: input.source.root, sourceFileName: input.source.fileName, sourceBytes: bytes.length },
+  });
+  return runtimeTranscribe({
+    audio: { name: input.source.fileName, mimeType: input.source.mimeType, bytes },
+    language: input.language || undefined,
+  });
+}
+
+/**
  * The cloud engine: whatever the model gateway resolves for the `transcription` intent.
  *
  * Nothing in this file names a vendor, a model id or an endpoint - the runtime does that, which is why
@@ -177,38 +299,60 @@ const aiRuntimeProvider: TranscriptionProvider = {
     };
   },
 
-  async transcribe({ source, language, log }) {
-    const bytes = await fs.readFile(source.filePath);
-    await log({
-      stage: "engine",
-      message: `Sending "${source.fileName}" (${bytes.length} bytes) to the configured speech-to-text model`,
-      data: { sourceRoot: source.root, sourceFileName: source.fileName, sourceBytes: bytes.length },
-    });
+  async transcribe({ source, language, log, identity }) {
+    // CI-P7-03-D1. A cloud transcription is a *paid* call, so it goes through the same budget gate every
+    // other paid call uses: admission is asked for **before** a byte is read, a refusal means no request
+    // is ever sent, and the call is metered in the dimension it is really billed in - `speech`, measured
+    // in seconds of audio. The local engine above spends nothing, so it has neither a hold nor a row.
+    const usageCall: AiUsageCallContext = {
+      purpose: "transcription",
+      meteredKind: "speech",
+      startedAt: Date.now(),
+      ...identity,
+    };
+    const measuredSeconds = await sourceSecondsForEstimate(source.filePath);
+    const request = {
+      identity,
+      purpose: usageCall.purpose,
+      capability: "speech_to_text",
+      capabilities: ["speech_to_text"],
+      meteredKind: "speech",
+      quantity: await pricedSpeechSeconds(measuredSeconds),
+    } satisfies AiBudgetCallRequest;
 
-    let result;
+    let result: TranscriptionResponse;
     try {
-      result = await runtimeTranscribe({
-        audio: { name: source.fileName, mimeType: source.mimeType, bytes },
-        language: language || undefined,
+      const attempt = await tryAiBudgetCall(request, async (handle) => {
+        // CI-P7-03-A: the hold's id travels onto this call's ledger rows, so what was held and what was
+        // spent are compared by an id instead of correlated by purpose and time.
+        usageCall.budgetReservationId = handle.reservationId ?? undefined;
+        return sendToGateway({ source, language, log });
       });
-    } catch (error) {
-      const code = error instanceof AppError ? error.code : "";
-      const message = error instanceof Error ? error.message : String(error);
-      // "Nothing can serve this" is a configuration answer, not a transcription failure: keeping the two
-      // apart is what lets the console point at the model settings instead of saying "failed".
-      if (
-        code === "MODEL_CREDENTIAL_MISSING" ||
-        code === "MODEL_CAPABILITY_UNAVAILABLE" ||
-        code === "MODEL_NOT_CONFIGURED"
-      ) {
-        throw new TranscriptionFailure("PROVIDER_UNAVAILABLE", `the model gateway refused the request: ${message}`);
+      if (!attempt.ok) {
+        // The refusal is this run's answer, not the engine's: nothing was sent, so nothing was billed
+        // and no ledger row can exist for it. The gate's own arithmetic travels in the message.
+        throw new TranscriptionFailure("BUDGET_EXCEEDED", attempt.error.message);
       }
-      const killed = (error as { name?: string }).name === "TimeoutError";
-      throw new TranscriptionFailure(
-        killed ? "TRANSCRIPTION_TIMEOUT" : "TRANSCRIPTION_FAILED",
-        killed ? "the speech-to-text request exceeded its own timeout" : message,
+      result = attempt.value;
+    } catch (error) {
+      if (isTranscriptionFailure(error)) throw error;
+      // A request that *was* sent and failed is recorded before the mapping turns the failure into this
+      // module's vocabulary: the provider may still have billed for it, and "the ledger missed it" must
+      // not look like "nothing happened". The engine answered nothing about its own length, so the
+      // length measured before the upload is what the row states - the audio really did leave this
+      // machine, and that number is a fact about what may have been billed.
+      await recordAiUsageFailure(
+        { ...usageCall, quantity: meteredSpeechSeconds({ reportedMs: null, measuredSeconds }) },
+        error,
       );
+      throw gatewayFailure(error);
     }
+
+    await recordAiUsageCall({
+      ...usageCall,
+      attempts: result.attempts,
+      quantity: meteredSpeechSeconds({ reportedMs: result.durationMs, measuredSeconds }),
+    });
 
     const notes: string[] = [];
     if (result.responseFormat === "json") {

@@ -26,7 +26,14 @@ type CallsPayload = {
     range: number;
     from: number;
     to: number;
-    filters: { purpose: string; outcome: string; costSource: string; model: string; retryOnly: boolean };
+    filters: {
+      purpose: string;
+      outcome: string;
+      costSource: string;
+      model: string;
+      retryOnly: boolean;
+      extensionId: string;
+    };
     scan: { rows: number; limit: number; truncated: boolean; traceCapped: boolean };
     matched: number;
     totals: {
@@ -47,12 +54,14 @@ type CallsPayload = {
         purpose: string;
         outcome: string;
         modelId: string;
+        meteredKind: string;
         costAmount: number | null;
         costSource: string;
         costCurrency: string;
         credentialLabel: string;
       };
       quantity: Record<string, unknown>;
+      reason: string;
       retry: {
         kind: string;
         parent: { id: string; outcome: string; attemptIndex: number } | null;
@@ -84,11 +93,60 @@ type CallsPayload = {
       costIsComplete: boolean;
       costByCurrency: Array<{ currency: string; amount: number }>;
     }>;
+    byRun: Array<{
+      runId: string;
+      attempts: number;
+      failures: number;
+      interrupted: number;
+      retries: number;
+      unresolvedRetries: number;
+      totalTokens: number;
+      unpricedAttempts: number;
+      costIsComplete: boolean;
+      costByCurrency: Array<{ currency: string; amount: number; attempts: number }>;
+      retryCostByCurrency: Array<{ currency: string; amount: number; attempts: number }>;
+      retryCostIsComplete: boolean;
+      failureCostByCurrency: Array<{ currency: string; amount: number; attempts: number }>;
+      failureCostIsComplete: boolean;
+      lastAt: number;
+      nodes: Array<{
+        nodeId: string;
+        attempts: number;
+        failures: number;
+        retries: number;
+        unresolvedRetries: number;
+        costIsComplete: boolean;
+      }>;
+    }>;
+    byExtension: Array<{
+      extensionId: string;
+      attempts: number;
+      failures: number;
+      interrupted: number;
+      retries: number;
+      unresolvedRetries: number;
+      totalTokens: number;
+      unpricedAttempts: number;
+      unmeasuredAttempts: number;
+      costIsComplete: boolean;
+      costByCurrency: Array<{ currency: string; amount: number; attempts: number }>;
+      retryCostByCurrency: Array<{ currency: string; amount: number; attempts: number }>;
+      retryCostIsComplete: boolean;
+      failureCostByCurrency: Array<{ currency: string; amount: number; attempts: number }>;
+      failureCostIsComplete: boolean;
+      lastAt: number;
+      purposes: string[];
+      taskIds: string[];
+      runIds: string[];
+      nodeIds: string[];
+      contentItemIds: string[];
+    }>;
     options: {
       purposes: string[];
       outcomes: string[];
       costSources: string[];
       models: Array<{ key: string; label: string }>;
+      extensions: string[];
     };
   };
 };
@@ -216,6 +274,9 @@ describe("/api/ai-cost-center/calls", () => {
     // A request nobody could price keeps `null` all the way to the screen.
     expect(data.calls[0].entry.costAmount).toBeNull();
     expect(data.calls[0].entry.costSource).toBe("unpriced");
+    // CI-P7-05-04: the blank says why. The failed request measured nothing, and the two rows that did
+    // state a figure need no excuse.
+    expect(data.calls.map((call) => call.reason)).toEqual(["attempt-failed", "", ""]);
 
     // 内容 → 业务任务 → 执行节点 → 模型调用, every hop read from a real record.
     expect(data.calls[0].trace.content).toMatchObject({
@@ -385,5 +446,218 @@ describe("/api/ai-cost-center/calls", () => {
     expect(data.calls[0].group.costByCurrency).toEqual([{ currency: "CNY", amount: 0.3, attempts: 2 }]);
     // And the money figure follows the filter: it is the matched request's, not the call's.
     expect(data.totals.costAmount).toBe(0.2);
+  });
+
+  it("reads one run's cost node by node, with the retry reading kept separate (CI-P7-05-02)", async () => {
+    const run = await createRun({ playbookId: "research_extraction" });
+    if (!run) throw new Error("the run could not be read back");
+    const createdAt = Date.now() - 5_000;
+
+    // Node `plan`: a failed request that still reported usage, then the request that followed it.
+    const failed = await seedLedger({
+      purpose: "cc-runs-by-node",
+      outcome: "failed",
+      providerId: "cc-run-provider",
+      modelId: "cc-run-model",
+      attemptIndex: 0,
+      runId: run.id,
+      nodeId: "plan",
+      tokens: { inputTokens: 200, outputTokens: 0, totalTokens: 200 },
+      completeness: "reported",
+      costAmount: 0.2,
+      costCurrency: "CNY",
+      costSource: "computed",
+      createdAt,
+    });
+    await seedLedger({
+      purpose: "cc-runs-by-node",
+      outcome: "success",
+      providerId: "cc-run-provider",
+      modelId: "cc-run-model",
+      attemptIndex: 1,
+      parentUsageId: failed.id,
+      runId: run.id,
+      nodeId: "plan",
+      tokens: { inputTokens: 100, outputTokens: 0, totalTokens: 100 },
+      completeness: "reported",
+      costAmount: 0.1,
+      costCurrency: "CNY",
+      costSource: "computed",
+      createdAt: createdAt + 100,
+    });
+    // Node `write`: one request nobody could price, so the run's total stays a lower bound.
+    await seedLedger({
+      purpose: "cc-runs-by-node",
+      attemptIndex: 0,
+      runId: run.id,
+      nodeId: "write",
+      costAmount: null,
+      costSource: "unpriced",
+      createdAt: createdAt + 200,
+    });
+
+    const data = dataOf((await getCalls("?purpose=cc-runs-by-node&range=7")).body);
+    const byRun = data.byRun.find((group) => group.runId === run.id);
+    if (!byRun) throw new Error("the run is missing from the run breakdown");
+
+    expect(byRun).toMatchObject({
+      attempts: 3,
+      failures: 1,
+      interrupted: 0,
+      retries: 1,
+      unresolvedRetries: 0,
+      totalTokens: 300,
+      unpricedAttempts: 1,
+      costIsComplete: false,
+      lastAt: createdAt + 200,
+    });
+    // The run's total is the sum over its own rows (0.2 + 0.1); the row that stated no figure is
+    // counted as unpriced instead of being written as 0 or left out.
+    expect(byRun.costByCurrency).toEqual([{ currency: "CNY", amount: 0.3, attempts: 2 }]);
+    // Two readings of the same requests, never added together: the repeat cost 0.1, the failure 0.2.
+    expect(byRun.retryCostByCurrency).toEqual([{ currency: "CNY", amount: 0.1, attempts: 1 }]);
+    expect(byRun.retryCostIsComplete).toBe(true);
+    expect(byRun.failureCostByCurrency).toEqual([{ currency: "CNY", amount: 0.2, attempts: 1 }]);
+    expect(byRun.failureCostIsComplete).toBe(true);
+
+    // 节点级调用记录: the busiest node first, and the nodes partition the run's requests.
+    expect(byRun.nodes.map((node) => [node.nodeId, node.attempts])).toEqual([
+      ["plan", 2],
+      ["write", 1],
+    ]);
+    expect(byRun.nodes.find((node) => node.nodeId === "plan")).toMatchObject({
+      attempts: 2,
+      failures: 1,
+      retries: 1,
+      unresolvedRetries: 0,
+      costIsComplete: true,
+    });
+    // The same rule holds for every run in the answer, not only for this one: the detail adds up to
+    // the headline because both are read from the same rows.
+    for (const group of data.byRun) {
+      expect(group.nodes.reduce((sum, node) => sum + node.attempts, 0)).toBe(group.attempts);
+    }
+  });
+
+  it("reads the money per Marketplace extension and filters by one (CI-P7-05-03)", async () => {
+    const createdAt = Date.now() - 3_000;
+    // The extension's own call: the first request answered, the one after it failed and was billed.
+    const listed = await seedLedger({
+      purpose: "cc-extensions",
+      extensionId: "position-p-cc",
+      runId: "run-cc-extensions",
+      nodeId: "writer",
+      providerId: "cc-ext-provider",
+      modelId: "cc-ext-model",
+      attemptIndex: 0,
+      tokens: { inputTokens: 120, outputTokens: 0, totalTokens: 120 },
+      completeness: "reported",
+      costAmount: 0.4,
+      costCurrency: "CNY",
+      costSource: "computed",
+      createdAt,
+    });
+    const repeated = await seedLedger({
+      purpose: "cc-extensions",
+      extensionId: "position-p-cc",
+      runId: "run-cc-extensions",
+      nodeId: "writer",
+      providerId: "cc-ext-provider",
+      modelId: "cc-ext-model",
+      attemptIndex: 1,
+      parentUsageId: listed.id,
+      outcome: "failed",
+      costAmount: 0.2,
+      costCurrency: "CNY",
+      costSource: "computed",
+      createdAt: createdAt + 100,
+    });
+    // A request that ran as no listing at all: it keeps its own bucket rather than being folded in.
+    await seedLedger({
+      purpose: "cc-extensions",
+      providerId: "cc-ext-provider",
+      modelId: "cc-ext-model",
+      costAmount: null,
+      costSource: "unpriced",
+      createdAt: createdAt + 200,
+    });
+
+    const data = dataOf((await getCalls("?purpose=cc-extensions&range=7")).body);
+    const group = data.byExtension.find((entry) => entry.extensionId === "position-p-cc");
+    if (!group) throw new Error("the extension is missing from the attribution breakdown");
+    expect(group).toMatchObject({
+      attempts: 2,
+      failures: 1,
+      interrupted: 0,
+      retries: 1,
+      unresolvedRetries: 0,
+      totalTokens: 120,
+      unpricedAttempts: 0,
+      costIsComplete: true,
+      lastAt: createdAt + 100,
+      purposes: ["cc-extensions"],
+      runIds: ["run-cc-extensions"],
+      nodeIds: ["writer"],
+      // 任务标识: the run each request was sent from, which is the task a request belongs to here.
+      taskIds: ["run-cc-extensions"],
+    });
+    // The total is the sum over its own rows (0.4 + 0.2); the repeat and the failure are two
+    // readings of those same rows, so neither is added to the total or to the other.
+    expect(group.costByCurrency).toEqual([{ currency: "CNY", amount: 0.6, attempts: 2 }]);
+    expect(group.retryCostByCurrency).toEqual([{ currency: "CNY", amount: 0.2, attempts: 1 }]);
+    expect(group.failureCostByCurrency).toEqual([{ currency: "CNY", amount: 0.2, attempts: 1 }]);
+
+    // Nothing is invented for the rows that named no extension: the bucket exists, and every request
+    // the answer scanned is in exactly one bucket - so the breakdown and the scan agree by design.
+    const unattributed = data.byExtension.find((entry) => entry.extensionId === "");
+    expect(unattributed).toBeDefined();
+    expect(data.byExtension.reduce((sum, entry) => sum + entry.attempts, 0)).toBe(data.scan.rows);
+    // This case's unattributed request is the one nobody could price, and it is counted as stated.
+    expect(unattributed?.unpricedAttempts).toBeGreaterThanOrEqual(1);
+
+    // The filter names one extension's requests - and the breakdown still describes the window, so
+    // the unattributed bucket does not disappear just because the table was filtered.
+    expect(data.options.extensions).toContain("position-p-cc");
+    const filtered = dataOf((await getCalls("?purpose=cc-extensions&extensionId=position-p-cc&range=7")).body);
+    expect(filtered.filters.extensionId).toBe("position-p-cc");
+    expect(filtered.matched).toBe(2);
+    expect(filtered.calls.map((call) => call.entry.id).sort()).toEqual([listed.id, repeated.id].sort());
+    expect(filtered.byExtension.map((entry) => entry.extensionId)).toContain("");
+  });
+
+  it("states why a request's figure is missing, from the row's own evidence (CI-P7-05-04)", async () => {
+    const createdAt = Date.now() - 10_000;
+    await seedLedger({
+      purpose: "cc-calls-reason",
+      providerId: "cc-reason",
+      modelId: "m-text",
+      meteredKind: "text",
+      tokens: { inputTokens: 100, outputTokens: 10, totalTokens: 110 },
+      completeness: "reported",
+      costAmount: null,
+      costSource: "unpriced",
+      createdAt,
+    });
+    // The shape the live installation really holds: an image call whose amount was written under a
+    // unit its dimension does not price (`images` where the catalog says `image`), so no price could
+    // ever state it. Nothing about this is inferred from the purpose, the model or the extension id.
+    await seedLedger({
+      purpose: "cc-calls-reason",
+      providerId: "cc-reason",
+      modelId: "m-image",
+      meteredKind: "image",
+      quantity: { images: 1 },
+      completeness: "unknown",
+      costAmount: null,
+      costSource: "unknown",
+      createdAt,
+    });
+
+    const data = dataOf((await getCalls("?purpose=cc-calls-reason&range=7")).body);
+    // Read by dimension, because the order of two rows written at the same instant is not the point.
+    expect(data.calls.map((call) => `${call.entry.meteredKind}:${call.reason}`).sort()).toEqual([
+      "image:quantity-unit-mismatch",
+      "text:no-price-for-dimension",
+    ]);
   });
 });

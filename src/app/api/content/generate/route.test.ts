@@ -45,8 +45,9 @@ const {
 } = await import("@/lib/ai-writing");
 const { getWritingAgent } = await import("@/lib/writing-agents");
 const { listContentItems, listUsageRecords } = await import("@/db/repository");
+const { listAiUsageLedgerEntries } = await import("@/db/repositories/ai-usage-ledger");
 const { createKnowledgeBase, listKnowledgeBase } = await import("@/db/repositories/knowledge-base");
-const { createPosition } = await import("@/db/repositories/positions");
+const { createPosition, updatePosition } = await import("@/db/repositories/positions");
 const { createBrand } = await import("@/db/repositories/brands");
 const { createTopic, getTopic } = await import("@/db/repositories/topics");
 const { createResearchMaterial, getResearchMaterial } = await import("@/db/repositories/research");
@@ -940,4 +941,60 @@ describe("POST /api/content/generate on the research material it names (CI-P3-01
   });
 });
 
+/**
+ * CI-P7-05-03: the Marketplace extension these ledger rows ran as.
+ *
+ * The id space is the storefront's (`api/app-store`), so what a case can check is that the entry's own
+ * selection reaches the ledger: the catalogue agent the 应用商店智能体 picker named, and the published
+ * listing that outranks it. A position that is not published and a picker-only agent id (`general`)
+ * leave the rows unattributed - which is the statement this card has to be able to make.
+ */
+describe("POST /api/content/generate and the Marketplace extension it ran as (CI-P7-05-03)", () => {
+  beforeEach(async () => {
+    vi.unstubAllGlobals();
+    await resetRuntime();
+  });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** One real generation, and only the ledger rows *this* request wrote. */
+  async function rowsOfOneGeneration(overrides: Partial<Payload>) {
+    stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: () => jsonReply(draft) },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const before = new Set((await listAiUsageLedgerEntries({ limit: 500 })).map((row) => row.id));
+
+    const response = await POST(generateRequest(overrides));
+    expect(response.status).toBe(201);
+
+    return (await listAiUsageLedgerEntries({ limit: 500 })).filter((row) => !before.has(row.id));
+  }
+
+  it("attributes the call to the catalogue agent the picker selected", async () => {
+    // `agentId` is `hot-commentator`, an id the storefront really lists; the fixture position is a
+    // draft, so there is no listing for it and the agent is the only attribution available.
+    const rows = await rowsOfOneGeneration({});
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.purpose === "article")).toBe(true);
+    expect(rows.every((row) => row.extensionId === agentId)).toBe(true);
+  });
+
+  it("prefers a published position listing, and attributes nothing to a picker-only agent id", async () => {
+    const published = await createPosition({ name: "已上架的收纳顾问", personaRole: "你只讲收纳。" });
+    if (!published) throw new Error("the published fixture was not created");
+    await updatePosition(published.id, { store: { ...published.store, status: "published" } });
+
+    // `general` is the picker's default and is not a listing of the catalogue: on its own it would
+    // attribute nothing, and the published position is what these rows ran as.
+    const rows = await rowsOfOneGeneration({ positioningId: published.id, agentId: "general" });
+
+    expect(rows.length).toBeGreaterThan(0);
+    // The listing's own id, exactly what `api/app-store` answers for its 我的 tab.
+    expect(rows.every((row) => row.extensionId === `position-${published.id}`)).toBe(true);
+  });
+});

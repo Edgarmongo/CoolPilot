@@ -19,9 +19,11 @@ import { resolveArticleImages } from "@/lib/article-images";
 import { beginAiBudgetCall } from "@/lib/ai-budget-guard";
 import { contentImageAssetsKey, contentImageFailuresKey } from "@/lib/content-image-assets";
 import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
+import { knowledgeQueryText, recallKnowledgeForArticle } from "@/lib/knowledge-embedding/recall";
 import { selectKnowledgeReferences } from "@/lib/knowledge-base";
+import { marketplaceExtensionIdOf } from "@/lib/marketplace-attribution";
 import { countTextCharacters } from "@/lib/usage";
-import type { BrandRecord, ContentItem, PositionRecord } from "@/lib/types";
+import type { BrandRecord, ContentItem, KnowledgeBaseRecord, PositionRecord } from "@/lib/types";
 
 /**
  * Article generation (C3 of `docs/creator-workflow-audit.md`, `docs/generation-service-audit.md`): the
@@ -80,6 +82,16 @@ export type ArticleGenerationRequest = {
   material: AiWritingMaterial;
   /** The writing agent's prompt, prefixed to the system prompt. Entry B only today. */
   systemPromptPrefix?: string;
+  /**
+   * The agent id the entry selected, when it selected one (CI-P7-05-03).
+   *
+   * It travels as an id rather than as a label because the ledger stores an attribution, not a
+   * description: this module combines it with the position it resolved and lets
+   * `marketplaceExtensionIdOf()` decide what, if anything, the call's rows may claim. An id the
+   * storefront does not publish (the picker's `general` default, for instance) contributes nothing,
+   * which is why passing it is always safe.
+   */
+  extensionAgentId?: string;
   /** Used only when the model answers with an empty title - never invented by this module (F-C3-3). */
   titleFallback: string;
   /** Material-derived, so the caller assembles it (F-C3-5). Two empty lists mean "no image source". */
@@ -125,6 +137,48 @@ function toBrand(brand: BrandRecord | null): AiWritingBrand | undefined {
 }
 
 /**
+ * The three knowledge modes, resolved (CI-EMB-01, D7=b/D8/D9).
+ *
+ * The mode is the caller's, and this function is the only place that knows what each one means:
+ *
+ * - `off` returns nothing and asks nothing - not even the selector, so a user who turned knowledge off cannot
+ *   spend an embedding call on it.
+ * - `position` is the original keyword/business selection, byte for byte what this service did before the
+ *   semantic mode existed.
+ * - `semantic` embeds a query built from *this request* (D8: the requested title and the material, never the
+ *   article body, which does not exist yet) and ranks the records whose chunk vectors answer it. The query call
+ *   carries its own budget gate and its own ledger rows inside `recallKnowledgeForArticle()` (D1: this layer
+ *   owns the money, the runtime does not), and a problem that is not a budget refusal degrades to the position
+ *   selection with a named, logged reason (D9).
+ *
+ * A budget refusal is the one failure this function does *not* swallow: it travels out as the gate's own
+ * `AI_BUDGET_EXCEEDED`, so the operation is refused as the policy says rather than completed without the
+ * knowledge the user asked for.
+ */
+async function resolveKnowledgeReferences(input: {
+  config: AiWritingConfig;
+  entries: KnowledgeBaseRecord[];
+  positioningId?: string;
+  request: ArticleGenerationRequest;
+  extensionId: string;
+}): Promise<string[]> {
+  if (input.config.knowledgeMode === "off") return [];
+  if (input.config.knowledgeMode !== "semantic") {
+    return selectKnowledgeReferences(input.entries, input.positioningId);
+  }
+  const outcome = await recallKnowledgeForArticle({
+    entries: input.entries,
+    positioningId: input.positioningId,
+    queryText: knowledgeQueryText({
+      material: input.request.material,
+      titleFallback: input.request.titleFallback,
+    }),
+    extensionId: input.extensionId,
+  });
+  return outcome.references;
+}
+
+/**
  * Generates one article and stores it, with the row that reports what it cost.
  *
  * The caller has already validated its own payload and built the four things only it knows (the
@@ -144,8 +198,18 @@ export async function generateArticle(request: ArticleGenerationRequest): Promis
   // An unknown id is "no brand", never a fallback: the alternative is an article that claims to be
   // written as a brand the caller did not choose.
   const brand = request.brandId ? await getBrand(request.brandId) : null;
-  const knowledge =
-    config.knowledgeMode === "position" ? selectKnowledgeReferences(await listKnowledgeBase(), position?.id) : [];
+  // CI-EMB-01 (D8). `extensionId` is decided here rather than with the article's own usage context further
+  // down, because the semantic mode's query call is a ledger row of its own and carries the same Marketplace
+  // attribution. It is the same value either way - `marketplaceExtensionIdOf()` reads only the positioning and
+  // the entry's own agent choice.
+  const extensionId = marketplaceExtensionIdOf({ position, agentId: request.extensionAgentId });
+  const knowledge = await resolveKnowledgeReferences({
+    config,
+    entries: await listKnowledgeBase(),
+    positioningId: position?.id,
+    request,
+    extensionId,
+  });
 
   // The prefix is the caller's (the writing agent's prompt); the positioning prompt is this module's.
   const systemPrompt = [
@@ -166,7 +230,16 @@ export async function generateArticle(request: ArticleGenerationRequest): Promis
   // CI-P7-01-04. The business half of this call's ledger rows, built before the request so the
   // failure path can record the very same call. A request the provider rejected may still have been
   // billed, and the requests it made travel on the error (`attachModelAttempts` in the runtime).
-  const usageCall: AiUsageCallContext = { purpose: "article" };
+  //
+  // CI-P7-05-03. `extensionId` is the Marketplace listing these rows ran as, when there really is
+  // one - the published position this article was written as, else the catalogue agent the entry
+  // selected. `marketplaceExtensionIdOf()` decides, so every entry answers the same question the same
+  // way; an article written under no published listing is left unattributed rather than guessed at.
+  //
+  // It is decided once and used twice (CI-P7-05-03 remaining surface): the article's own images are
+  // resolved by `resolveArticleImages()` below, and a picture made for this article spent this listing's
+  // money, so the same id travels there instead of the image call inventing one of its own.
+  const usageCall: AiUsageCallContext = { purpose: "article", extensionId };
 
   // CI-P7-03. The budget gate stands between the prompt and the request, and it measures the very text
   // the request will carry. A refusal is thrown from here, *outside* the try below, so it is neither
@@ -203,6 +276,9 @@ export async function generateArticle(request: ArticleGenerationRequest): Promis
     productImagePaths: request.imageSources.productImagePaths,
     sourceUrls: request.imageSources.sourceUrls,
     title,
+    // The same listing the text rows above carry: these images are this article's cost, not a call of
+    // their own (CI-P7-05-03 remaining surface).
+    extensionId,
   });
   const images = resolved.images;
 

@@ -1248,6 +1248,7 @@ function toAiUsageLedgerEntry(row: typeof aiUsageLedger.$inferSelect): AiUsageLe
     parentUsageId: row.parentUsageId,
     outputAssetId: row.outputAssetId,
     contentItemId: row.contentItemId,
+    extensionId: row.extensionId,
     budgetReservationId: row.budgetReservationId,
     meteredKind: row.meteredKind as AiUsageMeteredKind,
     tokens: {
@@ -1306,6 +1307,14 @@ export async function createAiUsageLedgerEntry(input: {
   parentUsageId?: string;
   outputAssetId?: string;
   contentItemId?: string;
+  /**
+   * The Marketplace extension this request ran as (CI-P7-05-03), empty when it ran as none.
+   *
+   * It is an id the *storefront* can name (see `@/lib/marketplace-attribution`), not a label for
+   * the kind of work: a purpose is already that, and a row that said `article` here would make
+   * "which extension spent this" unanswerable.
+   */
+  extensionId?: string;
   /** The budget hold this request was admitted under (CI-P7-03-A); empty when it was not gated. */
   budgetReservationId?: string;
   meteredKind?: AiUsageMeteredKind;
@@ -1350,6 +1359,7 @@ export async function createAiUsageLedgerEntry(input: {
     parentUsageId: input.parentUsageId ?? "",
     outputAssetId: input.outputAssetId ?? "",
     contentItemId: input.contentItemId ?? "",
+    extensionId: input.extensionId ?? "",
     budgetReservationId: input.budgetReservationId ?? "",
     meteredKind: input.meteredKind ?? "text",
     inputTokens: tokens.inputTokens,

@@ -30,12 +30,18 @@ const {
   allowEveryAiBudgetCall,
   bodyOf,
   chatCalls,
+  embeddingCalls,
+  embeddingRoute,
   jsonReply,
+  jsonResponse,
   prepareChatModel,
+  prepareEmbeddingModel,
+  prepareImageModel,
   qwenCatalog,
   refuseEveryAiBudgetCall,
   resetRuntime,
   routeTestDataDir,
+  runtimeRepository,
   stubFetch,
   unavailable,
 } = await import("@/test/route-harness");
@@ -43,7 +49,10 @@ const { generateArticle } = await import("./article-generation");
 const { listContentItems, listUsageRecords } = await import("@/db/repository");
 const { createKnowledgeBase, listKnowledgeBase } = await import("@/db/repositories/knowledge-base");
 const { createBrand, updateBrand } = await import("@/db/repositories/brands");
-const { createPosition } = await import("@/db/repositories/positions");
+const { createPosition, updatePosition } = await import("@/db/repositories/positions");
+const { updateLocalAgentSettings } = await import("@/db/repositories/settings");
+const { listAiUsageLedgerEntries } = await import("@/db/repositories/ai-usage-ledger");
+const { appStoreAgentIds } = await import("@/lib/app-store-catalog");
 const {
   audiencePrompt,
   buildArticlePrompt,
@@ -51,6 +60,9 @@ const {
   industryDomainPrompt,
 } = await import("@/lib/ai-writing");
 const { selectKnowledgeReferences } = await import("@/lib/knowledge-base");
+const { chunkKnowledgeBody } = await import("@/lib/knowledge-embedding/embedding");
+const { knowledgeChunkHash, knowledgeSourceHash } = await import("@/lib/knowledge-embedding/source");
+const { replaceKnowledgeChunks } = await import("@/db/repositories/knowledge-embeddings");
 const { countTextCharacters } = await import("@/lib/usage");
 const fs = await import("node:fs/promises");
 const path = await import("node:path");
@@ -154,6 +166,27 @@ const chatRoutes = (respond: () => Response) => [
   { match: (target: string) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
   { match: (target: string) => target.includes("/chat/completions"), respond },
 ];
+
+/**
+ * The image channel (CI-P7-05-03 remaining surface): the host the image settings name, its catalog and
+ * one base64 cover. The text routes stay ahead of these, so a `/models` read on the text host is not
+ * mistaken for the image provider's own catalog.
+ */
+const imageBaseUrl = "https://images.example.test/v1";
+
+const imageRoutes = [
+  {
+    match: (target: string) => target.endsWith("/models"),
+    respond: () => jsonResponse({ data: [{ id: "gpt-image-1" }] }),
+  },
+  {
+    match: (target: string) => target.includes("/images/generations"),
+    respond: () => jsonResponse({ data: [{ b64_json: Buffer.from("article-cover-bytes").toString("base64") }] }),
+  },
+];
+
+/** Both channels of a run that writes text *and* pays for a cover. */
+const generationRoutes = (respond: () => Response) => [...chatRoutes(respond), ...imageRoutes];
 
 /** A stored product photo, written for real: the copy the article gets is a real `fs.copyFile`. */
 async function productPhoto(name: string) {
@@ -344,6 +377,71 @@ describe("generateArticle", () => {
     expect(offPrompt).not.toContain(sharedKnowledge.title);
   });
 
+  /**
+   * CI-EMB-01 (D7=b/D8): the third knowledge mode, end to end through this service.
+   *
+   * It is the caller's own case, so it asserts what only the caller can get wrong: the semantic mode asks the
+   * *index* (one query embedding, built from this request's title and material), feeds the answer into the same
+   * prompt slot the position mode fills, and records the query call as its own metered row - while the article
+   * itself is still written and stored by the same code as before.
+   */
+  it("recalls semantically through the vector index and meters the query call", async () => {
+    await resetRuntime();
+    await allowEveryAiBudgetCall();
+    // Both channels in one stub, and one catalog that lists *both* models: `prepareModel()` reads the catalog,
+    // so a provider whose catalog has no embedding model cannot hand this case one to call.
+    const calls = stubFetch([
+      {
+        match: (url: string) => url.endsWith("/models"),
+        respond: () => jsonResponse({ data: [{ id: "qwen3-max" }, { id: "text-embedding-v4" }] }),
+      },
+      { match: (url: string) => url.includes("/chat/completions"), respond: () => jsonReply(draft) },
+      embeddingRoute([[1, 0]]),
+    ]);
+    // `prepareModel()` keeps exactly one model enabled, so both are re-enabled after the two fixtures: this case
+    // needs the chat model that writes the article *and* the embedding model the recall queries.
+    const embedding = await prepareEmbeddingModel("qwen", "text-embedding-v4", "sk-stub-qwen");
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    await runtimeRepository.setModelsEnabled([embedding?.id ?? ""], true);
+
+    // Index both fixtures the way the batch task would: one vector per chunk, for this model.
+    const model = { providerId: "qwen", modelId: "text-embedding-v4" };
+    for (const entry of await listKnowledgeBase()) {
+      const chunks = chunkKnowledgeBody(entry.content);
+      await replaceKnowledgeChunks(
+        entry.id,
+        model,
+        chunks.map((text, index) => ({
+          chunkIndex: index,
+          text,
+          chunkHash: knowledgeChunkHash(text),
+          sourceHash: knowledgeSourceHash(entry),
+          dimensions: 2,
+          vector: [1, 0],
+        })),
+      );
+    }
+
+    const config = configFixture({ knowledgeMode: "semantic" });
+    const result = await generateArticle(requestFixture({ config }));
+
+    expect(result.item).not.toBeNull();
+    // The index was asked exactly once - the query - and it was asked with this request's own title.
+    expect(embeddingCalls(calls)).toHaveLength(1);
+    const queryBody = bodyOf(embeddingCalls(calls)[0]) as { input?: string[] };
+    expect(queryBody.input?.[0]).toContain("标题：未命名文章");
+
+    // The semantic answer reached the prompt, in the slot the position mode fills.
+    const prompt = turnsOf(chatCalls(calls)[0])[1]?.content ?? "";
+    expect(prompt).toContain(positioningKnowledge.title);
+    expect(prompt).toContain(sharedKnowledge.title);
+
+    // D8: the query call is metered in its own dimension and attributed to the knowledge purpose.
+    const rows = (await listAiUsageLedgerEntries()).filter((row) => row.purpose === "knowledge");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ meteredKind: "embedding", outcome: "success" });
+  });
+
   it("stores the caller's provenance verbatim and adds only the four facts it owns", async () => {
     stubFetch(chatRoutes(() => jsonReply(draft)));
     await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
@@ -488,5 +586,104 @@ describe("generateArticle", () => {
     expect(after.item?.metadata.brandId).toBe(brand.id);
     // The article keeps the version it was written with; comparing it with the row is the whole check.
     expect(after.item?.metadata.brandVersion as number).toBeGreaterThan(before.item?.metadata.brandVersion as number);
+  });
+});
+
+/**
+ * CI-P7-05-03 (remaining surface): the Marketplace listing a generated article and its cover ran as.
+ *
+ * The id is decided once per run - `marketplaceExtensionIdOf()` over the position this service resolved
+ * and the agent id the entry selected, which are the two ids the caller really hands in - and then used
+ * twice: on the text call's row, and on the cover the run paid for. Nothing about it is read off the
+ * article's own words: a title, a style and a platform name no listing, which is why the last case below
+ * stores an article written under a draft position as unattributed rather than guessing an id for it.
+ */
+describe("generateArticle and the Marketplace extension it ran as (CI-P7-05-03)", () => {
+  beforeEach(async () => {
+    vi.unstubAllGlobals();
+    await allowEveryAiBudgetCall();
+    await resetRuntime();
+    // The AI cover stage reads the image settings, so the fixture states the ones it needs and points
+    // them at the host the stubbed wire answers on.
+    await updateLocalAgentSettings({
+      imageProvider: "openai",
+      openAIImageSize: "1024x1024",
+      openAIImageBaseUrl: imageBaseUrl,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A positioning the storefront lists - the only thing that makes an attribution exist at all. */
+  async function publishedPosition(name: string) {
+    const position = await createPosition({ name });
+    if (!position) throw new Error("the published fixture was not created");
+    await updatePosition(position.id, { store: { ...position.store, status: "published" } });
+    return position;
+  }
+
+  /** One run that really makes a cover, and the ledger rows it wrote, told apart from the rest by id. */
+  async function rowsOfOneGeneration(request: Partial<Request>, config: AiWritingConfig) {
+    stubFetch(generationRoutes(() => jsonReply(draft)));
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    await prepareImageModel("openai-image", "gpt-image-1", "sk-stub-openai-image");
+    const before = new Set((await listAiUsageLedgerEntries({ limit: 500 })).map((row) => row.id));
+
+    const result = await generateArticle(requestFixture({ ...request, config }));
+
+    return {
+      result,
+      rows: (await listAiUsageLedgerEntries({ limit: 500 })).filter((row) => !before.has(row.id)),
+    };
+  }
+
+  /** One text call and one cover: `imageCount: "few"` is a target of one (`imageCountValues`). */
+  const aiCover = () => configFixture({ imageStrategy: "ai", imageCount: "few" });
+
+  it("files the article and its cover under the listing the run was made as", async () => {
+    const position = await publishedPosition("已上架的家居定位");
+
+    const { result, rows } = await rowsOfOneGeneration({ positioningId: position.id }, aiCover());
+
+    expect(rows).toHaveLength(2);
+    const articleRow = rows.find((row) => row.purpose === "article");
+    const imageRow = rows.find((row) => row.purpose === "image");
+    expect(articleRow).toMatchObject({
+      outcome: "success",
+      contentItemId: result.item?.id,
+      extensionId: `position-${position.id}`,
+    });
+    // The cover is the same listing's spending: it was made for this article, so it is filed with it
+    // rather than left as a call of its own.
+    expect(imageRow?.extensionId).toBe(`position-${position.id}`);
+    // And the article keeps the positioning it was written as, which is what a later 改写 reads.
+    expect(result.item?.metadata.positioningId).toBe(position.id);
+  });
+
+  it("falls back to the catalogue agent the entry selected when no listing is published", async () => {
+    const agentId = appStoreAgentIds()[0] ?? "";
+    expect(agentId).not.toBe("");
+
+    // The default positioning of this file is never published, so the agent id is the whole attribution.
+    const { rows, result } = await rowsOfOneGeneration(
+      { extensionAgentId: agentId, provenance: { agentId } },
+      aiCover(),
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.extensionId === agentId)).toBe(true);
+    expect(result.item?.metadata.agentId).toBe(agentId);
+  });
+
+  it("leaves a run with no published listing and no catalogue agent unattributed", async () => {
+    // The picker's own `general` default is not a listing, so naming it changes nothing - and the title
+    // and style the request carries are not identities either.
+    const { rows, result } = await rowsOfOneGeneration({ extensionAgentId: "general" }, aiCover());
+
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.extensionId === "")).toBe(true);
+    expect(result.item?.metadata.positioningId).toBe(fixture.position.id);
   });
 });

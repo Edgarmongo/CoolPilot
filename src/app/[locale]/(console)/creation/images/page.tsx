@@ -2,12 +2,19 @@
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
-import { Image as ImageIcon, Images, Search, Sparkles, Trash2 } from "lucide-react";
-import { apiDelete, apiPost, swrFetcher } from "@/lib/api-client";
+import { Image as ImageIcon, Images, RefreshCw, Search, Sparkles, Trash2 } from "lucide-react";
+import { apiDelete, apiErrorTranslationKey, apiPost, swrFetcher } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { ConsoleCard, ConsoleSectionHeader, consoleInputClass } from "@/components/ui/console-surface";
 import { ConsolePagination, useClampConsolePage, usePagedItems } from "@/components/ui/console-pagination";
+import { EstimateSummary } from "@/components/cost-center/estimate-summary";
+import {
+  budgetDecisionLabelKeys,
+  budgetDecisionToneClass,
+  estimateRequestFor,
+  type EstimatePreviewAnswer,
+} from "@/components/cost-center/estimate-view";
 import { ImageSourcePicker } from "@/components/creation/image-source-picker";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +34,29 @@ export default function ImagesPage() {
   const [notice, setNotice] = useState("");
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
+
+  /**
+   * 生成前预估（CI-P7-03-D2）。
+   *
+   * `POST /api/images` 每次只出一张图（`generateImageFile` 里写死的 `quantity: 1`），所以这里估的就是
+   * 一张：数量不来自输入框，而是这条路径本身的事实——把数量做成可填的，就等于让屏幕估一件不会发生的
+   * 事。提示词也不发送：按张计价跟提示词长度无关，而预估接口本来就会把发过去的文本丢掉。
+   *
+   * 服务端用的是调用自身那次检查的同一份价格目录 / 预算设置 / 账本，所以目录里没有这个维度的价格时它
+   * 会明确说「未计价」，而不是给一个 0。只读：不占额度、不写账本。用 SWR 只是照这个仓库取数的老规矩
+   * （失败可见、回到页面重取），价格应当在按「生成」之前就看得见，而不是点一下才知道。
+   */
+  const {
+    data: estimate,
+    error: estimateError,
+    isValidating: estimating,
+    mutate: refreshEstimate,
+  } = useSWR<EstimatePreviewAnswer>(["/api/ai-cost-center/estimate", "image"], () =>
+    apiPost<EstimatePreviewAnswer>(
+      "/api/ai-cost-center/estimate",
+      estimateRequestFor({ meteredKind: "image", quantity: "1" }),
+    ),
+  );
 
   // Fuzzy matches part of the name, exact matches the whole name.
   const filtered = useMemo(() => {
@@ -168,6 +198,60 @@ export default function ImagesPage() {
           </Button>
         </div>
         {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+
+        {/* 生成前预估（CI-P7-03-D2）：与真正拒绝调用的那次检查用的是同一份目录 / 预算 / 账本，只读。
+            没有价格时这里说的是「目录里没有这个维度的价格」，不是 0——「未计价」不等于「免费」。 */}
+        <div className="rounded-2xl border border-sky-100 bg-sky-50/50 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-medium text-zinc-800">{t("imageEstimateTitle")}</p>
+            <Button variant="ghost" size="sm" loading={estimating} onClick={() => void refreshEstimate()}>
+              <RefreshCw className="size-4" aria-hidden />
+              {t("imageEstimateRefresh")}
+            </Button>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-zinc-500">{t("imageEstimateHint")}</p>
+
+          {estimateError ? (
+            <p className="mt-3 text-sm text-rose-600">
+              {t(apiErrorTranslationKey(estimateError, "imageEstimateFailed"))}
+            </p>
+          ) : null}
+
+          {estimate ? (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs leading-5 text-zinc-500">
+                {estimate.target.routeResolved
+                  ? t("budgetEstimateTarget", {
+                      provider: estimate.target.providerId || "?",
+                      model: estimate.target.modelId || "?",
+                    })
+                  : t("budgetEstimateTargetUnresolved", {
+                      provider: estimate.target.providerId || "?",
+                      model: estimate.target.modelId || "?",
+                    })}
+              </p>
+
+              {/* 金额、它乘在哪条基价上、以及服务端附上的每一条保留意见。 */}
+              <EstimateSummary estimate={estimate.estimate} />
+
+              <p
+                className={`rounded-2xl border px-3 py-2 text-xs leading-5 ${budgetDecisionToneClass[estimate.decision.status]}`}
+              >
+                {t("imageEstimateVerdict", { verdict: t(budgetDecisionLabelKeys[estimate.decision.status]) })}
+              </p>
+
+              {/* 被拒时说明下一步能做什么：真正决定的是发送时那次检查。 */}
+              {estimate.decision.status === "blocked" ? (
+                <p className="text-xs leading-5 text-zinc-500">{t("imageEstimateBlockedHint")}</p>
+              ) : null}
+
+              {/* 目录里没有这一维度的价格时给出去处，而不是让「说不出来」自己站着。 */}
+              {estimate.estimate.kind === "unpriced" ? (
+                <p className="text-xs leading-5 text-zinc-500">{t("imageEstimatePriceHint")}</p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
 
         {/* 在线搜索 + 本地上传：与文章「插入图片」弹窗一致 */}
         <div className="rounded-2xl border border-sky-100 bg-sky-50/30 p-4">

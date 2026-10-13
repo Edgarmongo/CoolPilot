@@ -1,0 +1,421 @@
+{
+  "card": "CI-P5-01",
+  "mark": "E2E05-创作闭环-1791615267016",
+  "base": "http://127.0.0.1:3000",
+  "locale": "zh-cn",
+  "startedAt": "2026-10-10T06:54:27.016Z",
+  "checks": [
+    {
+      "name": "P5-01-01 创建选题 201 + 读回字段一致",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"id\":\"cwpS7zHskqm7eirOkUJf_\",\"title\":\"E2E05-创作闭环-1791615267016-选题\",\"description\":\"E2E05 受控测试选题：桌面收纳与换季整理。\",\"keywords\":[\"收纳\",\"整理\"],\"source\":\"manual\",\"sourceUrl\":\"\",\"status\":\"active\",\"contentItemId\":null,\"researchMaterialId\":\"\",\"createdAt\":1791615267324,\"updatedAt\":1791615267324}}"
+    },
+    {
+      "name": "P5-01-02 创建品牌资料 201 + 读回字段一致",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"id\":\"LWf6K71DfnXUOZat8pAQL\",\"name\":\"E2E05-创作闭环-1791615267016-品牌\",\"description\":\"E2E05 受控测试品牌资料：主打可复用的塑料收纳箱。\",\"targetAudience\":\"一线城市租房青年\",\"tone\":\"克制、给步骤、不夸张\",\"keywords\":[\"可堆叠\",\"透明箱体\"],\"bannedWords\":[\"最便宜\"],\"createdAt\":1791615267343,\"updatedAt\":1791615267343}}"
+    },
+    {
+      "name": "P5-01-03 创建研究素材 201 + kind=text/status=ready",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"id\":\"GYgUEtVuJn4CL-43BMM4A\",\"title\":\"E2E05-创作闭环-1791615267016-素材\",\"kind\":\"text\",\"content\":\"受控测试素材正文：先清空台面，再按使用频率分三区；常用物品放在腰线高度，重物下沉，视觉噪音上收。\",\"sourceUrl\":\"\",\"status\":\"ready\",\"statusMessage\":\"\",\"imageUrl\":\"\",\"fileName\":\"\",\"tags\":[\"E2E05\",\"收纳\"],\"fetchedAt\":null,\"transcript\":null,\"extraction\":null,\"extractionHistory\":[],\"createdAt\":1791615267360,\"updatedAt\":1791615267360}}"
+    },
+    {
+      "name": "P5-01-01/02/03 建档后逐条读回（GET 单条 200）",
+      "ok": true,
+      "detail": "{\"topic\":200,\"brand\":200,\"material\":200}"
+    },
+    {
+      "name": "P5-01-03 UI：?researchMaterialId= 打开生成对话框",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3000/zh-cn/creation/articles?researchMaterialId=GYgUEtVuJn4CL-43BMM4A errors=none"
+    },
+    {
+      "name": "P5-01-03 UI：素材已被预选（id 与建档一致）",
+      "ok": true,
+      "detail": "GYgUEtVuJn4CL-43BMM4A"
+    },
+    {
+      "name": "P5-01-01 UI：选中选题后主题被预填",
+      "ok": true,
+      "detail": "E2E05-创作闭环-1791615267016-选题"
+    },
+    {
+      "name": "P5-01-02 UI：品牌资料可选并选中",
+      "ok": true,
+      "detail": "LWf6K71DfnXUOZat8pAQL"
+    },
+    {
+      "name": "P5-01-04 UI：真实生成后进入编辑器（文章ID 标记出现）",
+      "ok": true,
+      "detail": "generated=true failureNotice=false errors=none"
+    },
+    {
+      "name": "P5-01-04 生成文章标题非空",
+      "ok": true,
+      "detail": "租房桌面的收纳思路"
+    },
+    {
+      "name": "P5-01-04 编辑器正文非空",
+      "ok": true,
+      "detail": "chars=741"
+    },
+    {
+      "name": "P5-01-04 生成结果已落库（内容库首屏可见）",
+      "ok": true,
+      "detail": "{\"items\":[{\"id\":\"fWWjxy36EEXMyWtHXj-2x\",\"title\":\"租房桌面的收纳思路\",\"body\":\"搬进现在这间房的时候，我说过一句话：先住着，等攒够钱再好好收拾。结果一住两年，桌面上的东西越堆越多，充电线、快递盒、去年冬天的围巾，全挤在一块。\\n\\n我一直以为是自己不够勤快。后来才发现，问题不在勤快，在于我从来没给东西安排过位置。\\n\\n真正开始整理那天，我先做了一件事：把整张台面清空。全部搬到地上，一件不留。空桌面摆在那儿，反而有点陌生。然后我把东西分成三堆，按用的频率来。\\n\\n每天都要碰的，手机、充电器、水杯、耳机，放在伸手就够得到的位置，差不多是坐着时腰线的高度。腰线高度这个词是跟一个做收纳的朋友学的，她说这段距离不用起身、不用弯腰，拿取最省力。\\n\\n一周用一两次的，笔记本、指甲刀、备用的笔，往上一格。\\n\\n一个月都未必动的，旧票据、备用数…(5395 chars)"
+    },
+    {
+      "name": "P5-01-06 保存：GET /api/content/<id> 200",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "P5-01-04 生成文章正文非空",
+      "ok": true,
+      "detail": "bodyChars=751"
+    },
+    {
+      "name": "P5-01-04 生成记录 provider/model",
+      "ok": true,
+      "detail": "openai/deepseek-flash"
+    },
+    {
+      "name": "P5-01-02 品牌关联（metadata.brandId/brandVersion）",
+      "ok": true,
+      "detail": "{\"brandId\":\"LWf6K71DfnXUOZat8pAQL\",\"brandVersion\":1791615267343,\"expectVersion\":1791615267343}"
+    },
+    {
+      "name": "P5-01-03 研究素材关联（metadata.researchMaterialId/Version）",
+      "ok": true,
+      "detail": "{\"id\":\"GYgUEtVuJn4CL-43BMM4A\",\"version\":1791615267360,\"expectVersion\":1791615267360}"
+    },
+    {
+      "name": "P5-01-01 选题关联（metadata.topicId）",
+      "ok": true,
+      "detail": "cwpS7zHskqm7eirOkUJf_"
+    },
+    {
+      "name": "P5-01-01 选题回写产出文章（topic.contentItemId）",
+      "ok": true,
+      "detail": "fWWjxy36EEXMyWtHXj-2x"
+    },
+    {
+      "name": "P5-01-05 上传图片 201 且回答存储形态 URL",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"fileName\":\"upload-1791615276027-SJGk83BS.png\",\"url\":\"/api/agent/artifacts?file=upload-1791615276027-SJGk83BS.png\"}}"
+    },
+    {
+      "name": "P5-01-05 PATCH images → imagePath 镜像一致",
+      "ok": true,
+      "detail": "{\"imagePath\":\"upload-1791615276027-SJGk83BS.png\",\"images\":[\"upload-1791615276027-SJGk83BS.png\"]}"
+    },
+    {
+      "name": "P5-01-08 PATCH images:[] 同时清空封面（imagePath=\"\"）",
+      "ok": false,
+      "detail": "undefined"
+    },
+    {
+      "name": "P5-01-05 封面可恢复",
+      "ok": true,
+      "detail": "upload-1791615276027-SJGk83BS.png"
+    },
+    {
+      "name": "P5-01-06 深链 ?edit=<id> 重新打开编辑器",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3000/zh-cn/creation/articles?edit=fWWjxy36EEXMyWtHXj-2x"
+    },
+    {
+      "name": "P5-01-06 重开后标题与落库一致",
+      "ok": true,
+      "detail": "租房桌面的收纳思路"
+    },
+    {
+      "name": "P5-01-06 重开后正文与落库一致（前缀比对）",
+      "ok": true,
+      "detail": "probe=\"搬进现在这间房的时候，我\""
+    },
+    {
+      "name": "P5-01-05 重开编辑器后封面真被画出（naturalWidth>0）",
+      "ok": true,
+      "detail": "/api/agent/artifacts?file=upload-1791615276027-SJGk83BS.png"
+    },
+    {
+      "name": "P5-01-07 UI 存草稿得到「已储存」回执",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3000/zh-cn/creation/articles?edit=fWWjxy36EEXMyWtHXj-2x"
+    },
+    {
+      "name": "P5-01-07 再次保存后标题已更新",
+      "ok": true,
+      "detail": "租房桌面的收纳思路-已编辑"
+    },
+    {
+      "name": "P5-01-07 再次保存后正文仍在（未被清空）",
+      "ok": true,
+      "detail": "bodyChars=808"
+    },
+    {
+      "name": "P5-01-08 再次保存后图片引用/封面仍一致",
+      "ok": true,
+      "detail": "{\"imagePath\":\"upload-1791615276027-SJGk83BS.png\",\"images\":[\"upload-1791615276027-SJGk83BS.png\"]}"
+    },
+    {
+      "name": "P5-01-08 再次保存后关联数据未变（品牌/选题/素材）",
+      "ok": true,
+      "detail": "{\"brandId\":\"LWf6K71DfnXUOZat8pAQL\",\"topicId\":\"cwpS7zHskqm7eirOkUJf_\",\"researchMaterialId\":\"GYgUEtVuJn4CL-43BMM4A\"}"
+    },
+    {
+      "name": "P5-01-06 内容库列表出现该文章（真实页面渲染）",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3000/zh-cn/content/library errors=none"
+    },
+    {
+      "name": "P5-01-05 内容库卡片封面真被画出",
+      "ok": true,
+      "detail": "/api/agent/artifacts?file=upload-1791615276027-SJGk83BS.png"
+    },
+    {
+      "name": "后续衔接 UI：编辑器「去发布」打开发布对话框（未点击发布）",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3000/zh-cn/creation/articles?edit=fWWjxy36EEXMyWtHXj-2x"
+    },
+    {
+      "name": "后续衔接 未执行真实发布：publish_records 计数未变",
+      "ok": true,
+      "detail": "3 → 3"
+    },
+    {
+      "name": "后续衔接 API：平台版本派生（POST /api/content/[id]/platform-versions）",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"contentItemId\":\"fWWjxy36EEXMyWtHXj-2x\",\"base\":{\"title\":\"租房桌面的收纳思路-已编辑\",\"body\":\"<p>搬进现在这间房的时候，我说过一句话：先住着，等攒够钱再好好收拾。结果一住两年，桌面上的东西越堆越多，充电线、快递盒、去年冬天的围巾，全挤在一块。</p><p>我一直以为是自己不够勤快。后来才发现，问题不在勤快，在于我从来没给东西安排过位置。</p><p>真正开始整理那天，我先做了一件事：把整张台面清空。全部搬到地上，一件不留。空桌面摆在那儿，反而有点陌生。然后我把东西分成三堆，按用的频率来。</p><p>每天都要碰的，手机、充电器、水杯、耳机，放在伸手就够得到的位置，差不多是坐着时腰线的高度。腰线高度这个词是跟一个做收纳的朋友学的，她说这段距离不用起身、不用弯腰，拿取最省力。</p><p>…(7527 chars)"
+    },
+    {
+      "name": "后续衔接 API：生命周期读模型含该内容（GET /api/content/lifecycle）",
+      "ok": true,
+      "detail": "{\"contentItemId\":\"fWWjxy36EEXMyWtHXj-2x\",\"contentFound\":true,\"title\":\"租房桌面的收纳思路-已编辑\",\"contentType\":\"article\",\"contentStatus\":\"draft\",\"stage\":\"draft\",\"createdAt\":1791615274179,\"updatedAt\":1791615280710,\"plan\":null,\"planCount\":0,\"enabledPlanCount\":0,\"executions\":{\"runs\":0,\"failedRuns\":0,\"lastStatus\":\"\",\"lastAt\":null},\"publish\":{\"records\":0,\"byStatus\":{\"queued\":0,\"running\":0,\"published\":0,\"drafted\":0…(490 chars)"
+    },
+    {
+      "name": "失败场景：未知 topicId → 404 NOT_FOUND（不静默降级）",
+      "ok": false,
+      "detail": "{\"ok\":true,\"data\":{\"item\":{\"id\":\"R4zkzXTiOGw8qD_0RFvrU\",\"title\":\"选题卡壳那天，我换了种笨办法\",\"body\":\"凌晨一点，文档还停在一行标题上。光标闪了半小时，删了又写，写了又删——做内容的人都懂这滋味：不是不会写，是不知道写什么。\\n\\n以前靠刷同行、刷热搜找灵感，两小时过去，脑子里全是别人的东西，自己一个字没动。\\n\\n后来我把流程倒过来：先建一个自己的素材池。地铁上听见的一句对话、评论区一条吐槽、朋友随口抱怨的小事，随手丢进去。等真要写的时候，不用从零开始，翻一翻，选题自己就冒出来了。\\n\\n我用的那款内容助手做的正是这件事。它把碎片灵感按主题归好类，早上推几条能直接下笔的方向，省下的不是时间，是对着空白页发慌的那种焦虑。\\n\\n如果你也总卡在第一步，不妨先把“想选题”换成“攒素材”。写不出来的时候，不是你没东西写，是…(1461 chars)"
+    },
+    {
+      "name": "失败场景：未知内容 GET/DELETE → 404",
+      "ok": true,
+      "detail": "404/404"
+    },
+    {
+      "name": "失败场景：图片生成诚实失败（无可用模型，非模拟成功）",
+      "ok": false,
+      "detail": "409  {\"ok\":false,\"error\":\"No usable model provides: image_generation\",\"code\":\"MODEL_CAPABILITY_UNAVAILABLE\",\"message\":\"No usable model provides: image_generation\",\"d…(337 chars)"
+    },
+    {
+      "name": "清理后 content_items 回落基线",
+      "ok": false,
+      "detail": "19 → 21"
+    },
+    {
+      "name": "清理后 topics/brands/research 回落基线",
+      "ok": true,
+      "detail": "{\"topics\":[0,0],\"brands\":[0,0],\"research\":[0,0]}"
+    },
+    {
+      "name": "清理后 publish_records / runs / schedules 未变",
+      "ok": true,
+      "detail": "{\"publish\":[3,3],\"runs\":[8,8],\"schedules\":[0,0]}"
+    },
+    {
+      "name": "清理后 artifacts 文件数回落基线",
+      "ok": true,
+      "detail": "37 → 37"
+    },
+    {
+      "name": "写入面只有账本/用量计数增长（其余表零漂移）",
+      "ok": true,
+      "detail": "{\"content_items\":2,\"topics\":0,\"brands\":0,\"research_materials\":0,\"schedules\":0,\"publish_records\":0,\"runs\":0,\"usage_records\":2,\"ai_usage_ledger\":2,\"artifactsFiles\":0}"
+    }
+  ],
+  "steps": [
+    {
+      "step": "0-before-counts",
+      "at": "2026-10-10T06:54:27.027Z",
+      "before": {
+        "content_items": 19,
+        "topics": 0,
+        "brands": 0,
+        "research_materials": 0,
+        "schedules": 0,
+        "publish_records": 3,
+        "runs": 8,
+        "usage_records": 16,
+        "ai_usage_ledger": 0,
+        "artifactsFiles": 37
+      }
+    },
+    {
+      "step": "0-runtime",
+      "at": "2026-10-10T06:54:27.311Z",
+      "chat": {
+        "capability": "chat",
+        "total": 265,
+        "callable": 2
+      },
+      "defaults": {}
+    },
+    {
+      "step": "1-fixtures",
+      "at": "2026-10-10T06:54:27.373Z",
+      "topic": {
+        "status": 201,
+        "id": "cwpS7zHskqm7eirOkUJf_",
+        "title": "E2E05-创作闭环-1791615267016-选题"
+      },
+      "brand": {
+        "status": 201,
+        "id": "LWf6K71DfnXUOZat8pAQL",
+        "name": "E2E05-创作闭环-1791615267016-品牌",
+        "updatedAt": 1791615267343
+      },
+      "material": {
+        "status": 201,
+        "id": "GYgUEtVuJn4CL-43BMM4A",
+        "kind": "text",
+        "materialStatus": "ready"
+      }
+    },
+    {
+      "step": "2-ui-form",
+      "at": "2026-10-10T06:54:28.728Z",
+      "dialogOpened": true,
+      "preselectedMaterial": "GYgUEtVuJn4CL-43BMM4A",
+      "prefilledTopic": "E2E05-创作闭环-1791615267016-选题",
+      "brandValue": "LWf6K71DfnXUOZat8pAQL"
+    },
+    {
+      "step": "click",
+      "at": "2026-10-10T06:54:29.083Z",
+      "name": "生成文章",
+      "strategy": "native"
+    },
+    {
+      "step": "2-ui-generated",
+      "at": "2026-10-10T06:54:34.383Z",
+      "editorTitle": "租房桌面的收纳思路",
+      "bodyChars": 741,
+      "generationMs": 5655
+    },
+    {
+      "step": "2-persisted",
+      "at": "2026-10-10T06:54:35.772Z",
+      "itemId": "fWWjxy36EEXMyWtHXj-2x",
+      "title": "租房桌面的收纳思路",
+      "status": "ready",
+      "provider": "openai",
+      "model": "deepseek-flash",
+      "meta": "{\"type\":\"article\",\"prompt\":\"\",\"topic\":\"E2E05-创作闭环-1791615267016-选题\",\"generationType\":\"topic\",\"agentId\":\"general\",\"agentName\":\"通用写作\",\"topicId\":\"cwpS7zHskqm7eirOkUJf_\",\"researchMaterialId\":\"GYgUEtVuJn4CL-43BMM4A\",\"researchMaterialVersion\":1791615267360,\"images\":[],\"positioningId\":\"zIh9UGx5dZmxxzTOU0tH-\",\"brandId\":\"LWf6K71DfnXUOZat8pAQL\",\"brandVersion\":1791615267343,\"provider\":\"openai\",\"model\":\"deepseek-flash\"}"
+    },
+    {
+      "step": "click",
+      "at": "2026-10-10T06:54:37.146Z",
+      "name": "存草稿",
+      "strategy": "native"
+    },
+    {
+      "step": "4-reopen-edit-save",
+      "at": "2026-10-10T06:54:37.177Z",
+      "reopenedTitle": "租房桌面的收纳思路",
+      "editedTitle": "租房桌面的收纳思路-已编辑",
+      "status": "draft",
+      "updatedAt": 1791615277100
+    },
+    {
+      "step": "click",
+      "at": "2026-10-10T06:54:39.969Z",
+      "name": "去发布",
+      "strategy": "native"
+    },
+    {
+      "step": "6-seams",
+      "at": "2026-10-10T06:54:41.252Z",
+      "publishDialog": true,
+      "platformVersionStatus": 200,
+      "lifecycleRow": "{\"contentItemId\":\"fWWjxy36EEXMyWtHXj-2x\",\"contentFound\":true,\"title\":\"租房桌面的收纳思路-已编辑\",\"contentType\":\"article\",\"contentStatus\":\"draft\",\"stage\":\"draft\",\"createdAt\":1791615274179,\"updatedAt\":1791615280710,\"plan\":null,\"planCount\":0,\"enabledPlanCount\":0,\"executions\":{\"runs\":0,\"failedRuns\":0,\"lastStatus\":\"\",\"lastAt\":null},\"publish\":{\"records\":0,\"byStatus\":{\"queued\":0,\"running\":0,\"published\":0,\"drafted\":0…(490 chars)"
+    },
+    {
+      "step": "7-negatives",
+      "at": "2026-10-10T06:54:50.574Z",
+      "missingTopic": {
+        "status": 201
+      },
+      "imageGen": {
+        "status": 409,
+        "code": "",
+        "upstream": null
+      }
+    },
+    {
+      "step": "8-cleanup",
+      "at": "2026-10-10T06:54:50.814Z",
+      "cleanupSteps": [
+        {
+          "table": "topics",
+          "id": "cwpS7zHskqm7eirOkUJf_",
+          "status": 200
+        },
+        {
+          "table": "brands",
+          "id": "LWf6K71DfnXUOZat8pAQL",
+          "status": 200
+        },
+        {
+          "table": "research_materials",
+          "id": "GYgUEtVuJn4CL-43BMM4A",
+          "status": 200
+        },
+        {
+          "table": "artifacts",
+          "files": [
+            "upload-1791615276027-SJGk83BS.png"
+          ],
+          "status": 200,
+          "deleted": [
+            "upload-1791615276027-SJGk83BS.png"
+          ]
+        }
+      ]
+    },
+    {
+      "step": "9-after-counts",
+      "at": "2026-10-10T06:54:50.996Z",
+      "after": {
+        "content_items": 21,
+        "topics": 0,
+        "brands": 0,
+        "research_materials": 0,
+        "schedules": 0,
+        "publish_records": 3,
+        "runs": 8,
+        "usage_records": 18,
+        "ai_usage_ledger": 2,
+        "artifactsFiles": 37
+      },
+      "delta": {
+        "content_items": 2,
+        "topics": 0,
+        "brands": 0,
+        "research_materials": 0,
+        "schedules": 0,
+        "publish_records": 0,
+        "runs": 0,
+        "usage_records": 2,
+        "ai_usage_ledger": 2,
+        "artifactsFiles": 0
+      }
+    }
+  ],
+  "itemId": "fWWjxy36EEXMyWtHXj-2x",
+  "failed": true,
+  "finishedAt": "2026-10-10T06:54:50.996Z",
+  "pageErrors": []
+}

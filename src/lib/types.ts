@@ -19,6 +19,10 @@ export const playbookIds = [
   // CI-P3-03: the same shape for a distillation. `src/lib/research-extraction/extraction-task.ts` owns
   // it, the worker dispatches it, and `GET /api/tasks/<id>` reads it - no extraction table.
   "research_extraction",
+  // CI-EMB-01: the same shape for the knowledge index. `src/lib/knowledge-embedding/embedding-task.ts`
+  // owns it, the worker dispatches it, and `GET /api/tasks/<id>` reads it - the vectors live in
+  // `knowledge_embeddings`, which is a data table rather than a task table.
+  "knowledge_embedding",
 ] as const;
 
 export type PlaybookId = (typeof playbookIds)[number];
@@ -626,15 +630,63 @@ export const aiUsageCostSources = [
 export type AiUsageCostSource = (typeof aiUsageCostSources)[number];
 
 /**
- * How much of the real usage this row actually saw.
+ * How much of the real usage this row actually saw, on the dimension the row is billed on.
  *
- * `reported` - the provider returned a usage object (even if it says zero).
+ * `reported` - the billed amount was measured: the provider's usage object for a token-metered row
+ *              (even if it says zero), or the row's own `quantity` for a kind priced per image,
+ *              second or character.
  * `partial`  - the call was interrupted, so what arrived may be less than what was billed.
- * `unknown`  - no usage object arrived at all: a failure, or a provider that does not report.
+ * `unknown`  - nothing measurable arrived: a failure, a provider that does not report, or a non-token
+ *              row whose amount was not written as a number.
+ *
+ * Which of the two `reported` readings applies is decided by `usageCompletenessFor()` in
+ * `@/lib/ai-usage-ledger`, so a call site never has to remember the rule itself (CI-P7-05-01).
  */
 export const aiUsageCompletenessValues = ["reported", "partial", "unknown"] as const;
 
 export type AiUsageCompleteness = (typeof aiUsageCompletenessValues)[number];
+
+/**
+ * Why a row cannot state a figure at all (CI-P7-05-04).
+ *
+ * `cost_source` says *which* state a row is in; it cannot say *why* the figure is missing - and the
+ * blanks `computeUsageCost()` itself distinguishes are not the same situation: a missing catalog
+ * price is fixed by recording one, a provider that reports no usage is fixed by nothing, and a call
+ * site that wrote its units under a key this dimension does not price is a wiring mistake worth
+ * seeing on the screen.
+ *
+ * Every value is derived from the row's own stored evidence, by `meteringReasonFor()` in
+ * `@/lib/ai-metering`, and never from the page, the purpose, the model name or the extension id. A
+ * blank whose evidence does not support one of these answers gets `not-recorded` instead of a
+ * plausible guess - which is also what every row written before this reading existed gets, because
+ * the ledger stores the evidence and nothing is backfilled.
+ *
+ * Like `aiUsageCostSources`, this list may only ever grow: rows already written name one of these.
+ */
+export const aiUsageMeteringReasons = [
+  /** No price is in force for this provider+model+dimension. Recording one makes the figure stateable. */
+  "no-price-for-dimension",
+  /** A price answered, but it prices another dimension - its rate is not this row's rate. */
+  "price-kind-mismatch",
+  /** The price row states no unit rate, so there is nothing for the amount to multiply. */
+  "price-unit-unspecified",
+  /** A token-metered call that succeeded and reported no usage object at all. */
+  "usage-not-reported",
+  /** A non-token call that recorded no amount for the very unit its dimension is priced in. */
+  "quantity-not-recorded",
+  /** A non-token call whose amount was written under a unit this dimension does not price. */
+  "quantity-unit-mismatch",
+  /** A non-token call whose amount for this dimension is not a usable number. */
+  "quantity-unusable",
+  /** The request did not succeed, so nothing about its usage ever arrived. */
+  "attempt-failed",
+  /** The transport died mid-call: what arrived may be less than what was billed. */
+  "call-interrupted",
+  /** The row carries no evidence for a reason - every row written before this reading existed. */
+  "not-recorded",
+] as const;
+
+export type AiUsageMeteringReason = (typeof aiUsageMeteringReasons)[number];
 
 /** What was metered. Text is counted in tokens; the other kinds are not, and are stored in `quantityJson`. */
 export const aiUsageMeteredKinds = ["text", "image", "video", "speech", "embedding", "agent"] as const;
@@ -761,6 +813,16 @@ export interface AiUsageLedgerEntry {
   /** The media artifact or content item this call produced, when it produced one. */
   outputAssetId: string;
   contentItemId: string;
+  /**
+   * The Marketplace extension this call ran as (CI-P7-05-03), in the storefront's own id space
+   * (`position-<id>` for a published position listing, or a built-in catalogue agent's id).
+   *
+   * Empty is the honest answer for the great majority of calls - a chat answer, a transcription,
+   * an image, a rewrite ran as no listing - and for a call whose entry named no published listing
+   * and no catalogue agent. Nothing is derived from the purpose or the model to fill it in: an
+   * invented attribution would make "which extension spent this" look answered.
+   */
+  extensionId: string;
   /**
    * The budget hold this request was admitted under (CI-P7-03-A), empty when it was not gated.
    *
@@ -915,6 +977,53 @@ export interface AiUsageLedgerSummary {
 }
 
 /**
+ * Why a metered dimension has no accurate reading of its own in this installation (CI-P7-05-04).
+ *
+ * This is a fact about the *runtime*, not about a row, and it is the one thing the ledger cannot
+ * state about itself: a dimension nothing ever writes is silently absent from a list of rows, and
+ * "absent" is exactly what the card forbids. So the reason a dimension cannot be read is declared
+ * beside the code that would have to write it (`aiMeteredKindProducers` in `@/lib/ai-metering`) and
+ * is shown even when the window holds not a single row of that dimension.
+ */
+export const aiUsageMeteringGaps = [
+  /** No call path in this runtime can produce a row of this dimension at all. */
+  "no-runtime-path",
+  /** The dimension has no rows of its own: its spend is metered as the text rows of its calls. */
+  "metered-through-text",
+] as const;
+
+export type AiUsageMeteringGap = (typeof aiUsageMeteringGaps)[number];
+
+/**
+ * 计量覆盖 (CI-P7-05-04): one metered dimension, as this installation can really read it.
+ *
+ * The counts are the window's own rows, split with the vocabulary that already exists - measured
+ * means `computed` / `provider-reported`, and the two blank states keep their own columns rather
+ * than being added into one "unaccounted" number. `reasons` are the reasons those blank rows
+ * actually carry, deduped: an empty list beside a non-zero blank count is itself a reading (the
+ * rows predate the reason vocabulary).
+ *
+ * `gap` is the dimension's own declaration, and it is reported even when `attempts` is 0, so a
+ * dimension this runtime cannot meter is named instead of missing.
+ */
+export interface AiUsageMeteringCoverage {
+  kind: AiUsageMeteredKind;
+  /** How many of the window's rows this dimension billed. */
+  attempts: number;
+  /** Rows that stated a figure (`computed` / `provider-reported`). */
+  measuredAttempts: number;
+  /** Rows that could not, in the ledger's own two states. */
+  unpricedAttempts: number;
+  unmeasuredAttempts: number;
+  /** The reasons this dimension's unstated rows carry, deduped and sorted; `[]` when none do. */
+  reasons: AiUsageMeteringReason[];
+  /** A price is in force for this dimension right now (`markInForceModelPrices`). */
+  priced: boolean;
+  /** Why this installation cannot meter the dimension accurately; `''` when it can. */
+  gap: AiUsageMeteringGap | "";
+}
+
+/**
  * What the AI 成本与质量优化中心's first page reads (CI-P7-02).
  *
  * One request carries both readings of the same window on purpose: the ledger's per-attempt money
@@ -931,6 +1040,12 @@ export interface AiCostCenterPayload {
     meteredKinds: AiUsageMeteredKind[];
     /** The dimensions that already have a price in force - a call in any other kind is `unpriced`. */
     pricedKinds: AiUsageMeteredKind[];
+    /**
+     * 计量覆盖 (CI-P7-05-04): every dimension, always, with what the window's rows of it could
+     * state and - for a row that could state nothing - why. Built from the same rows as `ledger`
+     * above, so the two cannot describe different windows.
+     */
+    metering: AiUsageMeteringCoverage[];
   };
 }
 
@@ -1052,6 +1167,13 @@ export interface AiUsageCallView {
   retry: AiUsageCallRetry;
   group: AiUsageCallGroupInfo;
   trace: AiUsageCallTrace;
+  /**
+   * Why this request's figure is missing (CI-P7-05-04), or `''` when the row stated one.
+   *
+   * Decided on the server from the row alone (`meteringReasonFor`), so the page never re-derives the
+   * rule and a reason cannot be invented for a row that does not support one.
+   */
+  reason: AiUsageMeteringReason | "";
 }
 
 /** The filters the 调用明细 view applies; every empty value means "no filter". */
@@ -1065,6 +1187,12 @@ export interface AiCostCenterCallFilters {
   retryOnly: boolean;
   contentItemId: string;
   taskId: string;
+  /**
+   * The Marketplace extension a request ran as (CI-P7-05-03). An empty value means no filter, so
+   * "the unattributed rows" cannot be asked for by this field - the breakdown's own bucket is
+   * where they are read.
+   */
+  extensionId: string;
 }
 
 /** 单篇内容成本 (CI-P7-02-05): what one content item's calls added up to. */
@@ -1081,6 +1209,136 @@ export interface AiUsageCallContentCost {
   /** The business tasks and execution nodes this content's calls came from, both sorted. */
   taskIds: string[];
   nodeIds: string[];
+}
+
+/**
+ * 节点级调用成本 (CI-P7-05-02): one execution node's requests inside one run.
+ *
+ * A node bucket is a **partition** of its run's rows - every row lands in exactly one, and the rows
+ * that recorded no node are kept as a bucket of their own (`''`, shown as unclassified) instead of
+ * being folded into a named node. That is what makes a run's total reconcilable: the node figures add
+ * up to it because they are the same rows, each counted once.
+ */
+export interface AiUsageRunNodeCost {
+  /** `''` collects the run's rows that recorded no node - shown as unclassified, never dropped. */
+  nodeId: string;
+  attempts: number;
+  /** Requests whose outcome was `failed`. */
+  failures: number;
+  /** Requests cut short. Kept apart from `failures` because the ledger keeps them apart. */
+  interrupted: number;
+  /** Requests that repeated an earlier one in their call - a position fact, not a reason. */
+  retries: number;
+  /** Repeats whose predecessor is not among the rows this answer read, so the chain cannot be stated. */
+  unresolvedRetries: number;
+  totalTokens: number;
+  costByCurrency: AiUsageLedgerCurrencyTotal[];
+  unpricedAttempts: number;
+  unmeasuredAttempts: number;
+  costIsComplete: boolean;
+}
+
+/**
+ * 一次执行的总成本与失败重试成本 (CI-P7-05-02): one run's requests, added up.
+ *
+ * `costByCurrency` is the sum over the run's rows and nothing else, so it can be checked against
+ * them by hand (and equals the sum of `nodes`). `retryCostByCurrency` and `failureCostByCurrency`
+ * are **readings of the same rows, not additions to them**: one says how much of the money went to
+ * requests that repeated an earlier one, the other how much went to requests that did not succeed.
+ * A row can be both, so the two are never added together - doing so would bill one request twice.
+ *
+ * A request that failed may still have been billed, so its tokens and its cost are counted where the
+ * row stated them; a row that stated no figure makes the corresponding reading a lower bound and is
+ * reported through its own `unpricedAttempts` / `unmeasuredAttempts`, never as a 0.
+ */
+export interface AiUsageRunCost {
+  /** `''` collects the rows that recorded no run - shown as unclassified, never dropped. */
+  runId: string;
+  attempts: number;
+  failures: number;
+  interrupted: number;
+  /** Requests that repeated an earlier one in their call, whatever the reason. */
+  retries: number;
+  /** Repeats whose predecessor is outside the rows this answer read. */
+  unresolvedRetries: number;
+  totalTokens: number;
+  /** The run's accounted amount, per currency: the sum over its rows, retries included. */
+  costByCurrency: AiUsageLedgerCurrencyTotal[];
+  unpricedAttempts: number;
+  unmeasuredAttempts: number;
+  costIsComplete: boolean;
+  /** Money spent on requests that repeated an earlier one of their call. */
+  retryCostByCurrency: AiUsageLedgerCurrencyTotal[];
+  /** Rows behind `retryCostByCurrency` that stated no figure, so that reading is a lower bound. */
+  retryUnpricedAttempts: number;
+  retryUnmeasuredAttempts: number;
+  retryCostIsComplete: boolean;
+  /** Money spent on requests whose outcome was not `success` (failed or interrupted). */
+  failureCostByCurrency: AiUsageLedgerCurrencyTotal[];
+  failureUnpricedAttempts: number;
+  failureUnmeasuredAttempts: number;
+  failureCostIsComplete: boolean;
+  /** The most recent request of the run, so the list reads newest activity first. */
+  lastAt: number;
+  /** The purposes this run's requests were made for, sorted. */
+  purposes: string[];
+  nodes: AiUsageRunNodeCost[];
+}
+
+/**
+ * 按 Marketplace 扩展归属的成本 (CI-P7-05-03): one group per extension the window's calls ran as.
+ *
+ * The figures are the run reader's own (`AiUsageRunCost`), read over the rows that named this
+ * extension instead of over the rows of one run, so the same three disciplines hold without being
+ * restated: the group total is the sum over its rows, the retry reading and the failure reading are
+ * two views of the same rows and are never added into a third figure, and a row that stated no
+ * figure turns its reading into a lower bound through its own `unpricedAttempts` /
+ * `unmeasuredAttempts` rather than into a cheaper total.
+ *
+ * `''` collects the rows that named no extension - shown as unattributed, never dropped - because
+ * "this call ran as no listing" is a fact about the money that a list of attributed amounts alone
+ * would hide. The provenance lists (`taskIds` / `runIds` / `contentItemIds` / `nodeIds`) say which
+ * execution spent the extension's money; they are ids the rows really carry, not a name resolved
+ * for display.
+ */
+export interface AiUsageExtensionCost {
+  /** `''` collects the rows that named no extension - shown as unattributed, never dropped. */
+  extensionId: string;
+  attempts: number;
+  failures: number;
+  interrupted: number;
+  /** Requests that repeated an earlier one in their call, whatever the reason. */
+  retries: number;
+  /** Repeats whose predecessor is outside the rows this answer read. */
+  unresolvedRetries: number;
+  totalTokens: number;
+  /** The extension's accounted amount, per currency: the sum over its rows, retries included. */
+  costByCurrency: AiUsageLedgerCurrencyTotal[];
+  unpricedAttempts: number;
+  unmeasuredAttempts: number;
+  costIsComplete: boolean;
+  /** Money spent on requests that repeated an earlier one of their call. */
+  retryCostByCurrency: AiUsageLedgerCurrencyTotal[];
+  retryUnpricedAttempts: number;
+  retryUnmeasuredAttempts: number;
+  retryCostIsComplete: boolean;
+  /** Money spent on requests whose outcome was not `success` (failed or interrupted). */
+  failureCostByCurrency: AiUsageLedgerCurrencyTotal[];
+  failureUnpricedAttempts: number;
+  failureUnmeasuredAttempts: number;
+  failureCostIsComplete: boolean;
+  /** The most recent request that ran as this extension, so the list reads newest activity first. */
+  lastAt: number;
+  /** The purposes its requests were made for, sorted. */
+  purposes: string[];
+  /** The business task of each request (`taskId`, else the run it was sent from), sorted and deduped. */
+  taskIds: string[];
+  /** The automation / agent runs that spent this extension's money, sorted. */
+  runIds: string[];
+  /** The execution nodes that spent it, sorted. */
+  nodeIds: string[];
+  /** The content items it produced or was charged for, sorted. */
+  contentItemIds: string[];
 }
 
 /** What the 调用明细 tab reads (CI-P7-02-04 / 05). */
@@ -1111,12 +1369,26 @@ export interface AiCostCenterCallsPayload {
   calls: AiUsageCallView[];
   /** Per-content cost, computed over the window's rows so it does not move with the table's filters. */
   byContent: AiUsageCallContentCost[];
+  /**
+   * Per-run and per-node cost (CI-P7-05-02), likewise computed over the window's rows. A row that
+   * recorded no run keeps its own unclassified group, and a run's node figures add up to its total
+   * because both are the same rows - so the headline can be checked against the detail.
+   */
+  byRun: AiUsageRunCost[];
+  /**
+   * Per-extension cost (CI-P7-05-03), likewise computed over the window's rows. The rows that named
+   * no extension keep their own unattributed group, and each group says which tasks, runs, nodes and
+   * content items spent it - the attribution the card asks for, read rather than guessed.
+   */
+  byExtension: AiUsageExtensionCost[];
   /** The filter choices the window's data actually offers, so a filter is never offered empty. */
   options: {
     purposes: string[];
     outcomes: AiUsageOutcome[];
     costSources: AiUsageCostSource[];
     models: Array<{ key: string; label: string }>;
+    /** The extension ids this window's rows named, sorted; empty ids are not an option. */
+    extensions: string[];
   };
 }
 
@@ -1380,6 +1652,39 @@ export interface KnowledgeBaseRecord {
   fileName: string;
   /** Empty string means the entry is available to every positioning. */
   positionId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * One stored chunk vector of a knowledge record (CI-EMB-01, D2=b/D11).
+ *
+ * The knowledge record stays the business entity a user edits; this is its *retrieval unit*, and the two
+ * are deliberately different tables. A record therefore has many of these, each with:
+ *
+ * - a **stable id** (`<knowledgeId>#<chunkIndex>`), so re-embedding the same body updates the rows in place
+ *   instead of growing the index - which is also what makes a retried task idempotent;
+ * - the **chunking version** and both hashes (`sourceHash` over the whole record's contributing fields,
+ *   `chunkHash` over this chunk's own text), so "is this vector still valid" is a comparison rather than a
+ *   timestamp guess;
+ * - the **identity of the model that produced it** (provider, model, dimensions) beside the vector itself,
+ *   so vectors of two models can never be mixed into one similarity (D4);
+ * - the vector as JSON, because this build stores no vector extension and computes similarity in memory.
+ */
+export interface KnowledgeEmbeddingChunkRecord {
+  id: string;
+  knowledgeId: string;
+  /** The chunk's position in its record, which is half of the stable id and what recall reports. */
+  chunkIndex: number;
+  chunkingVersion: string;
+  /** The chunk's own text - the retrieval unit, never the UI's `content.slice(0, 300)` preview. */
+  text: string;
+  chunkHash: string;
+  sourceHash: string;
+  providerId: string;
+  modelId: string;
+  dimensions: number;
+  vector: number[];
   createdAt: number;
   updatedAt: number;
 }
@@ -1879,3 +2184,90 @@ export interface AiBudgetReconciliation {
   /** True when the row ceiling cut the answer short, so the totals are a floor. */
   truncated: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// 营销线索与成交 (CI-LEAD-01)
+//
+// The business end of the chain: a publish record says what reached a platform, a metric snapshot says
+// how many people saw it, and this vocabulary is how the app records what a person did next - got in
+// touch, and (maybe) bought. The status set is closed and deliberately small: it is a follow-up state,
+// not a sales pipeline, and nothing here is inferred from a platform name or a follower count.
+// ---------------------------------------------------------------------------
+export const marketingLeadStatuses = ["new", "following", "won", "closed"] as const;
+
+/** 待跟进 / 跟进中 / 已成交 / 已关闭. */
+export type MarketingLeadStatus = (typeof marketingLeadStatuses)[number];
+
+export interface MarketingLeadRecord {
+  id: string;
+  /** 客户称呼. */
+  name: string;
+  /** 联系方式, optional and free text (a phone number, a WeChat id, an email). */
+  contact: string;
+  /** 来源平台 exactly as the user typed it; `''` when they did not say. */
+  sourcePlatform: string;
+  /** The content this lead came from; `null` when unlinked - never guessed. */
+  contentItemId: string | null;
+  /** The publish record it came from; `null` when it did not arrive through one. */
+  publishRecordId: string | null;
+  status: MarketingLeadStatus;
+  note: string;
+  /** Won amount in minor units; `null` = 未记录, which is not 0. */
+  dealAmountMinor: number | null;
+  /** The unit of `dealAmountMinor`; `''` exactly while it is `null`. */
+  dealCurrency: string;
+  dealClosedAt: number | null;
+  dealNote: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** One currency's contribution to the won total: amounts are never added across currencies. */
+export interface MarketingLeadAmountTotal {
+  currency: string;
+  amountMinor: number;
+  deals: number;
+}
+
+/** Per-content conversion: what a content produced, and how much of it closed. */
+export interface MarketingLeadContentTotal {
+  contentItemId: string;
+  /** The content's title, or `''` when the id no longer resolves (the leads still count). */
+  title: string;
+  leads: number;
+  won: number;
+  amounts: MarketingLeadAmountTotal[];
+}
+
+export interface MarketingLeadSummary {
+  total: number;
+  /** Every status appears, including the zeroes - a 0 here means "none", not "unknown". */
+  byStatus: Record<MarketingLeadStatus, number>;
+  /** 待跟进 + 跟进中. */
+  open: number;
+  won: number;
+  /** 已成交 with no amount ever recorded: counted here, never added to a total as 0. */
+  wonWithoutAmount: number;
+  /** Won amounts per currency, biggest first. Empty when nothing was recorded. */
+  amounts: MarketingLeadAmountTotal[];
+  byContent: MarketingLeadContentTotal[];
+  /** Leads linked to no content at all: counted separately instead of being dropped. */
+  unattributed: { leads: number; won: number };
+}
+
+/** A link a lead names, resolved for display; a row that is gone is simply absent from the payload. */
+export interface MarketingLeadLink {
+  id: string;
+  title: string;
+}
+
+/** `GET /api/leads`: the rows, the sums over them, and the links they name. */
+export interface MarketingLeadPayload {
+  leads: MarketingLeadRecord[];
+  summary: MarketingLeadSummary;
+  /** Only the content ids the leads name, resolved. */
+  contents: MarketingLeadLink[];
+  /** Only the publish record ids the leads name, resolved with the platform they went to. */
+  publishes: Array<MarketingLeadLink & { platform: string; url: string }>;
+}
+

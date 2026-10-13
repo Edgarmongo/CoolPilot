@@ -68,6 +68,18 @@ export async function generateImageFile(input: {
    * than an empty one.
    */
   contentItemId?: string;
+  /**
+   * The Marketplace listing this image was produced as, when the caller already decided one
+   * (CI-P7-05-03 remaining surface). `article-generation.ts` asks `marketplaceExtensionIdOf()` once for
+   * the article and hands the answer here, so a cover generated for that article is read under the same
+   * listing as the text that asked for it.
+   *
+   * Absent means the call ran as no listing: the standalone 配图 page, and the agent's own
+   * `generate_image_file` tool, which has no listing identity to name (CI-P7-05-03's own record of what
+   * is still missing). Nothing is derived here from the prompt, the article title or the page the user
+   * happens to be on - this facade records a decision a caller made and never composes an id itself.
+   */
+  extensionId?: string;
 }) {
   const settings = await getLocalAgentSettings().catch(() => null);
   // The legacy `provider` argument (or `settings.imageProvider`) was a hard choice: the old
@@ -80,14 +92,23 @@ export async function generateImageFile(input: {
   // (`quantity`) and its cost stays NULL until the catalog names an image price - never a 0. The
   // file it lands is the artifact the row points at.
   //
+  // CI-P7-05-01: the key in `quantity` is the *price's* own unit label (`aiUsageUnitLabels`, so
+  // `image`), which is the exact string `computeUsageCost` looks up to multiply by a per-image rate.
+  // A key named after this call site's own plural (`images`) reads as "the amount was not measured"
+  // there, and would leave a measured 1-image call unpriced however correct the catalog was.
+  //
   // C4: `contentItemId` is carried only when the caller really has one. It is the business half of the
   // row, exactly like the `contentItemId` the article call writes, so an image's cost can be summed per
   // content item afterwards; `outputAssetId` (the path of the file) is the other half, and its file name
   // is the identity `metadata.imageAssets` stores.
+  // CI-P7-05-03: `extensionId` is carried exactly the same way and for the same reason - an image the
+  // article paid for belongs to the listing the article ran as, and a call with no listing to name
+  // carries none rather than borrowing one.
   const usageCall: AiUsageCallContext = {
     purpose: "image",
     meteredKind: "image",
     ...(input.contentItemId?.trim() ? { contentItemId: input.contentItemId.trim() } : {}),
+    ...(input.extensionId?.trim() ? { extensionId: input.extensionId.trim() } : {}),
   };
 
   // CI-P7-03. An image call is gated like a text one, with two differences that are facts about this
@@ -124,7 +145,7 @@ export async function generateImageFile(input: {
   if (!image?.base64) {
     // The request was answered - and billed - with nothing usable in it, so the row is written
     // before that becomes the caller's error.
-    await recordAiUsageCall({ ...usageCall, attempts: response.attempts, quantity: { images: 0 } });
+    await recordAiUsageCall({ ...usageCall, attempts: response.attempts, quantity: { image: 0 } });
     throw new AppError("MODEL_UPSTREAM_NO_CONTENT", {
       status: 502,
       message: `${response.providerId} returned no image data`,
@@ -137,7 +158,7 @@ export async function generateImageFile(input: {
     ...usageCall,
     attempts: response.attempts,
     outputAssetId: path,
-    quantity: { images: response.images.length },
+    quantity: { image: response.images.length },
   });
 
   return {

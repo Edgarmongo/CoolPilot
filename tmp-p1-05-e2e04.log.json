@@ -1,0 +1,249 @@
+{
+  "case": "E2E-04",
+  "base": "http://127.0.0.1:3000",
+  "bogusAccountId": "e2e05-nonexistent-account",
+  "mark": "E2E05-发布受控失败-1791517204341",
+  "startedAt": "2026-10-09T03:40:04.341Z",
+  "steps": [
+    {
+      "step": "1-create-content",
+      "at": "2026-10-09T03:40:04.384Z",
+      "status": 201,
+      "contentId": "nXlMhEqKTzQ5CAeq_v0aV",
+      "itemStatus": "ready"
+    },
+    {
+      "step": "2-controlled-failure",
+      "at": "2026-10-09T03:40:04.724Z",
+      "httpStatus": 200,
+      "body": {
+        "ok": true,
+        "data": {
+          "results": [
+            {
+              "accountId": "e2e05-nonexistent-account",
+              "accountName": "",
+              "platform": "",
+              "status": "failed",
+              "error": "Site not found"
+            }
+          ]
+        }
+      },
+      "result": {
+        "accountId": "e2e05-nonexistent-account",
+        "accountName": "",
+        "platform": "",
+        "status": "failed",
+        "error": "Site not found"
+      },
+      "dbRow": {
+        "id": "1XfY1DXYvtFJ2Epq0mnHL",
+        "account_id": "e2e05-nonexistent-account",
+        "account_name": "",
+        "platform": "",
+        "title": "E2E05-发布受控失败-1791517204341",
+        "content_type": "article",
+        "status": "failed",
+        "url": "",
+        "method": "manual",
+        "terminal": "",
+        "message": "Site not found",
+        "content_item_id": "nXlMhEqKTzQ5CAeq_v0aV",
+        "published_at": null,
+        "created_at": 1791517204718,
+        "updated_at": 1791517204718,
+        "views": 0,
+        "likes": 0,
+        "comments": 0,
+        "shares": 0,
+        "favorites": 0,
+        "follows_delta": 0,
+        "completion_rate": null,
+        "metric_status": "pending",
+        "metrics_synced_at": null,
+        "metrics_source": null
+      },
+      "httpSucceededButPublishFailed": true,
+      "dbStatusFailed": true,
+      "dbUrlEmpty": true,
+      "dbPublishedAtNull": true,
+      "dbContentItemLinked": true
+    },
+    {
+      "step": "3-invalid-payload",
+      "at": "2026-10-09T03:40:04.733Z",
+      "status": 400,
+      "body": {
+        "ok": false,
+        "error": "Invalid payload",
+        "code": "INVALID_PAYLOAD",
+        "message": "Invalid payload",
+        "details": {
+          "name": "ZodError",
+          "message": "[\n  {\n    \"origin\": \"array\",\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"inclusive\": true,\n    \"path\": [\n      \"accountIds\"\n    ],\n    \"message\": \"Too small: expected array to have >=1 items\"\n  }\n]"
+        }
+      },
+      "publishCountBeforeInvalid": 4,
+      "publishCountAfterInvalid": 4,
+      "wroteNoRecord": true
+    },
+    {
+      "step": "4-no-side-effects",
+      "at": "2026-10-09T03:40:04.755Z",
+      "itemStatusAfterPublish": "ready",
+      "itemStatusUnchanged": true,
+      "titleUnchanged": true,
+      "itemCountDelta": 1,
+      "runCountDelta": 0,
+      "accountCountDelta": 0,
+      "publishCountDelta": 1,
+      "publishByStatus": [
+        {
+          "status": "drafted",
+          "n": 2
+        },
+        {
+          "status": "failed",
+          "n": 1
+        },
+        {
+          "status": "published",
+          "n": 1
+        }
+      ],
+      "rowsForBogusAccount": [
+        {
+          "id": "1XfY1DXYvtFJ2Epq0mnHL",
+          "status": "failed",
+          "url": "",
+          "published_at": null,
+          "message": "Site not found"
+        }
+      ]
+    },
+    {
+      "step": "5-cleanup",
+      "at": "2026-10-09T03:40:04.772Z",
+      "deleteContentStatus": 200,
+      "publishRowId": "1XfY1DXYvtFJ2Epq0mnHL",
+      "publishRowCascadedWithContent": false,
+      "publishRowRemovedByExplicitDelete": true,
+      "after": {
+        "contentCount": 17,
+        "contentByStatus": [
+          {
+            "status": "draft",
+            "n": 7
+          },
+          {
+            "status": "ready",
+            "n": 10
+          }
+        ],
+        "publishCount": 3,
+        "publishByStatus": [
+          {
+            "status": "drafted",
+            "n": 2
+          },
+          {
+            "status": "published",
+            "n": 1
+          }
+        ],
+        "runCount": 7,
+        "accountCount": 3,
+        "schedulesCount": 0
+      },
+      "leftoverE2E05Content": 0,
+      "leftoverBogusAccountRows": 0
+    }
+  ],
+  "before": {
+    "contentCount": 17,
+    "contentByStatus": [
+      {
+        "status": "draft",
+        "n": 7
+      },
+      {
+        "status": "ready",
+        "n": 10
+      }
+    ],
+    "publishCount": 3,
+    "publishByStatus": [
+      {
+        "status": "drafted",
+        "n": 2
+      },
+      {
+        "status": "published",
+        "n": 1
+      }
+    ],
+    "runCount": 7,
+    "accountCount": 3,
+    "schedulesCount": 0
+  },
+  "afterPublish": {
+    "contentCount": 18,
+    "contentByStatus": [
+      {
+        "status": "draft",
+        "n": 7
+      },
+      {
+        "status": "ready",
+        "n": 11
+      }
+    ],
+    "publishCount": 4,
+    "publishByStatus": [
+      {
+        "status": "drafted",
+        "n": 2
+      },
+      {
+        "status": "failed",
+        "n": 1
+      },
+      {
+        "status": "published",
+        "n": 1
+      }
+    ],
+    "runCount": 7,
+    "accountCount": 3,
+    "schedulesCount": 0
+  },
+  "after": {
+    "contentCount": 17,
+    "contentByStatus": [
+      {
+        "status": "draft",
+        "n": 7
+      },
+      {
+        "status": "ready",
+        "n": 10
+      }
+    ],
+    "publishCount": 3,
+    "publishByStatus": [
+      {
+        "status": "drafted",
+        "n": 2
+      },
+      {
+        "status": "published",
+        "n": 1
+      }
+    ],
+    "runCount": 7,
+    "accountCount": 3,
+    "schedulesCount": 0
+  },
+  "finishedAt": "2026-10-09T03:40:04.772Z"
+}

@@ -64,6 +64,16 @@ export async function resolveArticleImages(input: {
   productImagePaths: string[];
   sourceUrls: string[];
   title: string;
+  /**
+   * The Marketplace listing the article this picture belongs to is written as (CI-P7-05-03 remaining
+   * surface), when its caller already decided one. `article-generation.ts` asks
+   * `marketplaceExtensionIdOf()` once for the article and hands the answer here, so an AI cover is read
+   * under the same listing as the text that asked for it - the images are part of that article's cost.
+   *
+   * Absent means the article itself ran as no listing, and this stage never looks for one: it has a
+   * title and a strategy, neither of which names an extension.
+   */
+  extensionId?: string;
 }): Promise<ArticleImageResolution> {
   const images: string[] = [];
   const assets: ContentImageAsset[] = [];
@@ -114,6 +124,10 @@ export async function resolveArticleImages(input: {
       try {
         const generated = await generateImageFile({
           prompt: `为文章《${input.title}》生成一张贴合主题的配图，画面干净、有真实感。`,
+          // CI-P7-05-03 (remaining surface): the listing the *article* ran as, decided once by
+          // `article-generation.ts`. This stage hands the answer on instead of looking for an identity of
+          // its own - a title and a strategy name no extension.
+          extensionId: input.extensionId,
         });
         // The model that made this file is recorded here, where it is known: the item's own
         // `metadata.provider/model` describe the *text* call that wrote the article, not the image call.

@@ -1,6 +1,11 @@
 import { getAiBudgetStatus } from "@/lib/ai-budget-guard";
 import { updateAiBudgetSettings } from "@/db/repositories/settings";
-import { aiBudgetPolicies, aiBudgetUnknownCostPolicies } from "@/lib/ai-budget";
+import {
+  aiBudgetPolicies,
+  aiBudgetStrategies,
+  aiBudgetStrategyLines,
+  aiBudgetUnknownCostPolicies,
+} from "@/lib/ai-budget";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
 import { aiBudgetSettingsSchema } from "@/lib/validation";
 
@@ -20,7 +25,7 @@ export const dynamic = "force-dynamic";
  *    database - not a hard cap, because a hold stops counting after its TTL).
  *  - **`monthlyLimit: null` means "no limit stated"**, which is allowed, not an error and not 0.
  *  - **Nothing here writes anything about a call**: no prompt, no credential, no amount is added by
- *    opening or saving this page. The only state is the user's four settings.
+ *    opening or saving this page. The only state is the user's five settings.
  */
 export async function GET() {
   try {
@@ -31,6 +36,11 @@ export async function GET() {
       // implement, or miss one it added later.
       policies: aiBudgetPolicies,
       unknownCostPolicies: aiBudgetUnknownCostPolicies,
+      // CI-P7-03-C1: the tiers and what each one does at each boundary, for the same reason. The page
+      // builds its description of a tier's stop from this table rather than from its own copy of the
+      // rules, so a tier cannot be shown as stopping somewhere it does not.
+      strategies: aiBudgetStrategies,
+      strategyLines: aiBudgetStrategyLines,
     });
   } catch (error) {
     return failFromError(error, "UNKNOWN_ERROR", 500);
@@ -44,7 +54,13 @@ export async function PUT(request: Request) {
     await updateAiBudgetSettings(parsed.data);
     // The answer is the status after the write, so the page never has to guess what it just saved.
     const status = await getAiBudgetStatus();
-    return ok({ ...status, policies: aiBudgetPolicies, unknownCostPolicies: aiBudgetUnknownCostPolicies });
+    return ok({
+      ...status,
+      policies: aiBudgetPolicies,
+      unknownCostPolicies: aiBudgetUnknownCostPolicies,
+      strategies: aiBudgetStrategies,
+      strategyLines: aiBudgetStrategyLines,
+    });
   } catch (error) {
     return failFromError(error, "UNKNOWN_ERROR", 500);
   }

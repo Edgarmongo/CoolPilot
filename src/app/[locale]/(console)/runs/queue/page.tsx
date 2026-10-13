@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
-import { Play, Plus, RefreshCw, CalendarClock } from "lucide-react";
+import { Play, Plus, RefreshCw, CalendarClock, X } from "lucide-react";
 import type { PlaybookId, RunEventRecord, RunRecord, AccountRecord } from "@/lib/types";
 import { playbookIds } from "@/lib/types";
 import { formatRunTime } from "@/lib/schedule";
@@ -13,6 +13,13 @@ import { Dialog } from "@/components/ui/dialog";
 import { useConsoleHeaderActions } from "@/components/ui/console-header-actions";
 import { ConsolePagination, useClampConsolePage, usePagedItems } from "@/components/ui/console-pagination";
 import { ConsoleNotice, consoleInputClass } from "@/components/ui/console-surface";
+import {
+  runPauseActionsVisible,
+  runRowLines,
+  submitRunPauseDecision,
+  type RunPauseAction,
+  type RunPauseNoticeTone,
+} from "@/components/runs/run-pause-actions";
 
 export default function RunsQueuePage() {
   const { t } = useI18n();
@@ -25,7 +32,13 @@ export default function RunsQueuePage() {
   );
 
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<{ tone: RunPauseNoticeTone; message: string } | null>(null);
+  /**
+   * The pause decision in flight, if any (CI-P7-03-F). One at a time, and only for the row it names: a
+   * second click while the first request is unanswered would be a second write on the same pause (and a
+   * second gate reading) rather than the user's next decision.
+   */
+  const [pendingDecision, setPendingDecision] = useState<{ id: string; action: RunPauseAction } | null>(null);
   const [runPlaybook, setRunPlaybook] = useState<PlaybookId>("threads_auto_post");
   const [runAccountId, setRunAccountId] = useState("");
   const [runParams, setRunParams] = useState('{"contentFolder":"","allowNoImage":true,"confirmLivePost":false}');
@@ -68,9 +81,29 @@ export default function RunsQueuePage() {
     try {
       await action();
     } catch (err) {
-      setNotice(t(apiErrorTranslationKey(err, "unknownError")));
+      setNotice({ tone: "error", message: t(apiErrorTranslationKey(err, "unknownError")) });
     } finally {
       setLoading(false);
+    }
+  }
+
+  /**
+   * The decision a paused row waits for (CI-P7-03-F): `submitRunPauseDecision` makes the call and reads
+   * the answer, this only says it and re-reads the list - a refusal leaves the run paused, a resume puts
+   * it back in the queue, and a `409` says the row was already out of date.
+   */
+  async function handleRunPauseDecision(run: RunRecord, action: RunPauseAction) {
+    if (pendingDecision) return;
+    setPendingDecision({ id: run.id, action });
+    try {
+      const outcome = await submitRunPauseDecision({ runId: run.id, action, post: apiPost });
+      setNotice({ tone: outcome.tone, message: t(outcome.key, outcome.values) });
+      // Every outcome says the row on screen is older than the truth (a resume, a cancellation, a
+      // refusal and a stale `409` alike), so the list is re-read; a failed read is not a second decision
+      // to report - the list already polls every three seconds.
+      if (outcome.refresh) await reloadRuns().catch(() => undefined);
+    } finally {
+      setPendingDecision(null);
     }
   }
 
@@ -88,7 +121,7 @@ export default function RunsQueuePage() {
           frontendPublishApproved: parsedParams.confirmLivePost === true ? publishApproved : false,
         },
       });
-      setNotice(t("runQueuedNotice", { id: run.id }));
+      setNotice({ tone: "success", message: t("runQueuedNotice", { id: run.id }) });
       setIsAddOpen(false);
       await reloadRuns();
     });
@@ -101,7 +134,7 @@ export default function RunsQueuePage() {
         playbookId: runPlaybook, accountId: runAccountId || undefined,
         enabled: true, scheduleTimes: [{ type: "daily", time: scheduleTime }], params: parsedParams,
       });
-      setNotice(t("scheduleCreatedNotice", { time: formatRunTime(schedule.nextRunAt) }));
+      setNotice({ tone: "success", message: t("scheduleCreatedNotice", { time: formatRunTime(schedule.nextRunAt) }) });
       setIsAddOpen(false);
     });
   }
@@ -115,7 +148,7 @@ export default function RunsQueuePage() {
   return (
     <div className="space-y-6">
       {notice && (
-        <ConsoleNotice message={notice} onDismiss={() => setNotice("")} />
+        <ConsoleNotice tone={notice.tone} message={notice.message} onDismiss={() => setNotice(null)} />
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -124,15 +157,47 @@ export default function RunsQueuePage() {
             <p className="border-y border-dashed border-border py-6 text-center text-sm text-zinc-500">{t("emptyRuns")}</p>
           ) : (
             <div className="space-y-3">
-              {visibleRuns.map((run) => (
-                <div key={run.id} className="space-y-1 border-b border-border py-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-zinc-800">{run.playbookId}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor(run.status)}`}>{run.status}</span>
+              {visibleRuns.map((run) => {
+                // CI-P7-03-F: a paused run is the one status with a decision in it, so it is the one row
+                // that shows the localised pause explanation and grows the two buttons.
+                const lines = runRowLines(run, formatRunTime);
+                const deciding = pendingDecision?.id === run.id ? pendingDecision.action : null;
+                return (
+                  <div key={run.id} className="space-y-1 border-b border-border py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-zinc-800">{run.playbookId}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor(run.status)}`}>{run.status}</span>
+                    </div>
+                    {lines.pauseKey ? (
+                      <p className="text-xs font-medium text-amber-700">{t(lines.pauseKey)}</p>
+                    ) : null}
+                    <p className="text-xs text-zinc-500">{lines.message}</p>
+                    {runPauseActionsVisible(run.status) ? (
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          loading={deciding === "resume"}
+                          disabled={pendingDecision !== null}
+                          onClick={() => handleRunPauseDecision(run, "resume")}
+                        >
+                          <Play size={14} />
+                          {t("btnContinueRun")}
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          loading={deciding === "cancel"}
+                          disabled={pendingDecision !== null}
+                          onClick={() => handleRunPauseDecision(run, "cancel")}
+                        >
+                          <X size={14} />
+                          {t("btnCancelRun")}
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
-                  <p className="text-xs text-zinc-500">{run.resultMessage || formatRunTime(run.createdAt)}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           <ConsolePagination page={safePage} totalItems={runs.length} onPageChange={setPage} />

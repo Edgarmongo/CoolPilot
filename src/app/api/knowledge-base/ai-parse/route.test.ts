@@ -33,6 +33,7 @@ const {
   prepareChatModel,
   prepareModel,
   qwenCatalog,
+  allowEveryAiBudgetCall,
   refuseEveryAiBudgetCall,
   resetRuntime,
   stubFetch,
@@ -40,6 +41,8 @@ const {
 } = await import("@/test/route-harness");
 const { POST } = await import("./route");
 const { getKnowledgeBase, listKnowledgeBase } = await import("@/db/repositories/knowledge-base");
+const { createPosition, updatePosition } = await import("@/db/repositories/positions");
+const { listAiUsageLedgerEntries } = await import("@/db/repositories/ai-usage-ledger");
 const { listUsageRecords } = await import("@/db/repository");
 const { guessKnowledgeCategory, parseKnowledgeFromRawText } = await import("@/lib/knowledge-base");
 const { countTextCharacters } = await import("@/lib/usage");
@@ -432,5 +435,56 @@ describe("POST /api/knowledge-base/ai-parse on aiRuntime", () => {
     expect(calls).toEqual([]);
     expect(await entriesSince(knowledgeBefore)).toEqual([]);
     expect(await usageSince(usageBefore)).toEqual([]);
+  });
+});
+
+/**
+ * CI-P7-05-03: the Marketplace extension this call ran as.
+ *
+ * The dialog already names the position the knowledge entry belongs to; before this card that id was
+ * dropped before the ledger and the money was unattributed even when the user had published an agent
+ * for exactly this work. The rule stays the storefront's: only a *published* position is a listing.
+ */
+describe("POST /api/knowledge-base/ai-parse and the Marketplace extension it ran as (CI-P7-05-03)", () => {
+  beforeEach(async () => {
+    vi.unstubAllGlobals();
+    await resetRuntime();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("names a published position listing, and leaves a draft unattributed", async () => {
+    // The refusal case above left the install's budget settings refusing every call; the ledger's
+    // attribution is what this case is about, so the row is put back to the shipped default first.
+    await allowEveryAiBudgetCall();
+    const published = await createPosition({ name: "已上架的知识顾问", personaRole: "你整理资料。" });
+    if (!published) throw new Error("the published fixture was not created");
+    await updatePosition(published.id, { store: { ...published.store, status: "published" } });
+    // A real position the dialog names too - the user's own working copy, just not on the shelf yet.
+    const unpublished = await createPosition({ name: "未上架的草稿" });
+    if (!unpublished) throw new Error("the draft fixture was not created");
+
+    const calls = stubFetch([qwenModels, chatCompletions(() => jsonReply(draft))]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const ledgerBefore = new Set((await listAiUsageLedgerEntries({ limit: 500 })).map((row) => row.id));
+
+    expect((await parse({ content: raw, positionId: published.id })).status).toBe(201);
+    expect((await parse({ content: raw, positionId: unpublished.id })).status).toBe(201);
+
+    // Two requests, two rows, one attempt each: the answer the stub returns is already the shape the
+    // route asks for, so a second attempt would mean the route asked again rather than the ledger
+    // counting one request twice.
+    const rows = (await listAiUsageLedgerEntries({ limit: 500 })).filter((row) => !ledgerBefore.has(row.id));
+    expect(chatCalls(calls)).toHaveLength(2);
+    expect(rows.map((row) => [row.purpose, row.attemptIndex])).toEqual([
+      ["knowledge", 0],
+      ["knowledge", 0],
+    ]);
+    // Exactly one row is the listing's, and exactly one carries no extension: the draft is not a
+    // listing, so attributing its request to the same agent the published one names would invent an
+    // extension the storefront does not have.
+    expect(new Set(rows.map((row) => row.extensionId))).toEqual(new Set(["", `position-${published.id}`]));
   });
 });

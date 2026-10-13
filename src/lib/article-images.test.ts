@@ -51,6 +51,7 @@ const { jsonResponse, prepareImageModel, resetRuntime, routeTestDataDir, stubFet
   await import("@/test/route-harness");
 const { maxGeneratedArticleImages, resolveArticleImages } = await import("./article-images");
 const { updateLocalAgentSettings } = await import("@/db/repositories/settings");
+const { listAiUsageLedgerEntries } = await import("@/db/repositories/ai-usage-ledger");
 
 /** The temp data root's artifacts directory, which is the only directory these cases let files land in. */
 const artifactsDir = path.join(routeTestDataDir, "artifacts");
@@ -585,6 +586,68 @@ describe("resolveArticleImages on aiRuntime", () => {
     const generateIndex = calls.findIndex((call) => call.url.includes("/images/generations"));
     expect(pageIndex).toBeGreaterThanOrEqual(0);
     expect(pageIndex).toBeLessThan(generateIndex);
+  });
+});
+
+/**
+ * CI-P7-05-03 (remaining surface): the Marketplace listing a generated cover belongs to.
+ *
+ * This stage does not decide attribution and must not: the listing is decided once by
+ * `article-generation.ts` (`marketplaceExtensionIdOf()`, pinned in its own file) and handed down as
+ * `extensionId`, because a picture made for an article spent that article's listing money. What the two
+ * cases below pin is the *hand-over* - the id the caller hands in is the id the generation's ledger row
+ * carries, and a caller with no listing to name hands in nothing, which the stage may not then replace
+ * with a guess of its own (it has a title and a strategy, and neither is an extension).
+ */
+describe("resolveArticleImages and the Marketplace extension it ran as (CI-P7-05-03)", () => {
+  beforeEach(async () => {
+    vi.unstubAllGlobals();
+    await resetRuntime();
+    await updateLocalAgentSettings({
+      imageProvider: "openai",
+      openAIImageSize: "1024x1024",
+      openAIImageBaseUrl: imageBaseUrl,
+    });
+    await clearArtifacts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** The rows one AI cover wrote, told apart from the ledger's earlier content by id. */
+  async function rowsOfOneGeneration(input: Partial<ResolveInput>) {
+    stubFetch(openAIRoutes(() => openAIImageReply()));
+    await prepareOpenAIImage();
+    const before = new Set((await listAiUsageLedgerEntries({ limit: 500 })).map((row) => row.id));
+
+    const resolution = await resolve(input);
+    expect(resolution.images).toHaveLength(1);
+
+    return (await listAiUsageLedgerEntries({ limit: 500 })).filter((row) => !before.has(row.id));
+  }
+
+  it("carries the listing the article ran as onto the generation's row", async () => {
+    const rows = await rowsOfOneGeneration({ strategy: "ai", extensionId: "position-published-1" });
+
+    expect(rows).toHaveLength(1);
+    // An image row is metered by what it produced (CI-P7-01-04) and is filed under the listing the
+    // article ran as. The resolver is handed no article id, so the row states none of its own either.
+    expect(rows[0]).toMatchObject({
+      purpose: "image",
+      meteredKind: "image",
+      extensionId: "position-published-1",
+      contentItemId: "",
+    });
+  });
+
+  it("leaves a generation with no listing to name unattributed", async () => {
+    const rows = await rowsOfOneGeneration({ strategy: "ai" });
+
+    expect(rows).toHaveLength(1);
+    // `""` is the statement "this cover ran as no listing", not a missing value - and the article title
+    // the prompt carries is not an identity to borrow.
+    expect(rows[0].extensionId).toBe("");
   });
 });
 

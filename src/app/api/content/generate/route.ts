@@ -176,6 +176,9 @@ export async function POST(request: Request) {
       config,
       material,
       systemPromptPrefix: agent.systemPrompt,
+      // CI-P7-05-03: the picker's own id, so the ledger can name the listing these rows ran as when
+      // the storefront publishes it. `generateArticle` combines it with the position it resolves.
+      extensionAgentId: agent.id,
       titleFallback: data.topic,
       imageSources: { productImagePaths: [], sourceUrls },
       provenance: {

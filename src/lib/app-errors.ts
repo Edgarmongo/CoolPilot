@@ -26,6 +26,13 @@ export const appErrorCodes = [
   "MODEL_PROBE_FAILED",
   "MODEL_UPSTREAM_FAILED",
   "MODEL_UPSTREAM_NO_CONTENT",
+  /**
+   * CI-EMB-01: an embedding exchange that is not usable as one - a request carrying no text, an answer
+   * whose vectors are the wrong count, not numbers, or not all the same length. It is deliberately one
+   * code for both sides: a caller reading it knows the *vectors* are the problem, and the message says
+   * which of the two ends it came from.
+   */
+  "MODEL_EMBEDDING_INVALID",
   "UNSUPPORTED_VIDEO",
   "VIDEO_TOO_LARGE",
   "PUBLISH_RUN_FAILED",
@@ -35,6 +42,13 @@ export const appErrorCodes = [
   "AI_PRICE_CONFLICT",
   /** CI-P7-03: the budget policy refused this call, so no request was sent at all. */
   "AI_BUDGET_EXCEEDED",
+  /**
+   * CI-LEAD-01: the lead already recorded a deal, and the write would move it out of 已成交. It is a
+   * refusal rather than a silent trim, so no write deletes an amount or a closing date by accident.
+   */
+  "LEAD_DEAL_RECORDED",
+  /** CI-LEAD-01: an amount arrived without a currency. A number with no unit is not an amount. */
+  "LEAD_DEAL_CURRENCY_MISSING",
 ] as const;
 
 export type AppErrorCode = (typeof appErrorCodes)[number];
@@ -73,12 +87,16 @@ const fallbackMessages: Record<AppErrorCode, string> = {
   MODEL_PROBE_FAILED: "Capability probe failed",
   MODEL_UPSTREAM_FAILED: "Model provider request failed",
   MODEL_UPSTREAM_NO_CONTENT: "Model provider returned no content",
+  MODEL_EMBEDDING_INVALID: "The embedding request or response is not a usable vector exchange",
   UNSUPPORTED_VIDEO: "Unsupported video format",
   VIDEO_TOO_LARGE: "Video exceeds the size limit",
   PUBLISH_RUN_FAILED: "The publish batch ended with unhandled account failures",
   AI_PRICE_INVALID: "This is not a price a ledger row could be costed with",
   AI_PRICE_CONFLICT: "A price for this provider, model and dimension is already in force from that instant",
   AI_BUDGET_EXCEEDED: "The AI budget policy refused this call before it was sent",
+  LEAD_DEAL_RECORDED:
+    "This lead already recorded a deal; clear it in the same write to move it out of 已成交",
+  LEAD_DEAL_CURRENCY_MISSING: "An amount must carry its currency",
 };
 
 export class AppError extends Error {

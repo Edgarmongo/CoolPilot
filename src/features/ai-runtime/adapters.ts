@@ -75,6 +75,35 @@ export type AdapterTranscriptionResult = {
   responseFormat: "verbose_json" | "json";
 };
 
+/**
+ * Text-embedding options an adapter receives (CI-EMB-01). The runtime has already decided *which*
+ * model and key; an adapter decides only how to say it on the wire.
+ *
+ * `input` is a batch on purpose: every embeddings wire format that matters takes several texts per
+ * request, and one vector per call would multiply the round trips a batch task pays for while changing
+ * not a single stored value.
+ */
+export type AdapterEmbedOptions = {
+  model: string;
+  input: string[];
+  /** Ask for a specific vector size, for the models that offer a choice. Omitted when nobody asked. */
+  dimensions?: number;
+};
+
+/**
+ * What one embeddings answer contains.
+ *
+ * `usage` is optional, exactly like a chat answer's: an embeddings call has no output side, and a
+ * provider that reports nothing yields no figures at all rather than an invented token count - which is
+ * what keeps the ledger's blank cost blank instead of `0` (CI-P7-01-04).
+ */
+export type AdapterEmbedResult = {
+  vectors: number[][];
+  /** The vector length that really came back, measured rather than declared by a model name. */
+  dimensions: number;
+  usage?: TokenUsage;
+};
+
 export type ProtocolAdapter = {
   protocol: ModelProtocol;
   listModels(context: AdapterContext): Promise<NormalizedModel[]>;
@@ -85,6 +114,12 @@ export type ProtocolAdapter = {
    * runtime as `MODEL_CAPABILITY_UNAVAILABLE`, never silently skipped.
    */
   transcribe?(context: AdapterContext, options: AdapterTranscriptionOptions): Promise<AdapterTranscriptionResult>;
+  /**
+   * Embed text, when the protocol has a call for it (CI-EMB-01). Same rule as `transcribe`: a protocol
+   * without this member is reported as `MODEL_CAPABILITY_UNAVAILABLE`, and a model whose capability row
+   * claims `embedding` on such a protocol is a refusal rather than a silent skip or a made-up vector.
+   */
+  embed?(context: AdapterContext, options: AdapterEmbedOptions): Promise<AdapterEmbedResult>;
   probe?(
     context: AdapterContext,
     options: { model: string; capability: ModelCapability },
@@ -280,6 +315,69 @@ function parseTranscriptionPayload(
   };
 }
 
+/**
+ * One embeddings answer read into the contract's shape (CI-EMB-01).
+ *
+ * The checks are the whole point of this function, because a vector set that is *nearly* right is worse
+ * than an obvious failure: a cosine against a partly-read vector is a number nobody can interpret. So a
+ * row whose values are not all finite numbers, and an answer whose vector count is not the count that
+ * was asked for, are both refused here - and a set whose vectors disagree on their length is refused
+ * too, since those vectors could never be compared with each other.
+ *
+ * `usage` is whatever the provider reported, and nothing when it reported nothing: an embeddings call
+ * has no output side, so only `prompt_tokens`/`total_tokens` are read and a payload without a `usage`
+ * object yields none rather than a zero that would read as "it was free".
+ */
+function parseEmbeddingPayload(payload: unknown, context: AdapterContext, options: AdapterEmbedOptions) {
+  const entries = (payload as { data?: unknown }).data;
+  const vectors: number[][] = [];
+  if (Array.isArray(entries)) {
+    for (const entry of entries) {
+      const raw = (entry as { embedding?: unknown })?.embedding;
+      if (!Array.isArray(raw) || raw.length === 0) continue;
+      // A vector is numbers. A numeric string is accepted (some gateways serialise them that way), and
+      // anything else - `null`, a word, an object - becomes `NaN` and takes the whole row out of the
+      // answer below, because zero-filling it would corrupt every similarity computed from it.
+      const vector = raw.map((value) =>
+        typeof value === "number"
+          ? value
+          : typeof value === "string" && value.trim()
+            ? Number(value)
+            : Number.NaN,
+      );
+      // One `NaN` would silently poison every similarity below, so a row is kept only when all of it
+      // read back as a finite number.
+      if (vector.some((value) => !Number.isFinite(value))) continue;
+      vectors.push(vector);
+    }
+  }
+
+  const first = vectors[0]?.length ?? 0;
+  const dimensions = vectors.every((vector) => vector.length === first) ? first : 0;
+  const invalid =
+    vectors.length !== options.input.length
+      ? `${vectors.length} of ${options.input.length} embeddings`
+      : dimensions === 0
+        ? "vectors of no usable dimension"
+        : options.dimensions && dimensions !== options.dimensions
+          ? `dimensions ${dimensions}, not the ${options.dimensions} that were requested`
+          : "";
+  if (invalid) {
+    throw new AppError("MODEL_EMBEDDING_INVALID", {
+      status: 502,
+      message: `${context.provider.name} returned ${invalid}`,
+      details: { providerId: context.provider.providerId, model: options.model, requested: options.input.length },
+    });
+  }
+
+  const usage = normalizeUsage({
+    input: (payload as { usage?: { prompt_tokens?: unknown } })?.usage?.prompt_tokens,
+    output: 0,
+    total: (payload as { usage?: { total_tokens?: unknown } })?.usage?.total_tokens,
+  });
+  return { vectors, dimensions, ...(usage ? { usage } : {}) };
+}
+
 export const openAICompatibleAdapter: ProtocolAdapter = {
   protocol: "openai-compatible",
 
@@ -409,6 +507,36 @@ export const openAICompatibleAdapter: ProtocolAdapter = {
       });
     }
     return { images };
+  },
+
+  /**
+   * Text embeddings over `/embeddings` - the wire shape every OpenAI-compatible vendor speaks
+   * (CI-EMB-01).
+   *
+   * One decision is deliberate: **the request is one batch, and the answer must be one too.** The
+   * provider is asked for as many vectors as texts were sent, and `parseEmbeddingPayload()` refuses an
+   * answer that came back short, unreadable or dimensionally inconsistent - because the alternative is a
+   * caller silently pairing vector *i* with the wrong text, which is undetectable downstream.
+   */
+  async embed(context, options) {
+    const baseUrl = requireBaseUrl(context);
+    const credential = requireCredential(context);
+    const payload = await fetchJson(
+      context,
+      "Embeddings",
+      `${baseUrl}/embeddings`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${credential}` },
+        body: JSON.stringify({
+          model: options.model,
+          input: options.input,
+          ...(options.dimensions ? { dimensions: options.dimensions } : {}),
+        }),
+      },
+      chatTimeoutMs,
+    );
+    return parseEmbeddingPayload(payload, context, options);
   },
 
   /**

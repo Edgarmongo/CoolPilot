@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createKnowledgeBase } from "@/db/repositories/knowledge-base";
+import { getPosition } from "@/db/repositories/positions";
 import { createUsageRecord } from "@/db/repository";
 import { aiRuntime } from "@/features/ai-runtime";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
@@ -11,6 +12,7 @@ import {
   isKnowledgeBaseWeight,
   parseKnowledgeFromRawText,
 } from "@/lib/knowledge-base";
+import { marketplaceExtensionIdOf } from "@/lib/marketplace-attribution";
 import { countTextCharacters } from "@/lib/usage";
 import { knowledgeBaseSmartImportSchema } from "@/lib/validation";
 
@@ -59,9 +61,20 @@ export async function POST(request: Request) {
 
   const raw = parsed.data.content;
   const positionId = parsed.data.positionId;
-  // CI-P7-01-04. The ledger's identity for this call is its `purpose`: the entry the model produces
-  // is a knowledge row, which the ledger has no column for, and the paste carries no id of its own.
-  const usageCall: AiUsageCallContext = { purpose: "knowledge" };
+  // CI-P7-01-04. The entry the model produces is a knowledge row, which the ledger has no column
+  // for, and the paste carries no id of its own - so `purpose` is the accounting identity.
+  //
+  // CI-P7-05-03. The exception is the extension this entry is created *for*: the payload already
+  // named the position the knowledge will belong to (`positionId`, stored on the row below), and a
+  // published position is a Marketplace listing. That attribution used to be dropped here, which
+  // left the dialog's money unattributed even when the user had published an agent for exactly this
+  // work. An id that resolves to nothing - or to a position that is not published - contributes no
+  // listing, so the call stays honestly unattributed rather than named after a draft.
+  const position = positionId ? await getPosition(positionId) : null;
+  const usageCall: AiUsageCallContext = {
+    purpose: "knowledge",
+    extensionId: marketplaceExtensionIdOf({ position }),
+  };
   const prompt = `请把以下原始内容整理成一条知识条目：\n\n${raw.slice(0, 8000)}`;
 
   // CI-P7-03. ... (see the header: a refusal is not an AI failure, so it is answered rather than absorbed)

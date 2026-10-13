@@ -6,6 +6,8 @@ import {
   type ChatMessage,
   type ChatRequest,
   type ChatResponse,
+  type EmbeddingRequest,
+  type EmbeddingResponse,
   type ImageGenerationRequest,
   type ImageGenerationResponse,
   type ModelAttempt,
@@ -429,6 +431,102 @@ export async function transcribe(request: TranscriptionRequest): Promise<Transcr
 }
 
 /**
+ * Text embeddings (CI-EMB-01), resolved the same way every other call is: the caller says *what* it
+ * wants embedded and the runtime decides which capable model and which key signs the request.
+ *
+ * `embedding` is already the intent an embedding model satisfies (`intentRequirements`), so nothing new is
+ * invented here: this is `transcribe`'s shape - resolve, walk the candidate chain, rotate keys, report the
+ * trail - with two consequences worth naming, because they are the point of routing embeddings through the
+ * runtime instead of calling a vendor:
+ *
+ * - **"Nothing is configured" is a specific error, not a 500.** With no embedding model or no key the
+ *   runtime answers `MODEL_CREDENTIAL_MISSING` / `MODEL_CAPABILITY_UNAVAILABLE`, and an adapter that has no
+ *   embeddings call at all is the same refusal - which is what lets a KB batch task report what to fix
+ *   instead of storing nothing and calling it success.
+ * - **A missing figure is not a zero.** The provider's own `usage` travels on the winning attempt; when
+ *   there is none, this call reports none, and the ledger keeps its cost NULL.
+ *
+ * The empty batch is refused *before* anything is resolved: a request with no text has no answer, and
+ * sending it would spend a provider round trip to be told so.
+ */
+export async function embed(request: EmbeddingRequest): Promise<EmbeddingResponse> {
+  const input = request.input.map((text) => (typeof text === "string" ? text : ""));
+  if (input.length === 0) {
+    throw new AppError("MODEL_EMBEDDING_INVALID", {
+      status: 400,
+      message: "The embedding request carried no text",
+      details: { requested: 0 },
+    });
+  }
+
+  const resolution = await resolveRoute(
+    requirementForIntent("embedding", {
+      model: request.model,
+      providerId: request.providerId,
+      preferProviderId: request.preferProviderId,
+    }),
+  );
+  const chain = resolution.candidate ? candidateChain(request, resolution) : [];
+  if (chain.length === 0) {
+    throw unavailableError(resolution);
+  }
+
+  const attempts: ModelAttempt[] = [];
+  let lastError: unknown = null;
+
+  for (const candidate of chain) {
+    const adapter = adapterFor(candidate.endpoint.protocol);
+    if (!adapter.embed) {
+      throw attachModelAttempts(
+        new AppError("MODEL_CAPABILITY_UNAVAILABLE", {
+          status: 409,
+          message: `The ${candidate.endpoint.protocol} adapter cannot embed text yet`,
+          details: { providerId: candidate.provider.providerId, model: candidate.model.modelId },
+        }),
+        attempts,
+      );
+    }
+    const embedWith = adapter.embed.bind(adapter);
+    try {
+      const { value, keyLabel } = await callCandidate(
+        candidate,
+        attempts,
+        "answer",
+        request.forceUnhealthyCredential,
+        (context) =>
+          embedWith(context, {
+            model: candidate.model.modelId,
+            input,
+            dimensions: request.dimensions,
+          }),
+      );
+      // The winning request carries the provider's own figures; an embeddings answer without them
+      // carries none, exactly like an image or a transcript (see `generateImage`).
+      attempts.push(winningAttempt(candidate, keyLabel, value.usage));
+      return {
+        vectors: value.vectors,
+        dimensions: value.dimensions,
+        model: candidate.model.modelId,
+        providerId: candidate.provider.providerId,
+        credentialLabel: keyLabel,
+        attempts,
+        usage: value.usage,
+        route: toRoute(resolution, candidate),
+      } satisfies EmbeddingResponse;
+    } catch (error) {
+      lastError = error;
+      // A rejected request shape repeats verbatim on the next model: an empty vector from one vendor is an
+      // empty vector from the next, so the chain is not spent on the same refusal.
+      if (isFatalModelError(error)) {
+        throw attachModelAttempts(error, attempts);
+      }
+    }
+  }
+
+  throw attachModelAttempts(lastError ?? unavailableError(resolution), attempts);
+}
+
+/**
  * Structured output, the runtime way (G5): the same contract the legacy
  * `generateStructured` offered - JSON-schema instruction, validation, one corrective retry,
  * merged usage - but routed through the router/registry/key pool like every other call.
@@ -592,7 +690,8 @@ export async function chatStructured<T extends z.ZodType>(
 
 /**
  * The runtime as a single object, for call sites that want it to read like "ask the runtime":
- * `aiRuntime.chat(...)`, `aiRuntime.chatStructured(...)`, `aiRuntime.generateImage(...)`.
+ * `aiRuntime.chat(...)`, `aiRuntime.chatStructured(...)`, `aiRuntime.generateImage(...)`,
+ * `aiRuntime.transcribe(...)`, `aiRuntime.embed(...)`.
  * Same functions as the individual exports - this is only the front door.
  */
 export const aiRuntime = {
@@ -601,5 +700,6 @@ export const aiRuntime = {
   chatStructured,
   generateImage,
   transcribe,
+  embed,
 } as const;
 

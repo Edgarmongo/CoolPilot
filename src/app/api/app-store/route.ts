@@ -1,5 +1,5 @@
 import { listPublishedPositions } from "@/db/repositories/positions";
-import { officialAgents, summarizeAppStore } from "@/lib/app-store-catalog";
+import { appStoreListingIdOfPosition, officialAgents, summarizeAppStore } from "@/lib/app-store-catalog";
 import { ok } from "@/lib/api";
 import type { AppStoreAgent } from "@/lib/types";
 
@@ -9,7 +9,9 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const published = await listPublishedPositions();
   const mine: AppStoreAgent[] = published.map((position) => ({
-    id: `position-${position.id}`,
+    // CI-P7-05-03: the storefront and the ledger read this id from one helper, so a listing's id
+    // cannot mean one thing here and another in a ledger row.
+    id: appStoreListingIdOfPosition(position.id),
     name: position.name,
     emoji: position.store.emoji,
     tagline: position.store.tagline,

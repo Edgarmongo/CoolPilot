@@ -312,7 +312,16 @@ export async function executeTranscriptionTask(runId: string): Promise<Transcrip
     });
 
     const result = await withBudget(transcriptionTaskBudgetMs, () =>
-      chosen.provider.transcribe({ source, language: request.language, log }),
+      chosen.provider.transcribe({
+        source,
+        language: request.language,
+        log,
+        // CI-P7-03-D1. A cloud engine spends money, so the call carries the business identity its
+        // ledger row and its budget hold are recorded under. The task *is* this run row - there is no
+        // second row behind it - so both ids name it, and the local engine ignores the field entirely
+        // (it spends nothing, so it has nothing to attribute).
+        identity: { runId: run.id, taskId: run.id },
+      }),
     );
 
     const body = transcriptBody(result.text, result.segments);

@@ -1,0 +1,56 @@
+{
+  "card": "CI-P5-01/P5-01-08",
+  "mark": "E2E05-远程封面-1791615682517",
+  "base": "http://127.0.0.1:3000",
+  "checks": [
+    {
+      "name": "真实路由：import-url 201 且写出内容",
+      "ok": true,
+      "detail": "{\"ok\":true,\"data\":{\"item\":{\"id\":\"A5uEr2Z3jX6C8UAPEvFHL\",\"title\":\"E2E05-远程封面-1791615682517\",\"body\":\"受控导入正文：这一页只用于证明导入侧如何保存来源页的封面图引用。\",\"postReadyText\":\"受控导入正文：这一页只用于证明导入侧如何保存来源页的封面图引用。\",\"sourceUrls\":[\"http://127.0.0.1:34567/e2e05-page\"],\"imagePath\":\"https://example.com/e2e05-remote-cover.png\",\"metadata\":{\"provider\":\"local\",\"model\":\"none\",\"sourceTitle\":\"E2E05-远程封面-1791615682517\",\"generationType\":\"url…(481 chars)"
+    },
+    {
+      "name": "P5-01-08 导入标题取自页面 og:title",
+      "ok": true,
+      "detail": "E2E05-远程封面-1791615682517"
+    },
+    {
+      "name": "P5-01-08 来源页 og:image 被写成 imagePath（远程 URL，原样）",
+      "ok": true,
+      "detail": "https://example.com/e2e05-remote-cover.png"
+    },
+    {
+      "name": "P5-01-08 metadata 不含任何本地化图片引用（只有 sourceTitle/provider/model 等）",
+      "ok": true,
+      "detail": "{\"provider\":\"local\",\"model\":\"none\",\"sourceTitle\":\"E2E05-远程封面-1791615682517\",\"generationType\":\"url_import\"}"
+    },
+    {
+      "name": "P5-01-08 artifacts 目录文件数未增（远程图未落盘）",
+      "ok": true,
+      "detail": "37 → 37"
+    },
+    {
+      "name": "结论与基线一致（远程封面不本地化）",
+      "ok": true,
+      "detail": "已复现基线 §8 第 3 条：导入侧保留远程 URL，未本地化"
+    }
+  ],
+  "imported": {
+    "status": 201,
+    "itemId": "A5uEr2Z3jX6C8UAPEvFHL",
+    "imagePath": "https://example.com/e2e05-remote-cover.png",
+    "images": null
+  },
+  "artifacts": {
+    "before": 37,
+    "after": 37
+  },
+  "verdict": "已复现基线 §8 第 3 条：导入侧保留远程 URL，未本地化",
+  "followUp": {
+    "publishDropsRemoteCover": "src/lib/publish.ts 的 resolveLocalImagePath 对 http(s) 返回 \"\" → 发布侧会静默丢弃该封面（属 CI-P5-03 / 审计 C4 决策项，本卡不改）"
+  },
+  "cleanup": {
+    "itemId": "A5uEr2Z3jX6C8UAPEvFHL",
+    "status": 200
+  },
+  "finishedAt": "2026-10-10T07:01:22.861Z"
+}

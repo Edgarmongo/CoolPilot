@@ -60,6 +60,38 @@ export const officialAgents: AppStoreAgent[] = [
   agent("bidding-writer", "招投标文书师", "📑", "把标书写成让评委放心的样子", "按评分项组织标书结构：响应要点、参数对照与资质证明，做到条条有据、重点突出。", "trade", ["招投标", "文书", "标书"]),
 ];
 
+/**
+ * The listing id the storefront publishes for a stored position (CI-P7-05-03).
+ *
+ * It is the store's own scheme - `api/app-store` answers exactly this string for the "mine" tab -
+ * kept here so the storefront and the ledger cannot drift apart about what a listing is called.
+ * The id of a position that has never been published is the same string, but the storefront does
+ * not list it: publishing is what `listPublishedPositions()` filters on, and that is also what the
+ * ledger's attribution requires before it will name a position.
+ */
+export function appStoreListingIdOfPosition(positionId: string): string {
+  const id = positionId.trim();
+  return id ? `position-${id}` : "";
+}
+
+/** Every listing id the built-in catalogue publishes, as the storefront shows them. */
+export function appStoreAgentIds(): string[] {
+  return officialAgents.map((agent) => agent.id);
+}
+
+/**
+ * Whether an id names a built-in listing of this catalogue.
+ *
+ * The generation panel's 应用商店智能体 picker shares four of these ids verbatim (`emotional-story`,
+ * `hot-commentator`, `funny-news`, `it-news`) and has two of its own (`general`, `marketing`), so
+ * only the ids the storefront really lists are accepted as an attribution. `general` is a picker
+ * default, not a listing, and attributing money to it would name an extension nobody can open.
+ */
+export function isAppStoreAgentId(agentId: string): boolean {
+  const id = agentId.trim();
+  return id !== "" && officialAgents.some((agent) => agent.id === id);
+}
+
 /** Aggregates agents into the category counts shown on the storefront filter chips. */
 export function summarizeAppStore(agents: AppStoreAgent[]) {
   const categoryCounts = appStoreCategories.reduce(

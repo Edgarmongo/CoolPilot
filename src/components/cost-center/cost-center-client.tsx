@@ -7,6 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { swrFetcher } from "@/lib/api-client";
 import { ConsoleCard } from "@/components/ui/console-surface";
 import BudgetPanel from "@/components/cost-center/budget-panel";
+import QualityPanel from "@/components/cost-center/quality-panel";
 import type { TranslationKey } from "@/lib/locale-resources";
 import {
   usageRangeDays,
@@ -17,6 +18,10 @@ import {
   type AiUsageCallRetryKind,
   type AiUsageCallView,
   type AiUsageCostSource,
+  type AiUsageLedgerCurrencyTotal,
+  type AiUsageMeteringCoverage,
+  type AiUsageMeteringGap,
+  type AiUsageMeteringReason,
   type UsageModelSummary,
   type UsageRangeDays,
 } from "@/lib/types";
@@ -33,8 +38,8 @@ import {
  *    `null` all the way to the screen;
  *  - call a partial figure the bill - `costIsComplete` decides which sentence is printed.
  *
- * The three sections that are not built yet are reachable as tabs and say so in words. They show no
- * placeholder numbers, because a demonstration figure and a real one look the same at a glance.
+ * The three tabs that read figures do so from the ledger and the records behind it; none of them draws
+ * a placeholder number, because a demonstration figure and a real one look the same at a glance.
  */
 
 export type CostCenterTab = "overview" | "calls" | "budget" | "quality";
@@ -59,20 +64,38 @@ const costSourceLabels: Record<AiUsageCostSource, TranslationKey> = {
   unknown: "costCenterSourceUnknown",
 };
 
+/**
+ * Why a figure is missing (CI-P7-05-04), in the user's own words.
+ *
+ * Read off the server's own answer (`AiUsageCallView.reason` / `AiUsageMeteringCoverage.reasons`),
+ * never re-derived here: the rule lives in `@/lib/ai-metering` beside the arithmetic it explains, so
+ * the page cannot drift from it. Each phrase has to name *the cause*, because that is the part a
+ * reader can act on - "没有价格" and "供应商没有回报用量" are different problems with different fixes.
+ */
+const reasonLabels: Record<AiUsageMeteringReason, TranslationKey> = {
+  "no-price-for-dimension": "costCenterReasonNoPrice",
+  "price-kind-mismatch": "costCenterReasonPriceKind",
+  "price-unit-unspecified": "costCenterReasonPriceUnit",
+  "usage-not-reported": "costCenterReasonNoUsage",
+  "quantity-not-recorded": "costCenterReasonQuantityMissing",
+  "quantity-unit-mismatch": "costCenterReasonQuantityUnit",
+  "quantity-unusable": "costCenterReasonQuantityUnusable",
+  "attempt-failed": "costCenterReasonFailed",
+  "call-interrupted": "costCenterReasonInterrupted",
+  "not-recorded": "costCenterReasonNotRecorded",
+};
+
+/** Why a whole dimension cannot be metered in this installation, in the user's own words. */
+const gapLabels: Record<AiUsageMeteringGap, TranslationKey> = {
+  "no-runtime-path": "costCenterMeteringNoPath",
+  "metered-through-text": "costCenterMeteringThroughText",
+};
+
 const tabLabels: Record<CostCenterTab, TranslationKey> = {
   overview: "costCenterTabOverview",
   calls: "costCenterTabCalls",
   budget: "costCenterTabBudget",
   quality: "costCenterTabQuality",
-};
-
-/**
- * What a tab that is not built yet names as its own card, so the wording cannot drift. Only 质量与优化
- * is still in this list: 预算与预估 is `BudgetPanel` below, which reads its figures from the ledger and
- * its guarantee from the server.
- */
-const tabTasks: Record<Extract<CostCenterTab, "quality">, TranslationKey> = {
-  quality: "costCenterTaskQuality",
 };
 
 /** The 调用明细 filters before the reader touches anything. */
@@ -84,6 +107,7 @@ const noCallFilters: AiCostCenterCallFilters = {
   retryOnly: false,
   contentItemId: "",
   taskId: "",
+  extensionId: "",
 };
 
 /** One page of requests. Small enough that a page's detail still reads as a list. */
@@ -180,6 +204,7 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
     if (callFilters.retryOnly) params.set("retry", "1");
     if (callFilters.contentItemId) params.set("contentItemId", callFilters.contentItemId);
     if (callFilters.taskId) params.set("taskId", callFilters.taskId);
+    if (callFilters.extensionId) params.set("extensionId", callFilters.extensionId);
     return `/api/ai-cost-center/calls?${params.toString()}`;
   }, [tab, range, callFilters, callOffset]);
 
@@ -208,6 +233,8 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
 
   const callViews = callsData?.calls ?? [];
   const callByContent = callsData?.byContent ?? [];
+  const callByRun = callsData?.byRun ?? [];
+  const callByExtension = callsData?.byExtension ?? [];
   const callOptions = callsData?.options;
   const callTotals = callsData?.totals;
   const matchedCurrencies = callsData?.matchedCostByCurrency ?? [];
@@ -231,6 +258,67 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
     });
   }
 
+  /**
+   * A per-currency amount, marked `≥` and badged when a row behind it stated no figure (CI-P7-05-02).
+   *
+   * The marker is not decoration: the same reading is printed for a run whose every request was
+   * priced and for one where half of them could not be, and only the marker tells the two apart.
+   */
+  function amountCell(amounts: AiUsageLedgerCurrencyTotal[], complete: boolean) {
+    return (
+      <>
+        {amounts.length === 0
+          ? t("costCenterSourceNoAmount")
+          : amounts.map((entry) => `${complete ? "" : "≥ "}${money(entry.currency, entry.amount)}`).join(" · ")}
+        {amounts.length > 0 && !complete ? (
+          <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+            {t("costCenterHasUnpriced")}
+          </span>
+        ) : null}
+      </>
+    );
+  }
+
+  /** 重试请求 (CI-P7-05-02): how many of a group's requests repeated an earlier one, and how many of those cannot be traced. */
+  function retryText(retries: number, unresolvedRetries: number) {
+    return (
+      <>
+        {numberFormat.format(retries)}
+        {unresolvedRetries > 0 ? (
+          <span className="ml-1 text-xs text-amber-700">
+            {t("costCenterRunsColUnresolved", { count: numberFormat.format(unresolvedRetries) })}
+          </span>
+        ) : null}
+      </>
+    );
+  }
+
+  /**
+   * 计量状态与原因 (CI-P7-05-04) for one dimension.
+   *
+   * The three facts are read in this order, and none of them summarises the others: a dimension this
+   * runtime has no path for is named as such even when the window holds no rows of it (that is the
+   * whole point - it must not look like a dimension that merely went unused), a dimension with no rows
+   * says exactly that instead of showing a figure or a zero, and only then do the window's own reasons
+   * speak. An empty reason list beside a non-zero blank count is itself a reading, so it is shown as
+   * 「全部已述明」 only when there really was nothing unstated.
+   */
+  function meteringVerdict(row: AiUsageMeteringCoverage) {
+    if (row.gap) {
+      return <span className="text-amber-700">{t(gapLabels[row.gap])}</span>;
+    }
+    if (row.reasons.length > 0) {
+      return (
+        <ul className="space-y-0.5">
+          {row.reasons.map((reason) => (
+            <li key={reason}>{t(reasonLabels[reason])}</li>
+          ))}
+        </ul>
+      );
+    }
+    return row.attempts === 0 ? t("costCenterMeteringNoCalls") : t("costCenterMeteringAllStated");
+  }
+
   const dayFormat = useMemo(
     () => new Intl.DateTimeFormat(locale, { month: "2-digit", day: "2-digit" }),
     [locale],
@@ -250,6 +338,12 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
     () => allKinds.filter((kind) => !pricedKinds.includes(kind)),
     [allKinds, pricedKinds],
   );
+  /**
+   * 计量覆盖 (CI-P7-05-04): every dimension the ledger can meter, in the vocabulary's own order, with
+   * what this window's rows of it could state. Read as it arrived from the server - the count of
+   * dimensions never depends on which of them happened to be called.
+   */
+  const metering = useMemo(() => data?.catalog.metering ?? [], [data]);
   const maxDayCost = useMemo(() => days.reduce((max, day) => Math.max(max, day.costAmount), 0), [days]);
   const legacyModels = useMemo(() => {
     const list: UsageModelSummary[] = data?.usage.models ?? [];
@@ -323,13 +417,9 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
 
       {tab === "budget" ? <BudgetPanel /> : null}
 
-      {tab === "quality" ? (
-        <ConsoleCard>
-          <h2 className="text-base font-semibold text-zinc-900">{t(tabLabels[tab])}</h2>
-          <p className="mt-3 text-sm leading-6 text-zinc-600">{t(tabTasks[tab])}</p>
-          <p className="mt-2 text-xs leading-5 text-zinc-400">{t("costCenterStubNote")}</p>
-        </ConsoleCard>
-      ) : null}
+      {/* 质量与优化 (CI-P7-04). It shares the page's own window, and it can send the user to the budget
+          tab in place when a suggestion needs a ceiling this page cannot invent. */}
+      {tab === "quality" ? <QualityPanel range={range} onOpenTab={setTab} /> : null}
 
       {tab === "calls" ? (
         <>
@@ -367,6 +457,16 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
                 }))}
                 onChange={(value) => updateCallFilters({ costSource: value as AiCostCenterCallFilters["costSource"] })}
               />
+              <FilterSelect
+                label={t("costCenterCallsFilterExtension")}
+                allLabel={t("costCenterCallsFilterAll")}
+                value={callFilters.extensionId}
+                options={(callOptions?.extensions ?? []).map((extension) => ({
+                  value: extension,
+                  label: extension,
+                }))}
+                onChange={(value) => updateCallFilters({ extensionId: value })}
+              />
               <label className="flex items-center gap-2 text-xs font-medium text-zinc-500">
                 <input
                   type="checkbox"
@@ -377,7 +477,7 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
                 {t("costCenterCallsFilterRetry")}
               </label>
             </div>
-            {callFilters.retryOnly || callFilters.contentItemId || callFilters.taskId ? (
+            {callFilters.retryOnly || callFilters.contentItemId || callFilters.taskId || callFilters.extensionId ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                 {callFilters.contentItemId ? (
                   <span className="rounded-full border border-sky-200 px-2 py-0.5 text-sky-800">
@@ -389,9 +489,17 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
                     {t("costCenterCallsFilterTask")}: <span className="font-mono">{callFilters.taskId}</span>
                   </span>
                 ) : null}
+                {callFilters.extensionId ? (
+                  <span className="rounded-full border border-sky-200 px-2 py-0.5 text-sky-800">
+                    {t("costCenterCallsFilterExtension")}:{" "}
+                    <span className="font-mono">{callFilters.extensionId}</span>
+                  </span>
+                ) : null}
                 <button
                   type="button"
-                  onClick={() => updateCallFilters({ retryOnly: false, contentItemId: "", taskId: "" })}
+                  onClick={() =>
+                    updateCallFilters({ retryOnly: false, contentItemId: "", taskId: "", extensionId: "" })
+                  }
                   className="rounded-full border border-sky-200 px-2 py-0.5 text-sky-700 transition hover:bg-sky-50"
                 >
                   {t("costCenterCallsFilterClear")}
@@ -477,6 +585,7 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
                       <th className="py-2 pr-3 font-medium">{t("costCenterCallsColCompleteness")}</th>
                       <th className="py-2 pr-3 font-medium">{t("costCenterCallsFilterSource")}</th>
                       <th className="py-2 pr-3 font-medium">{t("costCenterColCost")}</th>
+                      <th className="py-2 pr-3 font-medium">{t("costCenterCallsColReason")}</th>
                       <th className="py-2 font-medium">{t("costCenterCallsColDetail")}</th>
                     </tr>
                   </thead>
@@ -510,6 +619,9 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
                               ? t("costCenterSourceNoAmount")
                               : money(view.entry.costCurrency, view.entry.costAmount)}
                           </td>
+                          <td className="py-2 pr-3 text-xs text-zinc-500">
+                            {view.reason ? t(reasonLabels[view.reason]) : t("costCenterCallsReasonStated")}
+                          </td>
                           <td className="py-2">
                             <button
                               type="button"
@@ -522,7 +634,7 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
                         </tr>
                         {expandedCall === view.entry.id ? (
                           <tr className="border-b border-sky-50 bg-sky-50/30">
-                            <td colSpan={11} className="px-3 py-4">
+                            <td colSpan={12} className="px-3 py-4">
                               <div className="grid gap-5 lg:grid-cols-3">
                                 <div className="space-y-2 text-xs leading-5 text-zinc-600">
                                   <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
@@ -757,6 +869,212 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
                   </tbody>
                 </table>
               </div>
+            ) : null}
+          </ConsoleCard>
+
+          {/* CI-P7-05-02: what one execution cost, read node by node - and what the retries cost. */}
+          <ConsoleCard>
+            <h2 className="text-base font-semibold text-zinc-900">{t("costCenterRunsTitle")}</h2>
+            <p className="mt-2 text-xs leading-5 text-zinc-400">{t("costCenterRunsNote")}</p>
+            {callsData && callByRun.length === 0 ? (
+              <p className="mt-4 text-sm text-zinc-400">{t("usageEmpty")}</p>
+            ) : null}
+            <div className="mt-4 space-y-6">
+              {callByRun.map((run) => (
+                <div key={run.runId || "run-unattributed"} className="rounded-2xl border border-sky-50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-sm text-zinc-700">
+                        {run.runId || t("costCenterRunsUnattributed")}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-400">
+                        {t("costCenterRunsLastAt")}
+                        {": "}
+                        {timeFormat.format(new Date(run.lastAt))}
+                        {" · "}
+                        {t("costCenterCallsColPurpose")}
+                        {": "}
+                        {run.purposes.length > 0 ? run.purposes.join(" · ") : t("costCenterCallsTraceNone")}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-zinc-400">{t("costCenterRunsTotal")}</p>
+                      <p className="text-lg font-semibold text-zinc-950">
+                        {amountCell(run.costByCurrency, run.costIsComplete)}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {t("costCenterRunsRetryCost")}
+                        {": "}
+                        {amountCell(run.retryCostByCurrency, run.retryCostIsComplete)}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {t("costCenterRunsFailureCost")}
+                        {": "}
+                        {amountCell(run.failureCostByCurrency, run.failureCostIsComplete)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full min-w-[760px] text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-sky-100 text-xs uppercase tracking-wide text-zinc-400">
+                          <th className="py-2 pr-4 font-medium">{t("costCenterRunsColNode")}</th>
+                          <th className="py-2 pr-4 font-medium">{t("costCenterColAttempts")}</th>
+                          <th className="py-2 pr-4 font-medium">{t("costCenterRunsColFailed")}</th>
+                          <th className="py-2 pr-4 font-medium">{t("costCenterRunsColInterrupted")}</th>
+                          <th className="py-2 pr-4 font-medium">{t("costCenterRunsColRetry")}</th>
+                          <th className="py-2 pr-4 font-medium">{t("costCenterColTokens")}</th>
+                          <th className="py-2 font-medium">{t("costCenterRunsNodeCost")}</th>
+                        </tr>
+                      </thead>
+                      <tbody data-cost-center-run-nodes={run.runId || "unattributed"}>
+                        {run.nodes.map((node) => (
+                          <tr key={node.nodeId || "node-unattributed"} className="border-b border-sky-50">
+                            <td className="py-2 pr-4 font-mono text-xs text-zinc-700">
+                              {node.nodeId || t("costCenterRunsNodeUnattributed")}
+                            </td>
+                            <td className="py-2 pr-4 text-zinc-500">{numberFormat.format(node.attempts)}</td>
+                            <td className="py-2 pr-4 text-zinc-500">{numberFormat.format(node.failures)}</td>
+                            <td className="py-2 pr-4 text-zinc-500">{numberFormat.format(node.interrupted)}</td>
+                            <td className="py-2 pr-4 text-zinc-500">
+                              {retryText(node.retries, node.unresolvedRetries)}
+                            </td>
+                            <td className="py-2 pr-4 text-zinc-500">{numberFormat.format(node.totalTokens)}</td>
+                            <td className="py-2 text-zinc-700">
+                              {amountCell(node.costByCurrency, node.costIsComplete)}
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="font-semibold text-zinc-900" data-cost-center-run-total={run.runId || "unattributed"}>
+                          <td className="py-2 pr-4">{t("costCenterRunsTotalRow")}</td>
+                          <td className="py-2 pr-4">{numberFormat.format(run.attempts)}</td>
+                          <td className="py-2 pr-4">{numberFormat.format(run.failures)}</td>
+                          <td className="py-2 pr-4">{numberFormat.format(run.interrupted)}</td>
+                          <td className="py-2 pr-4">{retryText(run.retries, run.unresolvedRetries)}</td>
+                          <td className="py-2 pr-4">{numberFormat.format(run.totalTokens)}</td>
+                          <td className="py-2">{amountCell(run.costByCurrency, run.costIsComplete)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-zinc-400">{t("costCenterRunsRetryOverlap")}</p>
+                  {run.unresolvedRetries > 0 ? (
+                    <p className="mt-1 text-xs leading-5 text-amber-700">
+                      {t("costCenterRunsUnresolvedNote", { count: numberFormat.format(run.unresolvedRetries) })}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </ConsoleCard>
+
+          {/* CI-P7-05-03: which Marketplace extension the money went to, and which execution spent it. */}
+          <ConsoleCard>
+            <h2 className="text-base font-semibold text-zinc-900">{t("costCenterExtensionsTitle")}</h2>
+            <p className="mt-2 text-xs leading-5 text-zinc-400">{t("costCenterExtensionsNote")}</p>
+            {callsData && callByExtension.length === 0 ? (
+              <p className="mt-4 text-sm text-zinc-400">{t("usageEmpty")}</p>
+            ) : null}
+            {callByExtension.length > 0 ? (
+              <>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full min-w-[1180px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-sky-100 text-xs uppercase tracking-wide text-zinc-400">
+                        <th className="py-2 pr-4 font-medium">{t("costCenterExtensionsColExtension")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("costCenterColAttempts")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("costCenterRunsColFailed")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("costCenterRunsColInterrupted")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("costCenterRunsColRetry")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("costCenterColTokens")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("costCenterCallsColPending")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("costCenterColCost")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("costCenterExtensionsColRetryCost")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("costCenterExtensionsColFailureCost")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("costCenterExtensionsColSpentBy")}</th>
+                        <th className="py-2 font-medium">{t("costCenterCallsByContentFilter")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {callByExtension.map((group) => (
+                        <tr
+                          key={group.extensionId || "extension-unattributed"}
+                          className="border-b border-sky-50"
+                          data-cost-center-extension={group.extensionId || "unattributed"}
+                        >
+                          <td className="py-2 pr-4">
+                            <span className="block font-mono text-xs text-zinc-700">
+                              {group.extensionId || t("costCenterExtensionsUnattributed")}
+                            </span>
+                            <span className="mt-1 block text-xs text-zinc-400">
+                              {t("costCenterRunsLastAt")}
+                              {": "}
+                              {timeFormat.format(new Date(group.lastAt))}
+                              {" · "}
+                              {t("costCenterCallsColPurpose")}
+                              {": "}
+                              {group.purposes.length > 0
+                                ? group.purposes.join(" · ")
+                                : t("costCenterCallsTraceNone")}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 text-zinc-500">{numberFormat.format(group.attempts)}</td>
+                          <td className="py-2 pr-4 text-zinc-500">{numberFormat.format(group.failures)}</td>
+                          <td className="py-2 pr-4 text-zinc-500">{numberFormat.format(group.interrupted)}</td>
+                          <td className="py-2 pr-4 text-zinc-500">
+                            {retryText(group.retries, group.unresolvedRetries)}
+                          </td>
+                          <td className="py-2 pr-4 text-zinc-500">{numberFormat.format(group.totalTokens)}</td>
+                          <td className="py-2 pr-4 text-zinc-500">
+                            {`${numberFormat.format(group.unpricedAttempts)} / ${numberFormat.format(group.unmeasuredAttempts)}`}
+                          </td>
+                          <td className="py-2 pr-4 text-zinc-700">
+                            {amountCell(group.costByCurrency, group.costIsComplete)}
+                          </td>
+                          <td className="py-2 pr-4 text-zinc-700">
+                            {amountCell(group.retryCostByCurrency, group.retryCostIsComplete)}
+                          </td>
+                          <td className="py-2 pr-4 text-zinc-700">
+                            {amountCell(group.failureCostByCurrency, group.failureCostIsComplete)}
+                          </td>
+                          <td className="py-2 pr-4 text-xs text-zinc-500">
+                            {group.taskIds.length === 0 ? (
+                              t("costCenterCallsTraceNone")
+                            ) : (
+                              group.taskIds.map((id) => (
+                                <span key={id} className="block font-mono">
+                                  {id}
+                                </span>
+                              ))
+                            )}
+                            {group.contentItemIds.length > 0 ? (
+                              <span className="mt-1 block font-mono text-zinc-400">
+                                {group.contentItemIds.join(" · ")}
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="py-2">
+                            {group.extensionId ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedCall(null);
+                                  updateCallFilters({ extensionId: group.extensionId });
+                                }}
+                                className="text-xs font-medium text-sky-700 transition hover:text-sky-900"
+                              >
+                                {t("costCenterCallsByContentFilter")}
+                              </button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-zinc-400">{t("costCenterExtensionsRetryOverlap")}</p>
+                <p className="mt-1 text-xs leading-5 text-zinc-400">{t("costCenterExtensionsUnattributedNote")}</p>
+              </>
             ) : null}
           </ConsoleCard>
         </>
@@ -1017,6 +1335,42 @@ export default function CostCenterClient({ initialTab }: { initialTab: CostCente
                   </span>
                 ))
               )}
+            </div>
+            <div className="mt-6 border-t border-sky-50 pt-4">
+              <h3 className="text-sm font-semibold text-zinc-900">{t("costCenterMeteringTitle")}</h3>
+              <p className="mt-1 text-xs leading-5 text-zinc-400">{t("costCenterMeteringNote")}</p>
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-sky-100 text-xs uppercase tracking-wide text-zinc-400">
+                      <th className="py-2 pr-3 font-medium">{t("costCenterMeteringColKind")}</th>
+                      <th className="py-2 pr-3 font-medium">{t("costCenterMeteringColRows")}</th>
+                      <th className="py-2 pr-3 font-medium">{t("costCenterMeteringColStates")}</th>
+                      <th className="py-2 pr-3 font-medium">{t("costCenterMeteringColPriced")}</th>
+                      <th className="py-2 font-medium">{t("costCenterMeteringColVerdict")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {metering.map((row) => (
+                      <tr key={row.kind} className="border-b border-sky-50 align-top">
+                        <td className="py-2 pr-3 font-mono text-xs text-zinc-700">{row.kind}</td>
+                        <td className="py-2 pr-3 text-zinc-500">{numberFormat.format(row.attempts)}</td>
+                        <td className="py-2 pr-3 text-zinc-500">
+                          {[
+                            numberFormat.format(row.measuredAttempts),
+                            numberFormat.format(row.unpricedAttempts),
+                            numberFormat.format(row.unmeasuredAttempts),
+                          ].join(" / ")}
+                        </td>
+                        <td className="py-2 pr-3 text-zinc-500">
+                          {row.priced ? t("costCenterMeteringPricedYes") : t("costCenterMeteringPricedNo")}
+                        </td>
+                        <td className="py-2 text-zinc-600">{meteringVerdict(row)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
             <p className="mt-3 text-xs leading-5 text-zinc-400">{t("costCenterCatalogNote")}</p>
           </ConsoleCard>

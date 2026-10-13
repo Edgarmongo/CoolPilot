@@ -1,0 +1,807 @@
+{
+  "case": "E2E-03",
+  "base": "http://127.0.0.1:3000",
+  "mode": "read-only",
+  "startedAt": "2026-10-09T03:38:52.376Z",
+  "steps": [
+    {
+      "step": "0-files-on-disk",
+      "at": "2026-10-09T03:38:52.381Z",
+      "filesOnDisk": [
+        "render-1791513479877-4NlCpwFB.json",
+        "render-1791513479877-4NlCpwFB.mp4",
+        "render-1791513479877-4NlCpwFB.srt",
+        "render-1791513567794-C1rKt71H.json",
+        "render-1791513567794-C1rKt71H.mp4",
+        "render-1791513567794-C1rKt71H.srt",
+        "video-1791513479085-AzOtayxQ.mp4",
+        "video-1791513566386-TMyEVPXp.mp4"
+      ],
+      "hashes": {
+        "render-1791513479877-4NlCpwFB.json": {
+          "bytes": 1077,
+          "sha256": "686b122db983022e",
+          "encoded": null
+        },
+        "render-1791513479877-4NlCpwFB.mp4": {
+          "bytes": 30389,
+          "sha256": "ea4dbec7d21f62ac",
+          "encoded": null
+        },
+        "render-1791513479877-4NlCpwFB.srt": {
+          "bytes": 86,
+          "sha256": "d3315f9c4da48c3d",
+          "encoded": null
+        },
+        "render-1791513567794-C1rKt71H.json": {
+          "bytes": 1077,
+          "sha256": "d2190ec6f6700b25",
+          "encoded": null
+        },
+        "render-1791513567794-C1rKt71H.mp4": {
+          "bytes": 30389,
+          "sha256": "ea4dbec7d21f62ac",
+          "encoded": null
+        },
+        "render-1791513567794-C1rKt71H.srt": {
+          "bytes": 86,
+          "sha256": "d3315f9c4da48c3d",
+          "encoded": null
+        },
+        "video-1791513479085-AzOtayxQ.mp4": {
+          "bytes": 30389,
+          "sha256": "ea4dbec7d21f62ac",
+          "encoded": null
+        },
+        "video-1791513566386-TMyEVPXp.mp4": {
+          "bytes": 30389,
+          "sha256": "ea4dbec7d21f62ac",
+          "encoded": null
+        }
+      }
+    },
+    {
+      "step": "1-task-query",
+      "at": "2026-10-09T03:38:52.423Z",
+      "status": 200,
+      "totalTasks": 7,
+      "renderTasks": [
+        {
+          "id": "Ky5FL8bZtt5OBwugn4wMx",
+          "kind": "playbook",
+          "type": "video_render",
+          "status": "cancelled",
+          "rawStatus": "cancelled",
+          "input": {
+            "materials": {
+              "video": "video-1791513566386-TMyEVPXp.mp4"
+            },
+            "params": {
+              "captions": [
+                {
+                  "startMs": 0,
+                  "text": "first cue",
+                  "endMs": 1200
+                },
+                {
+                  "startMs": 1200,
+                  "text": "second cue",
+                  "endMs": 2400
+                }
+              ],
+              "title": "CI-P1-04 probe"
+            },
+            "template": {
+              "id": "existing_video_package"
+            }
+          },
+          "progress": null,
+          "error": null,
+          "createdAt": 1791513568366,
+          "finishedAt": 1791513568505,
+          "updatedAt": 1791513568505
+        },
+        {
+          "id": "9WUI2DQ7BIF705zwbva4Y",
+          "kind": "playbook",
+          "type": "video_render",
+          "status": "failed",
+          "rawStatus": "failed",
+          "input": {
+            "template": {
+              "id": "existing_video_package"
+            },
+            "materials": {
+              "video": "no-such-clip.mp4"
+            }
+          },
+          "progress": null,
+          "error": {
+            "code": "RUN_FAILED",
+            "message": "MATERIAL_NOT_FOUND: there is no file \"no-such-clip.mp4\" in the videos section",
+            "retryable": false
+          },
+          "createdAt": 1791513568151,
+          "startedAt": 1791513568161,
+          "finishedAt": 1791513568167,
+          "updatedAt": 1791513568167
+        },
+        {
+          "id": "88WbAGoxROTo-BVRBERSu",
+          "kind": "playbook",
+          "type": "video_render",
+          "status": "succeeded",
+          "rawStatus": "success",
+          "input": {
+            "template": {
+              "id": "existing_video_package"
+            },
+            "materials": {
+              "video": "video-1791513566386-TMyEVPXp.mp4"
+            },
+            "params": {
+              "title": "CI-P1-04 probe",
+              "captions": [
+                {
+                  "startMs": 0,
+                  "endMs": 1200,
+                  "text": "first cue"
+                },
+                {
+                  "startMs": 1200,
+                  "endMs": 2400,
+                  "text": "second cue"
+                }
+              ],
+              "subtitles": true
+            }
+          },
+          "progress": 100,
+          "error": null,
+          "resultUrl": "/api/videos?file=render-1791513567794-C1rKt71H.mp4",
+          "createdAt": 1791513567767,
+          "startedAt": 1791513567785,
+          "finishedAt": 1791513567806,
+          "updatedAt": 1791513567806
+        },
+        {
+          "id": "ePdp6NV9ai_WBs4RZKjZ_",
+          "kind": "playbook",
+          "type": "video_render",
+          "status": "cancelled",
+          "rawStatus": "cancelled",
+          "input": {
+            "materials": {
+              "video": "video-1791513479085-AzOtayxQ.mp4"
+            },
+            "params": {
+              "captions": [
+                {
+                  "startMs": 0,
+                  "text": "first cue",
+                  "endMs": 1200
+                },
+                {
+                  "startMs": 1200,
+                  "text": "second cue",
+                  "endMs": 2400
+                }
+              ],
+              "title": "CI-P1-04 probe"
+            },
+            "template": {
+              "id": "existing_video_package"
+            }
+          },
+          "progress": null,
+          "error": null,
+          "createdAt": 1791513480706,
+          "finishedAt": 1791513480936,
+          "updatedAt": 1791513480936
+        },
+        {
+          "id": "kfxmHkeOiowlf-rLKPr9i",
+          "kind": "playbook",
+          "type": "video_render",
+          "status": "failed",
+          "rawStatus": "failed",
+          "input": {
+            "template": {
+              "id": "existing_video_package"
+            },
+            "materials": {
+              "video": "no-such-clip.mp4"
+            }
+          },
+          "progress": null,
+          "error": {
+            "code": "RUN_FAILED",
+            "message": "MATERIAL_NOT_FOUND: there is no file \"no-such-clip.mp4\" in the videos section",
+            "retryable": false
+          },
+          "createdAt": 1791513480400,
+          "startedAt": 1791513480411,
+          "finishedAt": 1791513480416,
+          "updatedAt": 1791513480416
+        },
+        {
+          "id": "ZP3MM2nYrCilrybXYHUD3",
+          "kind": "playbook",
+          "type": "video_render",
+          "status": "succeeded",
+          "rawStatus": "success",
+          "input": {
+            "template": {
+              "id": "existing_video_package"
+            },
+            "materials": {
+              "video": "video-1791513479085-AzOtayxQ.mp4"
+            },
+            "params": {
+              "title": "CI-P1-04 probe",
+              "captions": [
+                {
+                  "startMs": 0,
+                  "endMs": 1200,
+                  "text": "first cue"
+                },
+                {
+                  "startMs": 1200,
+                  "endMs": 2400,
+                  "text": "second cue"
+                }
+              ],
+              "subtitles": true
+            }
+          },
+          "progress": 100,
+          "error": null,
+          "resultUrl": "/api/videos?file=render-1791513479877-4NlCpwFB.mp4",
+          "createdAt": 1791513479854,
+          "startedAt": 1791513479868,
+          "finishedAt": 1791513479890,
+          "updatedAt": 1791513479890
+        }
+      ],
+      "statusHistogram": {
+        "cancelled": 2,
+        "failed": 2,
+        "succeeded": 2
+      },
+      "unknownKind": {
+        "status": 400,
+        "error": "Unknown task kind"
+      }
+    },
+    {
+      "0": {
+        "id": "Ky5FL8bZtt5OBwugn4wMx",
+        "status": "cancelled",
+        "rawStatus": "cancelled",
+        "error": null,
+        "progress": null,
+        "resultUrl": "",
+        "resultFileExists": false,
+        "resultFileSha": null,
+        "logCount": 2,
+        "firstLog": {
+          "taskId": "Ky5FL8bZtt5OBwugn4wMx",
+          "at": 1791513568372,
+          "level": "info",
+          "stage": "run",
+          "message": "Run queued",
+          "data": {}
+        },
+        "lastLog": {
+          "taskId": "Ky5FL8bZtt5OBwugn4wMx",
+          "at": 1791513568510,
+          "level": "warn",
+          "stage": "run",
+          "message": "Cancelled before it started.",
+          "data": {
+            "cancelled": true,
+            "cancelledFrom": "queued"
+          }
+        }
+      },
+      "1": {
+        "id": "9WUI2DQ7BIF705zwbva4Y",
+        "status": "failed",
+        "rawStatus": "failed",
+        "error": {
+          "code": "RUN_FAILED",
+          "message": "MATERIAL_NOT_FOUND: there is no file \"no-such-clip.mp4\" in the videos section",
+          "retryable": false
+        },
+        "progress": null,
+        "resultUrl": "",
+        "resultFileExists": false,
+        "resultFileSha": null,
+        "logCount": 2,
+        "firstLog": {
+          "taskId": "9WUI2DQ7BIF705zwbva4Y",
+          "at": 1791513568156,
+          "level": "info",
+          "stage": "run",
+          "message": "Run queued",
+          "data": {}
+        },
+        "lastLog": {
+          "taskId": "9WUI2DQ7BIF705zwbva4Y",
+          "at": 1791513568171,
+          "level": "error",
+          "stage": "error",
+          "message": "MATERIAL_NOT_FOUND: there is no file \"no-such-clip.mp4\" in the videos section",
+          "data": {
+            "stage": "error",
+            "code": "MATERIAL_NOT_FOUND"
+          }
+        }
+      },
+      "2": {
+        "id": "88WbAGoxROTo-BVRBERSu",
+        "status": "succeeded",
+        "rawStatus": "success",
+        "error": null,
+        "progress": 100,
+        "resultUrl": "/api/videos?file=render-1791513567794-C1rKt71H.mp4",
+        "resultFileExists": true,
+        "resultFileSha": "ea4dbec7d21f62ac",
+        "logCount": 6,
+        "firstLog": {
+          "taskId": "88WbAGoxROTo-BVRBERSu",
+          "at": 1791513567779,
+          "level": "info",
+          "stage": "run",
+          "message": "Run queued",
+          "data": {}
+        },
+        "lastLog": {
+          "taskId": "88WbAGoxROTo-BVRBERSu",
+          "at": 1791513567814,
+          "level": "info",
+          "stage": "done",
+          "message": "Video render succeeded: \"render-1791513567794-C1rKt71H.mp4\" (30389 bytes, renderer existing-video-package, encoded: false)",
+          "data": {
+            "stage": "done",
+            "current": 4,
+            "total": 4,
+            "resultUrl": "/api/videos?file=render-1791513567794-C1rKt71H.mp4",
+            "renderer": {
+              "name": "existing-video-package",
+              "encoded": false
+            },
+            "artifacts": {
+              "video": "render-1791513567794-C1rKt71H.mp4",
+              "cover": null,
+              "subtitles": "render-1791513567794-C1rKt71H.srt",
+              "metadata": "render-1791513567794-C1rKt71H.json"
+            },
+            "notes": [
+              "no cover material was given, so the package carries no cover"
+            ]
+          }
+        }
+      },
+      "3": {
+        "id": "ePdp6NV9ai_WBs4RZKjZ_",
+        "status": "cancelled",
+        "rawStatus": "cancelled",
+        "error": null,
+        "progress": null,
+        "resultUrl": "",
+        "resultFileExists": false,
+        "resultFileSha": null,
+        "logCount": 2,
+        "firstLog": {
+          "taskId": "ePdp6NV9ai_WBs4RZKjZ_",
+          "at": 1791513480713,
+          "level": "info",
+          "stage": "run",
+          "message": "Run queued",
+          "data": {}
+        },
+        "lastLog": {
+          "taskId": "ePdp6NV9ai_WBs4RZKjZ_",
+          "at": 1791513480942,
+          "level": "warn",
+          "stage": "run",
+          "message": "Cancelled before it started.",
+          "data": {
+            "cancelled": true,
+            "cancelledFrom": "queued"
+          }
+        }
+      },
+      "4": {
+        "id": "kfxmHkeOiowlf-rLKPr9i",
+        "status": "failed",
+        "rawStatus": "failed",
+        "error": {
+          "code": "RUN_FAILED",
+          "message": "MATERIAL_NOT_FOUND: there is no file \"no-such-clip.mp4\" in the videos section",
+          "retryable": false
+        },
+        "progress": null,
+        "resultUrl": "",
+        "resultFileExists": false,
+        "resultFileSha": null,
+        "logCount": 2,
+        "firstLog": {
+          "taskId": "kfxmHkeOiowlf-rLKPr9i",
+          "at": 1791513480404,
+          "level": "info",
+          "stage": "run",
+          "message": "Run queued",
+          "data": {}
+        },
+        "lastLog": {
+          "taskId": "kfxmHkeOiowlf-rLKPr9i",
+          "at": 1791513480420,
+          "level": "error",
+          "stage": "error",
+          "message": "MATERIAL_NOT_FOUND: there is no file \"no-such-clip.mp4\" in the videos section",
+          "data": {
+            "stage": "error",
+            "code": "MATERIAL_NOT_FOUND"
+          }
+        }
+      },
+      "5": {
+        "id": "ZP3MM2nYrCilrybXYHUD3",
+        "status": "succeeded",
+        "rawStatus": "success",
+        "error": null,
+        "progress": 100,
+        "resultUrl": "/api/videos?file=render-1791513479877-4NlCpwFB.mp4",
+        "resultFileExists": true,
+        "resultFileSha": "ea4dbec7d21f62ac",
+        "logCount": 6,
+        "firstLog": {
+          "taskId": "ZP3MM2nYrCilrybXYHUD3",
+          "at": 1791513479862,
+          "level": "info",
+          "stage": "run",
+          "message": "Run queued",
+          "data": {}
+        },
+        "lastLog": {
+          "taskId": "ZP3MM2nYrCilrybXYHUD3",
+          "at": 1791513479894,
+          "level": "info",
+          "stage": "done",
+          "message": "Video render succeeded: \"render-1791513479877-4NlCpwFB.mp4\" (30389 bytes, renderer existing-video-package, encoded: false)",
+          "data": {
+            "stage": "done",
+            "current": 4,
+            "total": 4,
+            "resultUrl": "/api/videos?file=render-1791513479877-4NlCpwFB.mp4",
+            "renderer": {
+              "name": "existing-video-package",
+              "encoded": false
+            },
+            "artifacts": {
+              "video": "render-1791513479877-4NlCpwFB.mp4",
+              "cover": null,
+              "subtitles": "render-1791513479877-4NlCpwFB.srt",
+              "metadata": "render-1791513479877-4NlCpwFB.json"
+            },
+            "notes": [
+              "no cover material was given, so the package carries no cover"
+            ]
+          }
+        }
+      },
+      "step": "2-task-details",
+      "at": "2026-10-09T03:38:52.498Z"
+    },
+    {
+      "step": "3-video-reads",
+      "at": "2026-10-09T03:38:52.582Z",
+      "libraryStatus": 200,
+      "listedCount": 4,
+      "listedNames": [
+        "render-1791513567794-C1rKt71H.mp4",
+        "video-1791513566386-TMyEVPXp.mp4",
+        "render-1791513479877-4NlCpwFB.mp4",
+        "video-1791513479085-AzOtayxQ.mp4"
+      ],
+      "reads": [
+        {
+          "fileName": "render-1791513567794-C1rKt71H.mp4",
+          "size": 30389,
+          "full": {
+            "status": 200,
+            "contentType": "video/mp4",
+            "bytes": 30389,
+            "acceptRanges": "bytes",
+            "sha256": "ea4dbec7d21f62ac"
+          },
+          "rangeFirst100": {
+            "status": 206,
+            "contentRange": "bytes 0-99/30389",
+            "contentLength": "100",
+            "bytes": 100,
+            "matchesPrefix": true
+          },
+          "rangeBeyondEnd": {
+            "status": 416,
+            "contentRange": "bytes */30389",
+            "bytes": 0
+          },
+          "bytesMatchDisk": true
+        },
+        {
+          "fileName": "video-1791513566386-TMyEVPXp.mp4",
+          "size": 30389,
+          "full": {
+            "status": 200,
+            "contentType": "video/mp4",
+            "bytes": 30389,
+            "acceptRanges": "bytes",
+            "sha256": "ea4dbec7d21f62ac"
+          },
+          "rangeFirst100": {
+            "status": 206,
+            "contentRange": "bytes 0-99/30389",
+            "contentLength": "100",
+            "bytes": 100,
+            "matchesPrefix": true
+          },
+          "rangeBeyondEnd": {
+            "status": 416,
+            "contentRange": "bytes */30389",
+            "bytes": 0
+          },
+          "bytesMatchDisk": true
+        },
+        {
+          "fileName": "render-1791513479877-4NlCpwFB.mp4",
+          "size": 30389,
+          "full": {
+            "status": 200,
+            "contentType": "video/mp4",
+            "bytes": 30389,
+            "acceptRanges": "bytes",
+            "sha256": "ea4dbec7d21f62ac"
+          },
+          "rangeFirst100": {
+            "status": 206,
+            "contentRange": "bytes 0-99/30389",
+            "contentLength": "100",
+            "bytes": 100,
+            "matchesPrefix": true
+          },
+          "rangeBeyondEnd": {
+            "status": 416,
+            "contentRange": "bytes */30389",
+            "bytes": 0
+          },
+          "bytesMatchDisk": true
+        },
+        {
+          "fileName": "video-1791513479085-AzOtayxQ.mp4",
+          "size": 30389,
+          "full": {
+            "status": 200,
+            "contentType": "video/mp4",
+            "bytes": 30389,
+            "acceptRanges": "bytes",
+            "sha256": "ea4dbec7d21f62ac"
+          },
+          "rangeFirst100": {
+            "status": 206,
+            "contentRange": "bytes 0-99/30389",
+            "contentLength": "100",
+            "bytes": 100,
+            "matchesPrefix": true
+          },
+          "rangeBeyondEnd": {
+            "status": 416,
+            "contentRange": "bytes */30389",
+            "bytes": 0
+          },
+          "bytesMatchDisk": true
+        }
+      ]
+    },
+    {
+      "step": "4-failure-paths",
+      "at": "2026-10-09T03:38:52.604Z",
+      "missingFile": {
+        "status": 404,
+        "body": "Not found"
+      },
+      "pathTraversal": {
+        "status": 404,
+        "body": "Not found"
+      },
+      "sidecarViaVideosRoute": {
+        "fileName": "render-1791513479877-4NlCpwFB.json",
+        "status": 404,
+        "body": "Not found"
+      },
+      "listWithoutFile": {
+        "status": 200,
+        "count": 4
+      }
+    },
+    {
+      "step": "5-byte-copy-evidence",
+      "at": "2026-10-09T03:38:52.605Z",
+      "identicalGroups": {
+        "686b122db983022e": [
+          "render-1791513479877-4NlCpwFB.json"
+        ],
+        "ea4dbec7d21f62ac": [
+          "render-1791513479877-4NlCpwFB.mp4",
+          "render-1791513567794-C1rKt71H.mp4",
+          "video-1791513479085-AzOtayxQ.mp4",
+          "video-1791513566386-TMyEVPXp.mp4"
+        ],
+        "d3315f9c4da48c3d": [
+          "render-1791513479877-4NlCpwFB.srt",
+          "render-1791513567794-C1rKt71H.srt"
+        ],
+        "d2190ec6f6700b25": [
+          "render-1791513567794-C1rKt71H.json"
+        ]
+      },
+      "allMp4Identical": true,
+      "manifestFile": "render-1791513479877-4NlCpwFB.json",
+      "manifest": {
+        "taskId": "ZP3MM2nYrCilrybXYHUD3",
+        "renderId": "render-1791513479877-4NlCpwFB",
+        "createdAt": 1791513479885,
+        "template": {
+          "id": "existing_video_package",
+          "version": 1
+        },
+        "renderer": {
+          "name": "existing-video-package",
+          "encoded": false
+        },
+        "materials": {
+          "video": {
+            "fileName": "video-1791513479085-AzOtayxQ.mp4",
+            "kind": "video",
+            "mimeType": "video/mp4",
+            "root": "videos",
+            "source": "uploaded",
+            "url": "/api/videos?file=video-1791513479085-AzOtayxQ.mp4",
+            "external": false
+          },
+          "cover": null
+        },
+        "artifacts": {
+          "video": "render-1791513479877-4NlCpwFB.mp4",
+          "subtitles": "render-1791513479877-4NlCpwFB.srt"
+        },
+        "parameters": {
+          "title": "CI-P1-04 probe",
+          "captions": [
+            {
+              "startMs": 0,
+              "endMs": 1200,
+              "text": "first cue"
+            },
+            {
+              "startMs": 1200,
+              "endMs": 2400,
+              "text": "second cue"
+            }
+          ],
+          "subtitles": true
+        },
+        "notes": [
+          "no cover material was given, so the package carries no cover"
+        ]
+      },
+      "manifests": [
+        {
+          "manifestFile": "render-1791513479877-4NlCpwFB.json",
+          "taskId": "ZP3MM2nYrCilrybXYHUD3",
+          "template": {
+            "id": "existing_video_package",
+            "version": 1
+          },
+          "renderer": {
+            "name": "existing-video-package",
+            "encoded": false
+          },
+          "outputName": "render-1791513479877-4NlCpwFB.mp4",
+          "sourceName": "video-1791513479085-AzOtayxQ.mp4",
+          "outputSha256_16": "ea4dbec7d21f62ac",
+          "sourceSha256_16": "ea4dbec7d21f62ac",
+          "outputIsByteCopyOfSource": true,
+          "subtitles": "render-1791513479877-4NlCpwFB.srt",
+          "cover": null
+        },
+        {
+          "manifestFile": "render-1791513567794-C1rKt71H.json",
+          "taskId": "88WbAGoxROTo-BVRBERSu",
+          "template": {
+            "id": "existing_video_package",
+            "version": 1
+          },
+          "renderer": {
+            "name": "existing-video-package",
+            "encoded": false
+          },
+          "outputName": "render-1791513567794-C1rKt71H.mp4",
+          "sourceName": "video-1791513566386-TMyEVPXp.mp4",
+          "outputSha256_16": "ea4dbec7d21f62ac",
+          "sourceSha256_16": "ea4dbec7d21f62ac",
+          "outputIsByteCopyOfSource": true,
+          "subtitles": "render-1791513567794-C1rKt71H.srt",
+          "cover": null
+        }
+      ]
+    },
+    {
+      "0": {
+        "id": "ZP3MM2nYrCilrybXYHUD3",
+        "playbook_id": "video_render",
+        "status": "success",
+        "result_message": "Video render succeeded: \"render-1791513479877-4NlCpwFB.mp4\" (30389 bytes, renderer existing-video-package, encoded: false)",
+        "artifact_path": "/api/videos?file=render-1791513479877-4NlCpwFB.mp4",
+        "params_json": "{\"template\":{\"id\":\"existing_video_package\"},\"materials\":{\"video\":\"video-1791513479085-AzOtayxQ.mp4\"},\"params\":{\"title\":\"CI-P1-04 probe\",\"captions\":[{\"startMs\":0,\"endMs\":1200,\"text\":\"first cue\"},{\"startMs\":1200,\"endMs\":2400,\"text\":\"second cue\"}],\"subtitles\":true}}",
+        "started_at": 1791513479868,
+        "finished_at": 1791513479890
+      },
+      "1": {
+        "id": "kfxmHkeOiowlf-rLKPr9i",
+        "playbook_id": "video_render",
+        "status": "failed",
+        "result_message": "MATERIAL_NOT_FOUND: there is no file \"no-such-clip.mp4\" in the videos section",
+        "artifact_path": "",
+        "params_json": "{\"template\":{\"id\":\"existing_video_package\"},\"materials\":{\"video\":\"no-such-clip.mp4\"}}",
+        "started_at": 1791513480411,
+        "finished_at": 1791513480416
+      },
+      "2": {
+        "id": "ePdp6NV9ai_WBs4RZKjZ_",
+        "playbook_id": "video_render",
+        "status": "cancelled",
+        "result_message": "Cancelled before it started.",
+        "artifact_path": "",
+        "params_json": "{\"materials\":{\"video\":\"video-1791513479085-AzOtayxQ.mp4\"},\"params\":{\"captions\":[{\"startMs\":0,\"text\":\"first cue\",\"endMs\":1200},{\"startMs\":1200,\"text\":\"second cue\",\"endMs\":2400}],\"title\":\"CI-P1-04 probe\"},\"template\":{\"id\":\"existing_video_package\"}}",
+        "started_at": null,
+        "finished_at": 1791513480936
+      },
+      "3": {
+        "id": "88WbAGoxROTo-BVRBERSu",
+        "playbook_id": "video_render",
+        "status": "success",
+        "result_message": "Video render succeeded: \"render-1791513567794-C1rKt71H.mp4\" (30389 bytes, renderer existing-video-package, encoded: false)",
+        "artifact_path": "/api/videos?file=render-1791513567794-C1rKt71H.mp4",
+        "params_json": "{\"template\":{\"id\":\"existing_video_package\"},\"materials\":{\"video\":\"video-1791513566386-TMyEVPXp.mp4\"},\"params\":{\"title\":\"CI-P1-04 probe\",\"captions\":[{\"startMs\":0,\"endMs\":1200,\"text\":\"first cue\"},{\"startMs\":1200,\"endMs\":2400,\"text\":\"second cue\"}],\"subtitles\":true}}",
+        "started_at": 1791513567785,
+        "finished_at": 1791513567806
+      },
+      "4": {
+        "id": "9WUI2DQ7BIF705zwbva4Y",
+        "playbook_id": "video_render",
+        "status": "failed",
+        "result_message": "MATERIAL_NOT_FOUND: there is no file \"no-such-clip.mp4\" in the videos section",
+        "artifact_path": "",
+        "params_json": "{\"template\":{\"id\":\"existing_video_package\"},\"materials\":{\"video\":\"no-such-clip.mp4\"}}",
+        "started_at": 1791513568161,
+        "finished_at": 1791513568167
+      },
+      "5": {
+        "id": "Ky5FL8bZtt5OBwugn4wMx",
+        "playbook_id": "video_render",
+        "status": "cancelled",
+        "result_message": "Cancelled before it started.",
+        "artifact_path": "",
+        "params_json": "{\"materials\":{\"video\":\"video-1791513566386-TMyEVPXp.mp4\"},\"params\":{\"captions\":[{\"startMs\":0,\"text\":\"first cue\",\"endMs\":1200},{\"startMs\":1200,\"text\":\"second cue\",\"endMs\":2400}],\"title\":\"CI-P1-04 probe\"},\"template\":{\"id\":\"existing_video_package\"}}",
+        "started_at": null,
+        "finished_at": 1791513568505
+      },
+      "step": "6-runs-db",
+      "at": "2026-10-09T03:38:52.607Z"
+    }
+  ],
+  "finishedAt": "2026-10-09T03:38:52.607Z"
+}

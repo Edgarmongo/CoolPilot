@@ -4,6 +4,7 @@ import { industryDomainPrompt } from "@/lib/ai-writing";
 import { htmlToPlainText, plainTextToHtml } from "@/lib/article-themes";
 import { beginAiBudgetCall, type AiBudgetCallHandle } from "@/lib/ai-budget-guard";
 import { fail, failFromError, ok, parseJson } from "@/lib/api";
+import { marketplaceExtensionIdOfContentItem } from "@/lib/content-item-listing";
 import { recordAiUsageCall, recordAiUsageFailure, type AiUsageCallContext } from "@/lib/ai-usage-ledger-recorder";
 import { countTextCharacters } from "@/lib/usage";
 import { contentRewriteSchema, type ArticleRewriteMode, type ArticleRewriteStrength } from "@/lib/validation";
@@ -64,7 +65,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   // CI-P7-01-04. The article this rewrite belongs to is the call's business identity, and it is
   // known before the request, so the failure path below records the same call.
-  const usageCall: AiUsageCallContext = { purpose: "content-rewrite", contentItemId: id };
+  //
+  // CI-P7-05-03 (remaining surface). A rewrite is the same article's money, so it belongs to the same
+  // listing - and this dialog sends no picker that could name one. What the call can read is the
+  // provenance the generation *stored* on the article (`content-item-listing.ts`): the position it
+  // resolved, when the storefront publishes it, else the catalogue agent the entry selected. Nothing is
+  // inferred from the payload, and an article whose provenance names no published listing stays
+  // unattributed.
+  const usageCall: AiUsageCallContext = {
+    purpose: "content-rewrite",
+    contentItemId: id,
+    extensionId: await marketplaceExtensionIdOfContentItem(existing),
+  };
 
   const banned = data.bannedWords.filter(Boolean);
   const instructions = [

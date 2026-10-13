@@ -107,6 +107,7 @@ function row(partial: Partial<AiUsageLedgerEntry>): AiUsageLedgerEntry {
     parentUsageId: partial.parentUsageId ?? "",
     outputAssetId: partial.outputAssetId ?? "",
     contentItemId: partial.contentItemId ?? "",
+    extensionId: partial.extensionId ?? "",
     meteredKind: partial.meteredKind ?? "text",
     tokens: partial.tokens ?? emptyAiUsageTokens(),
     completeness: partial.completeness ?? "reported",

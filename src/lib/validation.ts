@@ -13,6 +13,7 @@ import {
   outputLanguages,
 } from "./ai-writing";
 import { articleThemeIds } from "./article-themes";
+import { knowledgeEmbeddingBatchSize, knowledgeEmbeddingScopes } from "./knowledge-embedding/embedding";
 import {
   appStoreCategories,
   difyInsufficientModes,
@@ -32,10 +33,12 @@ import {
   aiPriceSources,
   aiUsageMeteredKinds,
   aiUsageUnitLabels,
+  marketingLeadStatuses,
 } from "./types";
 import { topicStatuses } from "./topics";
 import { researchExtractionOutputSchema } from "./research-extraction/extraction";
-import { aiBudgetPolicies, aiBudgetUnknownCostPolicies } from "./ai-budget";
+import { aiBudgetPolicies, aiBudgetStrategies, aiBudgetUnknownCostPolicies } from "./ai-budget";
+import { qualitySuggestionIds } from "./quality-cost";
 
 export const siteInputSchema = z.object({
   name: z.string().trim().min(1),
@@ -235,6 +238,26 @@ export const aiWritingGenerateSchema = z.object({
    * is what lets the stored article and the topic point at each other.
    */
   topicId: z.string().trim().max(60).optional().default(""),
+});
+
+/**
+ * The knowledge-index request body (CI-EMB-01, D10).
+ *
+ * The task's own schema (`knowledgeEmbeddingRequestSchema`) is what the executor reads back out of the stored
+ * run, and this is the shape the HTTP entry accepts - deliberately the same fields, with the same defaults, so a
+ * caller's payload is stored as it was sent rather than as this layer reinterpreted it.
+ */
+export const knowledgeEmbeddingCreateSchema = z.object({
+  /** `stale` fills what is missing or outdated; `rebuild` recomputes every record - the model-migration path. */
+  scope: z.enum(knowledgeEmbeddingScopes).optional().default("stale"),
+  /** The records to index; an empty list means every knowledge record. */
+  recordIds: z.array(z.string().trim().min(1)).max(500).optional().default([]),
+  /** Pin the embedding model; absent means the runtime's `embedding` route decides. */
+  model: z.string().trim().max(200).optional(),
+  providerId: z.string().trim().max(60).optional(),
+  batchSize: z.number().int().min(1).max(64).optional().default(knowledgeEmbeddingBatchSize),
+  /** The caller's exactly-once key: a second submission with the same key reuses the first task. */
+  idempotencyKey: z.string().trim().max(120).optional(),
 });
 
 export const contentCreateSchema = z.object({
@@ -870,14 +893,21 @@ export const aiModelPriceInputSchema = z.object({
  * closed list the price catalog uses, because a limit is only comparable with costs quoted in the
  * currency it was written in - and this database holds no exchange rate to convert with.
  *
- * Every field is required here (no defaults): the body is written by one form that owns all four, and
- * a missing field would otherwise silently reset a setting the user had made.
+ * Every field is required here (no defaults), with **one deliberate exception**: `strategy`
+ * (CI-P7-03-C1). It defaults to `balanced` because that is the semantics every row written before the
+ * field existed was actually running under - so a body from a client that does not know the field (an
+ * older packaged app, a stale tab) still saves, and saves the four settings it does know, instead of
+ * being rejected outright. The cost of that choice is stated rather than hidden: this endpoint replaces
+ * the whole row, so such a body also returns the tier to `balanced`. It cannot *enable* a tier nobody
+ * asked for - the default is the shipped behaviour - but a user who picked `cost-saving` in a newer
+ * client and then saved from an older one would have to pick it again.
  */
 export const aiBudgetSettingsSchema = z.object({
   policy: z.enum(aiBudgetPolicies),
   monthlyLimit: z.number().finite().min(0).max(aiPriceMaxRate).nullable(),
   currency: z.enum(aiPriceCurrencies),
   unknownCostPolicy: z.enum(aiBudgetUnknownCostPolicies),
+  strategy: z.enum(aiBudgetStrategies).default("balanced"),
 });
 
 /**
@@ -887,10 +917,18 @@ export const aiBudgetSettingsSchema = z.object({
  * size of a book would be a caller mistake rather than an estimate. Nothing here is stored or logged
  * - the text is measured and dropped, which is why the answer carries counts and amounts but never
  * the text back.
+ *
+ * CI-P7-03-D2 added `capability` to this boundary as an *optional* field. `previewAiBudgetCall` has
+ * taken one since CI-P7-03 and uses it for the one thing it decides here - which route to pre-resolve
+ * when no model is named - but the endpoint could not pass one on, so an image estimate was priced
+ * against whichever chat model came first in the provider order. Absent keeps exactly the old
+ * behaviour (`chat`), so nothing that already calls this endpoint changes its answer; a caller that
+ * knows what it is about to call states it (`image_generation` for the 配图 path).
  */
 export const aiCostEstimateRequestSchema = z.object({
   providerId: z.string().trim().max(64).optional().default(""),
   modelId: z.string().trim().max(128).optional().default(""),
+  capability: aiModelCapabilitySchema.optional(),
   meteredKind: z.enum(aiUsageMeteredKinds).optional().default("text"),
   inputText: z.string().max(200_000).optional().default(""),
   inputTokens: z.number().int().min(0).max(50_000_000).optional(),
@@ -898,3 +936,56 @@ export const aiCostEstimateRequestSchema = z.object({
   quantity: z.number().finite().min(0).max(1_000_000).nullable().optional().default(null),
 });
 
+/**
+ * CI-P7-04-03: which suggestion the 质量与优化 tab asks to apply.
+ *
+ * Only the id travels. Which *tier* it means, and whether its premise still holds, is decided on the
+ * server when the request arrives - so a page cannot name a strategy the recommendation logic would not
+ * have named, and a suggestion whose basis disappeared between the read and the click is refused
+ * (`409`) instead of being applied on a stale reading.
+ */
+export const aiQualitySuggestionRequestSchema = z.object({
+  suggestionId: z.enum(qualitySuggestionIds),
+});
+
+/**
+ * 营销线索与成交 (CI-LEAD-01). Amounts arrive as **minor units**: the console parses the typed text with
+ * `parseDealAmountInput` (`@/lib/leads`) and sends an integer, so no float reaches the database and the
+ * server never rounds money.
+ *
+ * The cross-field rules (成交必须带币种；非成交状态不得携带成交记录；清除成交必须显式) are **not** expressed
+ * here on purpose: they live in `resolveMarketingLeadDeal`, which `@/db/repositories/leads` runs against
+ * the stored row on every write. One rule, one place, and a test can call it without a database.
+ */
+const marketingLeadDealFields = {
+  dealAmountMinor: z.number().int().min(0).max(9_000_000_000_000).nullable().optional(),
+  dealCurrency: z.string().trim().max(8).optional(),
+  dealClosedAt: z.number().int().min(0).nullable().optional(),
+  dealNote: z.string().trim().max(1000).optional(),
+  /** 显式清除已记录的成交；把线索改回非成交状态的同一次写入必须带上它。 */
+  dealCleared: z.boolean().optional(),
+};
+
+/** A new lead. Only 客户称呼 is required - 联系方式、来源平台、关联内容都可以之后再补。 */
+export const marketingLeadCreateSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  contact: z.string().trim().max(120).optional().default(""),
+  sourcePlatform: z.string().trim().max(40).optional().default(""),
+  contentItemId: z.string().trim().max(60).nullable().optional(),
+  publishRecordId: z.string().trim().max(60).nullable().optional(),
+  status: z.enum(marketingLeadStatuses).optional(),
+  note: z.string().trim().max(1000).optional().default(""),
+  ...marketingLeadDealFields,
+});
+
+/** A patch: every field is optional, and an absent field keeps what the row already stores. */
+export const marketingLeadUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  contact: z.string().trim().max(120).optional(),
+  sourcePlatform: z.string().trim().max(40).optional(),
+  contentItemId: z.string().trim().max(60).nullable().optional(),
+  publishRecordId: z.string().trim().max(60).nullable().optional(),
+  status: z.enum(marketingLeadStatuses).optional(),
+  note: z.string().trim().max(1000).optional(),
+  ...marketingLeadDealFields,
+});

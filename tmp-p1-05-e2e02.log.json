@@ -1,0 +1,161 @@
+{
+  "case": "E2E-02",
+  "mark": "E2E05-图片-1791516885984",
+  "base": "http://127.0.0.1:3000",
+  "startedAt": "2026-10-09T03:34:45.984Z",
+  "steps": [
+    {
+      "step": "1-media-list",
+      "at": "2026-10-09T03:34:46.066Z",
+      "status": 200,
+      "total": 45,
+      "byRoot": {
+        "artifacts": 37,
+        "videos": 8
+      },
+      "sample": {
+        "fileName": "online-1791308469029-I_G_de_7.webp",
+        "kind": "image",
+        "mimeType": "image/webp",
+        "root": "artifacts",
+        "source": "remote",
+        "url": "/api/agent/artifacts?file=online-1791308469029-I_G_de_7.webp",
+        "external": false
+      },
+      "byRef": {
+        "status": 200,
+        "asset": {
+          "fileName": "",
+          "kind": "unknown",
+          "mimeType": "application/octet-stream",
+          "root": "artifacts",
+          "source": "unknown",
+          "url": "",
+          "external": false
+        }
+      },
+      "unknownRoot": {
+        "status": 400,
+        "body": "{\"ok\":false,\"error\":\"Unknown media root\",\"code\":\"UNKNOWN_ERROR\",\"message\":\"Unknown media root\",\"details\":{\"root\":\"bogus\",\"allowed\":[\"artifacts\",\"videos\",\"product-images\",\"brand-logos\"]}}"
+      },
+      "rootWithoutRef": {
+        "status": 200,
+        "total": 45
+      }
+    },
+    {
+      "step": "2-fixture",
+      "at": "2026-10-09T03:34:46.069Z",
+      "fixturePath": "C:\\Users\\ADMINI~1.SC-\\AppData\\Local\\Temp\\coolpilot-e2e02-6dQBUW\\e2e05-fixture.png",
+      "bytes": 70,
+      "sha256_16": "a4bcd7b80c65e14e"
+    },
+    {
+      "step": "3-upload",
+      "at": "2026-10-09T03:34:46.215Z",
+      "status": 201,
+      "body": {
+        "ok": true,
+        "data": {
+          "fileName": "upload-1791516886199-qFDVPhOu.png",
+          "url": "/api/agent/artifacts?file=upload-1791516886199-qFDVPhOu.png"
+        }
+      },
+      "artifactsBefore": 37,
+      "artifactsAfterUpload": 38,
+      "storedBytes": 70,
+      "storedSha256_16": "a4bcd7b80c65e14e",
+      "bytesIdentical": true
+    },
+    {
+      "step": "4-artifact-read",
+      "at": "2026-10-09T03:34:46.274Z",
+      "url": "/api/agent/artifacts?file=upload-1791516886199-qFDVPhOu.png",
+      "status": 200,
+      "contentType": "image/png",
+      "bytes": 70,
+      "sha256_16": "a4bcd7b80c65e14e",
+      "bytesIdentical": true
+    },
+    {
+      "step": "5-read-failures",
+      "at": "2026-10-09T03:34:46.333Z",
+      "missingArtifact": {
+        "status": 404,
+        "body": "Not found"
+      },
+      "pathTraversal": {
+        "status": 404,
+        "body": "Not found"
+      },
+      "nonImageExtension": {
+        "status": 404
+      },
+      "missingRefResolved": {
+        "status": 200,
+        "asset": {
+          "fileName": "e2e05-does-not-exist.png",
+          "kind": "image",
+          "mimeType": "image/png",
+          "root": "artifacts",
+          "source": "unknown",
+          "url": "/api/agent/artifacts?file=e2e05-does-not-exist.png",
+          "external": false
+        }
+      }
+    },
+    {
+      "step": "5b-upload-failures",
+      "at": "2026-10-09T03:34:46.393Z",
+      "unsupportedExtension": {
+        "status": 400,
+        "body": {
+          "ok": false,
+          "error": "UNSUPPORTED_IMAGE",
+          "code": "UNKNOWN_ERROR",
+          "message": "UNSUPPORTED_IMAGE"
+        }
+      },
+      "emptyFile": {
+        "status": 400,
+        "body": {
+          "ok": false,
+          "error": "EMPTY_UPLOAD",
+          "code": "UNKNOWN_ERROR",
+          "message": "EMPTY_UPLOAD"
+        }
+      },
+      "noFileField": {
+        "status": 400,
+        "body": {
+          "ok": false,
+          "error": "EMPTY_UPLOAD",
+          "code": "UNKNOWN_ERROR",
+          "message": "EMPTY_UPLOAD"
+        }
+      },
+      "artifactsAfterFailures": 38
+    },
+    {
+      "step": "6-editor-reference",
+      "at": "2026-10-09T03:34:46.476Z",
+      "createStatus": 201,
+      "contentId": "Gv_3SvFAs7WOnTh9FRe4i",
+      "coverIsFileName": true,
+      "metadataImages": [
+        "upload-1791516886199-qFDVPhOu.png"
+      ],
+      "rereadStatus": 200,
+      "rereadCoverMatches": true,
+      "bodyCarriesEditorUrl": true,
+      "clearPatchStatus": 200,
+      "coverClearedAfterEmptyImages": false,
+      "metadataImagesAfterClear": []
+    }
+  ],
+  "dbAfter": {
+    "contentBefore": 17,
+    "contentAfter": 18
+  },
+  "finishedAt": "2026-10-09T03:34:46.477Z"
+}

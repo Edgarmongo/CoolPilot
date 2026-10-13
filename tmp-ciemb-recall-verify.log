@@ -1,0 +1,216 @@
+=== CI-EMB-01 section 3: semantic recall verification (ALGORITHM / PLUMBING TEST) ===
+started            : 2026-10-11T20:06:26.996Z
+temp database      : file:C:/Users/ADMINI~1.SC-/AppData/Local/Temp/ciemb-recall-jntLR4/recall.db
+temp data dir      : C:\Users\ADMINI~1.SC-\AppData\Local\Temp\ciemb-recall-jntLR4
+embedding stand-in : deterministic concept vector, 7 dimensions (NOT a real model)
+target route       : gateway/text-embedding-3-small via stub host http://ciemb-stub.local/v1
+
+--- fixtures: chunk shape (character ceiling = 800) ---
+  财税与报税口径速查 (weight=medium, enabled=true, position=pos-a) chunks=1 sizes=[42]
+PASS  every chunk of "财税与报税口径速查" fits the ceiling
+  完播率进阶（另一套定位） (weight=high, enabled=true, position=pos-b) chunks=1 sizes=[490]
+PASS  every chunk of "完播率进阶（另一套定位）" fits the ceiling
+  完播率速成课（已停用） (weight=high, enabled=false, position=pos-a) chunks=1 sizes=[490]
+PASS  every chunk of "完播率速成课（已停用）" fits the ceiling
+  剪辑工具对比 (weight=medium, enabled=true, position=pos-a) chunks=1 sizes=[93]
+PASS  every chunk of "剪辑工具对比" fits the ceiling
+  直播带货话术模板 (weight=low, enabled=true, position=pos-a) chunks=1 sizes=[72]
+PASS  every chunk of "直播带货话术模板" fits the ceiling
+  账号涨粉的五个动作 (weight=high, enabled=true, position=pos-a) chunks=1 sizes=[84]
+PASS  every chunk of "账号涨粉的五个动作" fits the ceiling
+  短视频完播率提升清单 (weight=medium, enabled=true, position=pos-a) chunks=2 sizes=[764, 499]
+PASS  every chunk of "短视频完播率提升清单" fits the ceiling
+
+--- indexing run ---
+  run=opva9Su6QzIcTEDNQgWDh reused=false outcome=succeeded
+  indexed=7 skipped=0 chunks=8 providerRequests=2 batchSizes=[4,4]
+PASS  the index run embedded every record in the base :: indexed=7
+PASS  every request carried at most the requested batch size
+  chunk rows stored: 8
+PASS  the chunk rows are stored in knowledge_embeddings :: rows=8
+  late record without vectors: 母婴辅食周计划 (id=PZlygbHBwmoOlVH4yGQyl)
+
+=== Q_A...Q_E: recall effect (semantic ranking vs position ranking) ===
+--- Q_A exact wording (the record's own title) ---
+  query          : 短视频完播率提升清单
+  semantic       : source=semantic compared=5 reason=-
+                   #1 短视频完播率提升清单 sim=1.000 chunk=1
+  position mode  : 账号涨粉的五个动作 > 母婴辅食周计划 > 财税与报税口径速查 > 剪辑工具对比 > 短视频完播率提升清单 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=1 incompatible=0 stale=0 unrelated=4
+  provider calls : embedding=1 (any other request is the runtime's own catalog discovery)
+
+PASS  Q_A: the relevant record is rank 1 :: 短视频完播率提升清单
+PASS  Q_A: it matched through its *second* chunk (chunk-level best match, D2=b) :: chunk=1
+PASS  Q_A: the index answered in semantic mode :: semantic/
+PASS  Q_A: the disabled record is not a candidate :: 短视频完播率提升清单
+PASS  Q_A: the foreign-positioning record is not a candidate :: 短视频完播率提升清单
+--- Q_B paraphrase (the record's own words do not occur in the query) ---
+  query          : 怎样让观众把视频看到最后一秒并把留存率做上去
+  semantic       : source=semantic compared=5 reason=-
+                   #1 短视频完播率提升清单 sim=1.000 chunk=1
+  position mode  : 账号涨粉的五个动作 > 母婴辅食周计划 > 财税与报税口径速查 > 剪辑工具对比 > 短视频完播率提升清单 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=1 incompatible=0 stale=0 unrelated=4
+  provider calls : embedding=1 (any other request is the runtime's own catalog discovery)
+
+PASS  Q_B: the paraphrase still ranks the relevant record 1st :: 短视频完播率提升清单
+PASS  Q_B: the paraphrase and the exact query agree on rank 1
+PASS  Q_B: none of the record's own concept words occur in the query
+  Q_B evidence   : characters shared with the matched chunk = "观众秒率" (generic characters only)
+PASS  Q_B: the two texts share at most five characters :: 观众秒率
+--- Q_C unrelated query (a topic no record covers) ---
+  query          : 亲子房酒店怎么选行程更省钱
+  semantic       : source=semantic compared=5 reason=-
+                   (no references)
+  position mode  : 账号涨粉的五个动作 > 母婴辅食周计划 > 财税与报税口径速查 > 剪辑工具对比 > 短视频完播率提升清单 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=1 incompatible=0 stale=0 unrelated=5
+  provider calls : embedding=1 (any other request is the runtime's own catalog discovery)
+
+PASS  Q_C: an unrelated query returns no references :: (none)
+PASS  Q_C: 'found nothing' is not reported as a fallback (D9 rule 4) :: semantic/
+PASS  Q_C: every comparable record is counted as unrelated :: unrelated=5
+PASS  Q_C: position mode ignored the query entirely (its list is unchanged) :: 账号涨粉的五个动作 > 母婴辅食周计划 > 财税与报税口径速查 > 剪辑工具对比 > 短视频完播率提升清单 > 直播带货话术模板
+PASS  Q_C: the un-embedded record is counted as withoutVectors :: withoutVectors=1
+--- Q_D two concepts in one query ---
+  query          : 短视频完播率和直播带货怎么一起做
+  semantic       : source=semantic compared=5 reason=-
+                   #1 短视频完播率提升清单 sim=0.707 chunk=1 | #2 直播带货话术模板 sim=0.707 chunk=0
+  position mode  : 账号涨粉的五个动作 > 母婴辅食周计划 > 财税与报税口径速查 > 剪辑工具对比 > 短视频完播率提升清单 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=1 incompatible=0 stale=0 unrelated=3
+  provider calls : embedding=1 (any other request is the runtime's own catalog discovery)
+
+PASS  Q_D: both relevant records are returned :: 短视频完播率提升清单 > 直播带货话术模板
+PASS  Q_D: the best match is ranked first :: 短视频完播率提升清单 > 直播带货话术模板
+--- Q_E empty query text ---
+  query          : (empty)
+  semantic       : source=position compared=- reason=empty-query
+                   #1 账号涨粉的五个动作 sim=  -   | #2 母婴辅食周计划 sim=  -   | #3 财税与报税口径速查 sim=  -   | #4 剪辑工具对比 sim=  -   | #5 短视频完播率提升清单 sim=  -   | #6 直播带货话术模板 sim=  -  
+  position mode  : 账号涨粉的五个动作 > 母婴辅食周计划 > 财税与报税口径速查 > 剪辑工具对比 > 短视频完播率提升清单 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=1 incompatible=0 stale=0 unrelated=5
+  provider calls : embedding=0 (any other request is the runtime's own catalog discovery)
+
+PASS  Q_E: an empty query falls back to position mode by name :: position/empty-query
+PASS  Q_E: the fallback spent no embedding call :: embedding calls=0
+PASS  Q_E: the fallback is the position selection itself
+=== Q_F...Q_J: stale / incompatible / unavailable / budget ===
+--- Q_F the record was edited after indexing (its vectors are now stale) ---
+  query          : 短视频完播率提升清单
+  semantic       : source=semantic compared=4 reason=-
+                   (no references)
+  position mode  : 账号涨粉的五个动作 > 短视频完播率提升清单 > 母婴辅食周计划 > 财税与报税口径速查 > 剪辑工具对比 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=1 incompatible=0 stale=1 unrelated=4
+  provider calls : embedding=1 (any other request is the runtime's own catalog discovery)
+
+PASS  Q_F: the stale record is dropped from the semantic ranking :: (none)
+PASS  Q_F: the drop is counted as staleVectors :: stale=1
+PASS  Q_F: the index still *answered* (a stale record is not a fallback) :: semantic/
+PASS  Q_F: position mode still lists it (it never reads a vector)
+--- Q_A' after re-indexing the edited record ---
+  query          : 短视频完播率提升清单
+  semantic       : source=semantic compared=6 reason=-
+                   #1 短视频完播率提升清单 sim=1.000 chunk=0
+  position mode  : 账号涨粉的五个动作 > 短视频完播率提升清单 > 母婴辅食周计划 > 财税与报税口径速查 > 剪辑工具对比 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=0 incompatible=0 stale=0 unrelated=5
+  provider calls : embedding=1 (any other request is the runtime's own catalog discovery)
+
+PASS  Q_A': re-indexing brings the record back :: 短视频完播率提升清单 stale=0
+PASS  Q_A': the re-index run touched only what was stale :: {"kind":"succeeded","run":{"id":"R4fwd2vq-Gv-LVuw4KJKn","playbookId":"knowledge_embedding","status":"success","params":{"scope":"stale","recordIds":[],"model":"text-embedding-3-small","providerId":"gateway","batchSize":4},"resultMessage":"Indexed 2 of 2 knowledge records (2 chunks) with gateway/text-embedding-3-small, 6 already current","createdAt":1791749189033,"startedAt":1791749189038,"finishedAt":1791749189117,"updatedAt":1791749189117},"providerId":"gateway","modelId":"text-embedding-3-small","indexed":2,"skipped":6,"chunks":2}
+  growth record rows by model: gateway/text-embedding-3-large(3d)
+--- Q_G the record's vectors belong to another model at another dimension ---
+  query          : 账号涨粉的五个动作
+  semantic       : source=semantic compared=5 reason=-
+                   (no references)
+  position mode  : 账号涨粉的五个动作 > 短视频完播率提升清单 > 母婴辅食周计划 > 财税与报税口径速查 > 剪辑工具对比 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=0 incompatible=1 stale=0 unrelated=5
+  provider calls : embedding=1 (any other request is the runtime's own catalog discovery)
+
+PASS  Q_G: the record is dropped :: (none)
+PASS  Q_G: the drop is counted as incompatibleVectors :: incompatible=1
+PASS  Q_G: the other model's rows are still stored (D4: a migration keeps the old index)
+--- Q_H no embedding model is configured (capability unavailable) ---
+  query          : 短视频完播率提升清单
+  semantic       : source=position compared=- reason=provider-unavailable
+                   #1 账号涨粉的五个动作 sim=  -   | #2 短视频完播率提升清单 sim=1.000 chunk=0 | #3 母婴辅食周计划 sim=  -   | #4 财税与报税口径速查 sim=  -   | #5 剪辑工具对比 sim=  -   | #6 直播带货话术模板 sim=  -  
+  position mode  : 账号涨粉的五个动作 > 短视频完播率提升清单 > 母婴辅食周计划 > 财税与报税口径速查 > 剪辑工具对比 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=0 incompatible=1 stale=0 unrelated=4
+  provider calls : embedding=0 (any other request is the runtime's own catalog discovery)
+
+PASS  Q_H: it falls back with the named reason :: position/provider-unavailable
+PASS  Q_H: no embedding call was made :: embedding calls=0
+PASS  Q_H: the degradation is logged, not silent
+--- Q_I every candidate's vectors are stale (nothing comparable is left) ---
+  query          : 短视频完播率提升清单
+  semantic       : source=position compared=- reason=no-compatible-vectors
+                   #1 账号涨粉的五个动作 sim=  -   | #2 剪辑工具对比 sim=  -   | #3 财税与报税口径速查 sim=  -   | #4 母婴辅食周计划 sim=  -   | #5 短视频完播率提升清单 sim=  -   | #6 直播带货话术模板 sim=  -  
+  position mode  : 账号涨粉的五个动作 > 剪辑工具对比 > 财税与报税口径速查 > 母婴辅食周计划 > 短视频完播率提升清单 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=0 incompatible=1 stale=5 unrelated=0
+  provider calls : embedding=1 (any other request is the runtime's own catalog discovery)
+
+PASS  Q_I: it falls back with the named reason no-compatible-vectors :: position/no-compatible-vectors
+PASS  Q_I: the reason's detail names the counts
+PASS  Q_I: re-indexing the whole base restores the index :: {"kind":"succeeded","run":{"id":"TgYGvfXzmo_ZKkw467JYp","playbookId":"knowledge_embedding","status":"success","params":{"scope":"stale","recordIds":[],"model":"text-embedding-3-small","providerId":"gateway","batchSize":8},"resultMessage":"Indexed 8 of 8 knowledge records (8 chunks) with gateway/text-embedding-3-small","createdAt":1791749189543,"startedAt":1791749189548,"finishedAt":1791749189637,"updatedAt":1791749189637},"providerId":"gateway","modelId":"text-embedding-3-small","indexed":8,"skipped":0,"chunks":8}
+PASS  Q_J: a budget refusal travels out of the recall (D9: no fallback) :: code=AI_BUDGET_EXCEEDED
+PASS  Q_J: the refusal spent no embedding call :: embedding calls=+0
+PASS  Q_J: a refused call wrote no ledger row (nothing was sent, nothing is billed)
+--- Q_K the query text (D8) ---
+  length=27 (cap 600) lines=3
+PASS  Q_K: the query text is capped :: len=27
+PASS  Q_K: the title survives the cut :: 标题：完播率
+选题：完播率的三个误区
+产品：折叠
+
+=== Q_L: the gate and the ledger for a *priced* embedding call ===
+--- Q_L the same query now that the embedding dimension has a price ---
+  query          : 短视频完播率提升清单
+  semantic       : source=semantic compared=6 reason=-
+                   #1 短视频完播率提升清单 sim=1.000 chunk=0
+  position mode  : 账号涨粉的五个动作 > 剪辑工具对比 > 财税与报税口径速查 > 母婴辅食周计划 > 短视频完播率提升清单 > 直播带货话术模板
+  diagnostics    : considered=6 withoutVectors=0 incompatible=0 stale=0 unrelated=5
+  provider calls : embedding=1 (any other request is the runtime's own catalog discovery)
+
+  gate decision: status=allowed estimateKind=estimate reasons=["within-limit","spend-incomplete"] reservation=set
+  hold rows created by this call: 1
+  ledger row: cost=0.00001 CNY source=computed completeness=reported reservation=set
+PASS  Q_L: the call was admitted, not refused :: semantic/
+PASS  Q_L: the gate recorded its decision :: decisions=1
+PASS  Q_L: a priced embedding call takes a hold :: holds=1
+PASS  Q_L: the hold is settled, not left outstanding :: settled
+PASS  Q_L: the ledger row links exactly that hold :: 9fINL9cnIzOLLm6f7Yczr vs 9fINL9cnIzOLLm6f7Yczr
+PASS  Q_L: the decision says the call is within the limit :: allowed
+PASS  Q_L: the cost is computed afterwards from the price on file :: computed/0.00001
+
+=== ledger and budget holds (the money side of an embedding call) ===
+  ledger rows: total=13 embedding=13 (query=9, index=4)
+    query row: outcome=success provider=gateway model=text-embedding-3-small kind=embedding completeness=reported cost=0.00001 costSource=computed reservation=set tokens=10
+    query row: outcome=success provider=gateway model=text-embedding-3-small kind=embedding completeness=reported cost=NULL costSource=unpriced reservation=empty tokens=10
+    query row: outcome=success provider=gateway model=text-embedding-3-small kind=embedding completeness=reported cost=NULL costSource=unpriced reservation=empty tokens=9
+    index row: outcome=success provider=gateway model=text-embedding-3-small kind=embedding completeness=reported cost=NULL costSource=unpriced reservation=empty run=TgYGvfXz… tokens=1777
+    index row: outcome=success provider=gateway model=text-embedding-3-small kind=embedding completeness=reported cost=NULL costSource=unpriced reservation=empty run=R4fwd2vq… tokens=211
+    index row: outcome=success provider=gateway model=text-embedding-3-small kind=embedding completeness=reported cost=NULL costSource=unpriced reservation=empty run=opva9Su6… tokens=1563
+PASS  every query embedding row is metered as `embedding`
+PASS  the query rows carry the usage the provider reported :: reported/10, reported/10, reported/9, reported/10, reported/10, reported/16, reported/13, reported/22, reported/10
+PASS  a call whose price is unknown stores NULL and takes no hold :: unpriced=8
+PASS  a priced call states its computed amount :: priced=1
+PASS  every index row is attributed to its run
+  budget reservations: total=1 settled=1 expired=0 still-held=0
+PASS  no hold is left outstanding after the calls finished :: held=0
+PASS  every hold the gate took ended settled
+PASS  the priced call's hold is the one its ledger row links
+
+=== transport evidence ===
+  provider requests: 15 (every one to http://ciemb-stub.local/v1)
+  authorization headers seen: 1 -> Bearer sk-…(27)
+PASS  every request carried the stub credential, never a real one :: Bearer sk-stub-ciemb-verify
+  intercepted (never sent, answered by this harness): 0 -> (none)
+  of those, embedding calls: 0
+PASS  no embedding call was aimed at a host other than the stub
+  intercepted calls that carried a credential: 0 (value never printed)
+PASS  the only credential this harness presents is its own stub key :: intercepted=0
+
+=== summary ===
+checks: all passed
+degradations reported (never silent, D9):
+  [knowledge-embedding] semantic recall fell back to position mode (empty-query): the request carried no title or material to query with
+  [knowledge-embedding] semantic recall fell back to position mode (provider-unavailable): MODEL_NOT_CONFIGURED: No model is configured for this request
+  [knowledge-embedding] semantic recall fell back to position mode (no-compatible-vectors): 0 record(s) have no vectors, 1 are for another model or dimension, 5 are stale
+real provider calls: 0 (the transport refused any non-stub host)
+real semantic quality: NOT measured here - the vectors came from a hand-built concept map

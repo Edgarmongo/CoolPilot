@@ -61,6 +61,8 @@ const {
 } = await import("@/test/route-harness");
 const { POST } = await import("./route");
 const { createContentItem, getContentItem, listUsageRecords } = await import("@/db/repository");
+const { listAiUsageLedgerEntries } = await import("@/db/repositories/ai-usage-ledger");
+const { createPosition, updatePosition } = await import("@/db/repositories/positions");
 const { htmlToPlainText, plainTextToHtml } = await import("@/lib/article-themes");
 const { industryDomainPrompt } = await import("@/lib/ai-writing");
 const { countTextCharacters } = await import("@/lib/usage");
@@ -570,5 +572,107 @@ describe("POST /api/content/[id]/rewrite on aiRuntime", () => {
     expect(chatCalls(calls)).toHaveLength(0);
     expect((await listUsageRecords({ limit: 500 })).length).toBe(usageBefore);
     expect(await getContentItem(fixture.target.id)).toEqual(before);
+  });
+});
+
+/**
+ * CI-P7-05-03 (remaining surface): the Marketplace extension these ledger rows ran as.
+ *
+ * The 改写 dialog carries no picker and no positioning - it arrives with an article id - so the only
+ * listing this route may name is the one the *generation* stored on that article
+ * (`marketplaceExtensionIdOfContentItem()` reads `metadata.positioningId` + `metadata.agentId`). What
+ * these cases pin is that the stored provenance really reaches the rows: a published position is named
+ * by the storefront's own id, a catalogue agent is named when there is no published listing, and an
+ * article whose provenance names neither stays unattributed instead of borrowing an identity from the
+ * page, the dialog or the title.
+ */
+describe("POST /api/content/[id]/rewrite and the Marketplace extension it ran as (CI-P7-05-03)", () => {
+  beforeEach(async () => {
+    vi.unstubAllGlobals();
+    await allowEveryAiBudgetCall();
+    await resetRuntime();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A published positioning, as the storefront lists it: the record its 我的 tab answers with. */
+  async function publishedPosition(name: string) {
+    const position = await createPosition({ name });
+    if (!position) throw new Error("the published fixture was not created");
+    await updatePosition(position.id, { store: { ...position.store, status: "published" } });
+    return position;
+  }
+
+  /** One stored article, with exactly the provenance a generation would have written on it. */
+  async function storedArticle(metadata: Record<string, unknown>) {
+    const item = await createContentItem({
+      title: storedTitle,
+      body: storedBody,
+      postReadyText: htmlToPlainText(storedBody),
+      metadata,
+    });
+    if (!item) throw new Error("the article fixture was not created");
+    return item;
+  }
+
+  /** One real rewrite of `item`, and only the ledger rows *this* request wrote. */
+  async function rowsOfOneRewrite(item: SeededItem) {
+    stubFetch([
+      { match: (target) => target.includes("dashscope") && target.endsWith("/models"), respond: qwenCatalog },
+      { match: (target) => target.includes("/chat/completions"), respond: draftReply },
+    ]);
+    await prepareChatModel("qwen", "qwen3-max", "sk-stub-qwen");
+    const before = new Set((await listAiUsageLedgerEntries({ limit: 500 })).map((row) => row.id));
+
+    const response = await rewrite(item.id, rewritePayload());
+    expect(response.status).toBe(200);
+
+    return (await listAiUsageLedgerEntries({ limit: 500 })).filter((row) => !before.has(row.id));
+  }
+
+  it("attributes the rewrite to the published position the article was written as", async () => {
+    const position = await publishedPosition("已上架的收纳顾问");
+    const item = await storedArticle({ positioningId: position.id });
+
+    const rows = await rowsOfOneRewrite(item);
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.purpose === "content-rewrite")).toBe(true);
+    expect(rows.every((row) => row.contentItemId === item.id)).toBe(true);
+    // The storefront's own id for its 我的 listing - the string `api/app-store` answers, not one this
+    // route invented. An 改写 with no listing to name would have to stay `""` instead.
+    expect(rows.every((row) => row.extensionId === `position-${position.id}`)).toBe(true);
+  });
+
+  it("attributes the rewrite to the catalogue agent the article was written with, when nothing is published", async () => {
+    // The position the generation resolved is a draft, so it is no listing; `hot-commentator` is one of
+    // the catalogue's own agents, and it is what the stored provenance says the article was written as.
+    const draftPosition = await createPosition({ name: "未上架的定位" });
+    if (!draftPosition) throw new Error("the draft fixture was not created");
+    const item = await storedArticle({ positioningId: draftPosition.id, agentId: "hot-commentator" });
+
+    const rows = await rowsOfOneRewrite(item);
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.extensionId === "hot-commentator")).toBe(true);
+  });
+
+  it("leaves an article whose provenance names no listing unattributed", async () => {
+    // Three shapes a stored article really has, none of which is a listing the storefront publishes: no
+    // provenance at all, a position id the storefront no longer holds, and the picker's own `general`
+    // default (a label, not a catalogue listing).
+    const bare = await storedArticle({});
+    const gone = await storedArticle({ positioningId: "no-such-position" });
+    const pickerOnly = await storedArticle({ positioningId: "", agentId: "general" });
+
+    for (const item of [bare, gone, pickerOnly]) {
+      const rows = await rowsOfOneRewrite(item);
+      expect(rows.length).toBeGreaterThan(0);
+      // `""` is the statement "this rewrite ran as no listing", not a missing value.
+      expect(rows.every((row) => row.extensionId === "")).toBe(true);
+      expect(rows.every((row) => row.contentItemId === item.id)).toBe(true);
+    }
   });
 });

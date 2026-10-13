@@ -1,0 +1,49 @@
+﻿=== CI-AI-IMG-CONFIG-03 live verification (2026-10-10) ===
+
+--- GET /api/settings/ai (data) ---
+{
+    "runtimeMode":  "local",
+    "textProvider":  "openai",
+    "imageProvider":  "openai",
+    "geminiModel":  "",
+    "groqModel":  "",
+    "openAIBaseUrl":  "https://api.deepseek.com",
+    "openAIModel":  "",
+    "openRouterBaseUrl":  "https://openrouter.ai/api/v1",
+    "openRouterModel":  "",
+    "geminiImageModel":  "",
+    "openAIImageModel":  "gpt-image-2.5-sunburst",
+    "openAIImageSize":  "1024x1024",
+    "openAIImageBaseUrl":  "https://quanzil.com/v1",
+    "agentPermissions":  {
+                             "browserStep":  "confirm",
+                             "browserPostContent":  "confirm",
+                             "generateImage":  "confirm",
+                             "generatePostContent":  "confirm",
+                             "schedulePost":  "confirm"
+                         },
+    "geminiKey":  "",
+    "groqKey":  "",
+    "openAIKey":  "*******************************7fca",
+    "openRouterKey":  "",
+    "openAIImageKey":  "***********************************************WmkB",
+    "geminiImageKey":  ""
+}
+
+--- POST /api/images (real call) ---
+response: {"ok":true,"data":{"fileName":"agent-image-1791624790750-HKrUVD40.png","url":"/api/agent/artifacts?file=agent-image-1791624790750-HKrUVD40.png","provider":"openai-image","model":"gpt-image-2.5-sunburst"}}
+
+--- ai_models where model_type=image, rows mentioning openai-image/gemini-image ---
+{"id":"openai-image:openai-image/default:gpt-image-2.5-sunburst","provider_id":"openai-image","endpoint_id":"openai-image/default","model_id":"gpt-image-2.5-sunburst","display_name":"gpt-image-2.5-sunburst","model_type":"image","enabled":1,"source":"legacy-settings"}
+
+--- ledger / budget (last rows) ---
+== ai_usage_ledger (last 3, full) ==
+{"id":"Po3zMuZVCzVZDEOORx_KC","purpose":"image","outcome":"success","provider_id":"openai-image","model_id":"gpt-image-2.5-sunburst","endpoint_id":"openai-image/default","credential_label":"***********************************************WmkB","attempt_index":0,"task_id":"","run_id":"","node_id":"","parent_usage_id":"","output_asset_id":"D:\\devworkspace\\software\\workspace\\myproject\\CoolPilot\\web-data\\artifacts\\agent-image-1791624790750-HKrUVD40.png","content_item_id":"","metered_kind":"image","input_tokens":0,"output_tokens":0,"total_tokens":0,"cached_input_tokens":0,"reasoning_tokens":0,"completeness":"unknown","quantity_json":"{\"images\":1}","cost_amount":null,"cost_currency":"","cost_source":"unknown","pricing_json":"null","duration_ms":0,"error_summary":"","created_at":1791624790754,"budget_reservation_id":""}
+{"id":"CXzkWPZARx56C5RFTX6qA","purpose":"article","outcome":"success","provider_id":"openai","model_id":"deepseek-flash","endpoint_id":"openai/default","credential_label":"*******************************7fca","attempt_index":0,"task_id":"","run_id":"","node_id":"","parent_usage_id":"","output_asset_id":"","content_item_id":"Kag89y-46ZpOazNEZIgjR","metered_kind":"text","input_tokens":553,"output_tokens":655,"total_tokens":1208,"cached_input_tokens":0,"reasoning_tokens":0,"completeness":"reported","quantity_json":"{}","cost_amount":null,"cost_currency":"","cost_source":"unpriced","pricing_json":"null","duration_ms":0,"error_summary":"","created_at":1791615620378,"budget_reservation_id":""}
+{"id":"8ASuNjzykvAc6FohSafOy","purpose":"article","outcome":"success","provider_id":"openai","model_id":"deepseek-flash","endpoint_id":"openai/default","credential_label":"*******************************7fca","attempt_index":0,"task_id":"","run_id":"","node_id":"","parent_usage_id":"","output_asset_id":"","content_item_id":"P7gpXK4fuXwSV_SfrfbF1","metered_kind":"text","input_tokens":360,"output_tokens":928,"total_tokens":1288,"cached_input_tokens":0,"reasoning_tokens":0,"completeness":"reported","quantity_json":"{}","cost_amount":null,"cost_currency":"","cost_source":"unpriced","pricing_json":"null","duration_ms":0,"error_summary":"","created_at":1791615478256,"budget_reservation_id":""}
+
+== ai_budget_reservations (last 3) ==
+(no rows)
+
+== ai_budget_decisions (last 5) ==
+{"id":"5cLm0EiNedEcoGDQ-e97F","at":1791624768865,"gate":"call","status":"off","reasons_json":"[\"budget-off\",\"spend-incomplete\"]","policy":"off","unknown_cost_policy":"allow","enforcement":"cross-process-atomic","period_key":"[len 7]","currency":"CNY","limit_amount":null,"spent_amount":0,"spent_is_complete":0,"spent_truncated":0,"reserved_amount":0,"remaining_amount":null,"projected_min":null,"projected_max":null,"certainty":"not-applicable","estimate_kind":"unpriced","estimate_method":"heuristic-cjk-1-latin-0.25","estimate_notes_json":"[\"route-may-differ\",\"price-not-on-file\",\"spend-incomplete\"]","estimate_amount_min":null,"estimate_amount_max":null,"purpose":"image","run_id":"","node_id":"","task_id":"","content_item_id":"","provider_id":"openai-image","model_id":"gpt-image-2.5-sunburst","route_resolved":1,"reservation_id":"","reservation_amount":null,"reservation_currency":"","created_at":1791624769001}
