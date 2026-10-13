@@ -40,8 +40,6 @@ const useBoardEvent = (
   useEventListener(
     'wheel',
     (event) => {
-      // Credits to excalidraw
-      // https://github.com/excalidraw/excalidraw/blob/b7d7ccc929696cc17b4cc34452e4afd846d59f4f/src/components/App.tsx#L9060
       if (event.metaKey || event.ctrlKey) {
         event.preventDefault();
         const { deltaY } = event;

@@ -1,4 +1,3 @@
-// Credits to excalidraw
 import './stack.scss';
 
 import React, { forwardRef } from 'react';
