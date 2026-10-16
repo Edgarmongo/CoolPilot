@@ -1,5 +1,6 @@
 {
     "chat.tools.terminal.autoApprove": {
         "./node_modules/.bin/tsx": true
-    }
+    },
+    "codebuddyUsage.accessToken": "ck_g1csm0yar11c.jA21-C4hPPQEhPhUR2sF8Myz9W_XxentHdz7LfhFW5A"
 }
